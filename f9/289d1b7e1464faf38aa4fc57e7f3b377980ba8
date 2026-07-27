@@ -1,0 +1,55 @@
+.cta.json
+  s_c6e73f749def60::t_3f9d8476cd3e7b 1-18
+.vscode/settings.json
+  s_c6e73f749def60::t_329e212e80e122 1-11
+README.md
+  s_c6e73f749def60::t_2ad104432543c6 1-206
+package-lock.json
+  s_aa4487124e42dd::t_4dbe8899050952 1-6299
+package.json
+  s_aa4487124e42dd::t_2a541ee39df791 1-53
+public/manifest.json
+  s_c6e73f749def60::t_b26deb28ce1890 1-25
+public/robots.txt
+  s_c6e73f749def60::t_2c583d3d7edc00 1-3
+src/router.tsx
+  s_c6e73f749def60::t_91799c397332ba 1-19
+src/routes/__root.tsx
+  s_c6e73f749def60::t_1658db8574aabf 1-54
+src/routes/index.tsx
+  s_c6e73f749def60::t_576810aa939c2d 1-14
+src/styles.css
+  s_c6e73f749def60::t_7c7788d2e6ec95 1-17
+tsconfig.json
+  s_aa4487124e42dd::t_31aa455ae0c060 1-32
+tsr.config.json
+  s_c6e73f749def60::t_e2b1ec98993739 1-3
+vite.config.ts
+  s_c6e73f749def60::t_4c9c2010bba714 1-21
+worker-configuration.d.ts
+  s_aa4487124e42dd::t_ab25ee29abc440 1-14701
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f9289d1b7e1464faf38aa4fc57e7f3b377980ba8",
+  "prompts": {},
+  "sessions": {
+    "s_aa4487124e42dd": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_05c05b54affehwsJthSLNF1qIz",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    },
+    "s_c6e73f749def60": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_05bdbbb98ffegCDekAMCrwfWGo",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
