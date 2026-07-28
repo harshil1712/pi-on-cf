@@ -1,0 +1,41 @@
+package-lock.json
+  s_bc02085d716e2d::t_f274f66ed0f776 2-14155
+package.json
+  s_bc02085d716e2d::t_831fddb50f2e14 14,19-20,22-25,33,37-39,42,64
+src/routeTree.gen.ts
+  s_d1cf49002a6e4a::t_0fd15094513fbb 1-68
+worker-configuration.d.ts
+  s_c59951beb16dbe::t_f595bc41896886 2-3,5-9,12-15,19-24,446,553,1671
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c2b0d263be8f06ee5a7415b23ce83faffe6b7031",
+  "prompts": {},
+  "sessions": {
+    "s_bc02085d716e2d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_059cceff5ffei4zakgFBvGvFqg",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    },
+    "s_c59951beb16dbe": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_05a0ff355ffeHQ5Z7aiofxyMbr",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    },
+    "s_d1cf49002a6e4a": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_059eaa6d2ffez7XfTk6LvS8EBr",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
