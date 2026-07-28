@@ -21,12 +21,20 @@
         "name": "PiSession",
         "class_name": "PiSession",
       },
+      {
+        "name": "PiRegistry",
+        "class_name": "PiRegistry",
+      },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["PiSession"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["PiRegistry"],
     },
   ],
   "observability": {

@@ -1,11 +1,19 @@
+import { lazy, memo, Suspense } from 'react'
 import type { RefObject, UIEventHandler } from 'react'
 import { Button } from '@cloudflare/kumo/components/button'
-import { code } from '@streamdown/code'
 import { Streamdown } from 'streamdown'
 import type { TranscriptEntry } from '../transcript'
 import { ActivityCard } from './activity-card'
 
-const markdownPlugins = { code }
+const HighlightedMarkdown = lazy(() => import('./highlighted-code').then((module) => ({ default: module.HighlightedMarkdown })))
+
+function latestAssistantText(entries: TranscriptEntry[]) {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index]
+    if (entry?.type === 'message' && entry.role === 'assistant') return entry.text
+  }
+  return ''
+}
 
 type TranscriptViewProps = {
   activeTextId: string
@@ -17,9 +25,11 @@ type TranscriptViewProps = {
 }
 
 export function TranscriptView({ activeTextId, entries, isRunning, onScroll, onTryOperation, transcriptRef }: TranscriptViewProps) {
+  const assistantText = latestAssistantText(entries)
+
   return (
-    <div className="transcript" ref={transcriptRef} onScroll={onScroll} aria-busy={isRunning}>
-      <span className="sr-only" aria-live="polite">{isRunning ? 'Pi is working.' : 'Pi is ready.'}</span>
+    <div className="transcript" ref={transcriptRef} onScroll={onScroll} aria-busy={isRunning} role="log" aria-live="off">
+      <span className="sr-only" aria-live="polite" aria-atomic="true">{isRunning ? 'Pi is working.' : assistantText ? `Pi replied: ${assistantText}` : 'Pi is ready.'}</span>
       {entries.length === 0 && (
         <div className="empty-state">
           <span className="oversized-pi">π</span>
@@ -32,26 +42,31 @@ export function TranscriptView({ activeTextId, entries, isRunning, onScroll, onT
       )}
 
       {entries.map((entry) => {
-        if (entry.type !== 'message') return <ActivityCard entry={entry} key={entry.id} />
-
-        return (
-          <article className={`message message-${entry.role}`} key={entry.id}>
-            <div className="message-role">{entry.role === 'user' ? 'YOU' : 'PI'}</div>
-            <div className="message-body">
-              {entry.role === 'assistant' && entry.text ? (
-                <Streamdown
-                  caret={entry.id === activeTextId ? 'block' : undefined}
-                  controls={{ code: { download: false } }}
-                  isAnimating={entry.id === activeTextId}
-                  plugins={markdownPlugins}
-                >
-                  {entry.text}
-                </Streamdown>
-              ) : entry.text || (isRunning && entry.id === activeTextId ? <span className="cursor" /> : '')}
-            </div>
-          </article>
-        )
+        return <TranscriptRow active={entry.id === activeTextId} entry={entry} isRunning={isRunning} key={entry.id} />
       })}
     </div>
   )
 }
+
+const TranscriptRow = memo(function TranscriptRow({ active, entry, isRunning }: {
+  active: boolean
+  entry: TranscriptEntry
+  isRunning: boolean
+}) {
+  if (entry.type !== 'message') return <ActivityCard entry={entry} />
+
+  return (
+    <article className={`message message-${entry.role}`}>
+      <div className="message-role">{entry.role === 'user' ? 'YOU' : 'PI'}</div>
+      <div className="message-body">
+        {entry.role === 'assistant' && entry.text ? entry.text.includes('```') ? (
+          <Suspense fallback={<Streamdown>{entry.text}</Streamdown>}>
+            <HighlightedMarkdown active={active}>{entry.text}</HighlightedMarkdown>
+          </Suspense>
+        ) : (
+          <Streamdown caret={active ? 'block' : undefined} isAnimating={active}>{entry.text}</Streamdown>
+        ) : entry.text || (isRunning && active ? <span className="cursor" /> : '')}
+      </div>
+    </article>
+  )
+})

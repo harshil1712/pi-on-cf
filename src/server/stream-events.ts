@@ -1,7 +1,7 @@
-import type { AgentEvent } from '@earendil-works/pi-agent-core'
+import type { AgentHarnessEvent } from '@earendil-works/pi-agent-core'
 import type { PiStreamEvent } from '../shared/pi-contract'
 
-export function toPiStreamEvent(event: AgentEvent | { type: 'done' }): PiStreamEvent | undefined {
+export function toPiStreamEvent(event: AgentHarnessEvent | { type: 'done' }): PiStreamEvent | undefined {
   if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_start') {
     return { type: 'text_start' }
   }

@@ -10,7 +10,9 @@
     "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "npm run build && vite preview",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.worker.config.ts",
+    "test:worker": "vitest run --config vitest.worker.config.ts",
+    "lint": "oxlint --deny-warnings",
     "typecheck": "tsc --noEmit",
     "deploy": "npm run build && wrangler deploy",
     "cf-typegen": "wrangler types"
@@ -40,6 +42,7 @@
   },
   "devDependencies": {
     "@babel/plugin-proposal-decorators": "^8.0.2",
+    "@cloudflare/vitest-pool-workers": "^0.18.8",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/router-cli": "^1.132.0",
@@ -50,6 +53,8 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^28.1.0",
+    "oxlint": "^1.76.0",
+    "oxlint-tsgolint": "^7.0.2001",
     "typescript": "^6.0.2",
     "vite": "^8.0.0",
     "vitest": "^4.1.5",

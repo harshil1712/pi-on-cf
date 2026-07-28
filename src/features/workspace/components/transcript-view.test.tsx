@@ -28,4 +28,16 @@ describe('TranscriptView', () => {
     expect(screen.getByText('formatted')).toBeTruthy()
     expect(screen.queryByText('**formatted**')).toBeNull()
   })
+
+  it('provides log semantics and announces a completed assistant response', () => {
+    render(
+      <TranscriptView
+        {...baseProps}
+        entries={[{ id: 'assistant', type: 'message', role: 'assistant', text: 'Work complete.' }]}
+      />,
+    )
+
+    expect(screen.getByRole('log').getAttribute('aria-live')).toBe('off')
+    expect(screen.getByText('Pi replied: Work complete.').getAttribute('aria-live')).toBe('polite')
+  })
 })

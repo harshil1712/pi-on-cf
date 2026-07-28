@@ -1,6 +1,9 @@
+import { lazy, Suspense } from 'react'
 import { Button } from '@cloudflare/kumo/components/button'
 import { Download, FileCode2, FolderOpen, RefreshCw } from 'lucide-react'
 import type { WorkspaceFile } from '../../../shared/pi-contract'
+
+const HighlightedFile = lazy(() => import('./highlighted-code').then((module) => ({ default: module.HighlightedFile })))
 
 function formatBytes(bytes: number) {
   if (bytes < 1_000) return `${bytes} B`
@@ -28,10 +31,9 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
   return (
     <section
       id="files-panel"
-      className={`workspace-panel ${hidden ? 'mobile-hidden' : ''}`}
+      className={`workspace-panel ${hidden ? 'panel-hidden' : ''}`}
       role="tabpanel"
-      aria-label="Files"
-      aria-labelledby="files-tab"
+      aria-label="FILES"
       aria-busy={filesLoading}
     >
       <header className="workspace-header">
@@ -98,7 +100,9 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
               />
             </header>
             {fileError ? <p className="file-error" role="alert">{fileError}</p> : (
-              <pre className="code-viewer"><code>{fileContent}</code></pre>
+              <Suspense fallback={<pre className="code-viewer"><code>{fileContent}</code></pre>}>
+                <HighlightedFile content={fileContent} path={selectedPath} />
+              </Suspense>
             )}
           </>
         ) : (

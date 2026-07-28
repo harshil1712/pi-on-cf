@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { WorkspaceApp } from '../features/workspace/workspace-app'
+import { SessionCatalog } from '../features/sessions/session-catalog'
 
-export const Route = createFileRoute('/')({ component: WorkspaceApp })
+export const Route = createFileRoute('/')({ component: Home })
 
 export function Home() {
-  return <WorkspaceApp />
+  return <SessionCatalog />
 }

@@ -4,6 +4,7 @@ import { routeAgentRequest } from 'agents'
 import { PI_AGENT_PREFIX } from './shared/pi-contract'
 
 export { PiSession } from './server/pi-session'
+export { PiRegistry } from './server/pi-registry'
 
 export default createServerEntry({
   async fetch(request) {

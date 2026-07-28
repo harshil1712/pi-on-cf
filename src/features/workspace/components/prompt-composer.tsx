@@ -7,11 +7,12 @@ type PromptComposerProps = {
   isReady: boolean
   isResetting: boolean
   isRunning: boolean
+  onAbort: () => void
   onInputChange: (value: string) => void
   onSubmit: FormEventHandler<HTMLFormElement>
 }
 
-export function PromptComposer({ input, isReady, isResetting, isRunning, onInputChange, onSubmit }: PromptComposerProps) {
+export function PromptComposer({ input, isReady, isResetting, isRunning, onAbort, onInputChange, onSubmit }: PromptComposerProps) {
   return (
     <form className="prompt-form" onSubmit={onSubmit}>
       <label htmlFor="prompt">INSTRUCTION</label>
@@ -30,8 +31,8 @@ export function PromptComposer({ input, isReady, isResetting, isRunning, onInput
         rows={3}
         disabled={isRunning || isResetting || !isReady}
       />
-      <Button className="execute-button" type="submit" disabled={isRunning || isResetting || !isReady || !input.trim()}>
-        {isRunning ? 'RUNNING' : isReady ? 'EXECUTE' : 'LOADING'}
+      <Button className="execute-button" type={isRunning ? 'button' : 'submit'} onClick={isRunning ? onAbort : undefined} disabled={!isRunning && (isResetting || !isReady || !input.trim())}>
+        {isRunning ? 'ABORT' : isReady ? 'EXECUTE' : 'LOADING'}
         <span className="execute-arrow">↗</span>
       </Button>
     </form>

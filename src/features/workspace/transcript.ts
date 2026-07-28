@@ -1,4 +1,4 @@
-import type { PiStreamEvent } from '../../shared/pi-contract'
+import type { PiStreamEvent, StoredSessionEntry } from '../../shared/pi-contract'
 
 export function messageText(message: unknown): string {
   if (!message || typeof message !== 'object') return ''
@@ -24,9 +24,16 @@ export type TranscriptState = {
   activeReasoningId: string
 }
 
-export function transcriptEntries(messages: unknown[]): TranscriptEntry[] {
+export function transcriptEntries(stored: StoredSessionEntry[] | unknown[]): TranscriptEntry[] {
+  const messages = stored.map((entry, index) => {
+    if (entry && typeof entry === 'object' && 'id' in entry && 'type' in entry) {
+      const value = entry as StoredSessionEntry
+      return { message: value.message, stableId: value.id, type: value.type, summary: value.summary }
+    }
+    return { message: entry, stableId: `stored-${index}`, type: 'message', summary: undefined }
+  })
   const toolResults = new Map<string, boolean>()
-  for (const message of messages) {
+  for (const { message } of messages) {
     if (!message || typeof message !== 'object') continue
     const value = message as { role?: string; toolCallId?: unknown; isError?: unknown }
     if (value.role === 'toolResult' && typeof value.toolCallId === 'string') {
@@ -34,18 +41,21 @@ export function transcriptEntries(messages: unknown[]): TranscriptEntry[] {
     }
   }
 
-  return messages.flatMap((message, messageIndex): TranscriptEntry[] => {
+  return messages.flatMap(({ message, stableId, type, summary }): TranscriptEntry[] => {
+    if ((type === 'compaction' || type === 'branch_summary') && summary) {
+      return [{ id: stableId, type: 'reasoning', text: summary, status: 'complete' }]
+    }
     if (!message || typeof message !== 'object') return []
     const value = message as { role?: string; content?: unknown }
     if (value.role === 'user') {
       const text = messageText(value)
-      return text ? [{ id: `stored-${messageIndex}`, type: 'message', role: 'user', text }] : []
+      return text ? [{ id: stableId, type: 'message', role: 'user', text }] : []
     }
     if (value.role !== 'assistant' || !Array.isArray(value.content)) return []
 
     return value.content.flatMap((part, partIndex): TranscriptEntry[] => {
       if (!part || typeof part !== 'object' || !('type' in part)) return []
-      const id = `stored-${messageIndex}-${partIndex}`
+      const id = `${stableId}-${partIndex}`
       if (part.type === 'text' && 'text' in part && typeof part.text === 'string' && part.text) {
         return [{ id, type: 'message', role: 'assistant', text: part.text }]
       }
