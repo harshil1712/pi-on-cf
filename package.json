@@ -11,11 +11,18 @@
     "build": "vite build",
     "preview": "npm run build && vite preview",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "deploy": "npm run build && wrangler deploy",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@cloudflare/kumo": "^2.8.0",
+    "@cloudflare/shell": "^0.4.3",
     "@cloudflare/vite-plugin": "^1.26.0",
+    "@earendil-works/pi-agent-core": "^0.82.1",
+    "@earendil-works/pi-ai": "^0.82.1",
+    "@phosphor-icons/react": "^2.1.10",
+    "@streamdown/code": "^1.1.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-router": "latest",
@@ -23,12 +30,16 @@
     "@tanstack/react-router-ssr-query": "latest",
     "@tanstack/react-start": "latest",
     "@tanstack/router-plugin": "^1.132.0",
+    "agents": "^0.20.0",
     "lucide-react": "^0.545.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tailwindcss": "^4.1.18"
+    "streamdown": "^2.5.0",
+    "tailwindcss": "^4.1.18",
+    "typebox": "^1.1.38"
   },
   "devDependencies": {
+    "@babel/plugin-proposal-decorators": "^8.0.2",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/router-cli": "^1.132.0",
