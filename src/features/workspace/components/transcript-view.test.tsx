@@ -40,4 +40,16 @@ describe('TranscriptView', () => {
     expect(screen.getByRole('log').getAttribute('aria-live')).toBe('off')
     expect(screen.getByText('Pi replied: Work complete.').getAttribute('aria-live')).toBe('polite')
   })
+
+  it('labels a compaction checkpoint as a summary rather than reasoning', () => {
+    render(
+      <TranscriptView
+        {...baseProps}
+        entries={[{ id: 'summary', type: 'summary', kind: 'compaction', text: 'Earlier work', status: 'complete' }]}
+      />,
+    )
+
+    expect(screen.getByText('COMPACTION SUMMARY')).toBeTruthy()
+    expect(screen.queryByText('REASONING')).toBeNull()
+  })
 })

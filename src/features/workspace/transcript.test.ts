@@ -46,6 +46,16 @@ describe('transcriptEntries', () => {
       { role: 'toolResult', toolCallId: 'call-1', isError: true },
     ])[0]).toMatchObject({ type: 'tool', status: 'error' })
   })
+
+  it('identifies stored compaction and branch summaries separately from reasoning', () => {
+    expect(transcriptEntries([
+      { id: 'compact-1', type: 'compaction', summary: 'Earlier work', seq: 1, parentId: null, timestamp: '' },
+      { id: 'branch-1', type: 'branch_summary', summary: 'Other branch', seq: 2, parentId: 'compact-1', timestamp: '' },
+    ])).toEqual([
+      { id: 'compact-1', type: 'summary', kind: 'compaction', text: 'Earlier work', status: 'complete' },
+      { id: 'branch-1', type: 'summary', kind: 'branch', text: 'Other branch', status: 'complete' },
+    ])
+  })
 })
 
 describe('reduceStreamEvent', () => {

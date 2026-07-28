@@ -16,6 +16,7 @@ export function messageText(message: unknown): string {
 export type TranscriptEntry =
   | { id: string; type: 'message'; role: 'user' | 'assistant'; text: string }
   | { id: string; type: 'reasoning'; text: string; status: 'running' | 'complete' }
+  | { id: string; type: 'summary'; kind: 'compaction' | 'branch'; text: string; status: 'complete' }
   | { id: string; type: 'tool'; callId: string; name: string; args: unknown; status: 'running' | 'complete' | 'error' }
 
 export type TranscriptState = {
@@ -43,7 +44,13 @@ export function transcriptEntries(stored: StoredSessionEntry[] | unknown[]): Tra
 
   return messages.flatMap(({ message, stableId, type, summary }): TranscriptEntry[] => {
     if ((type === 'compaction' || type === 'branch_summary') && summary) {
-      return [{ id: stableId, type: 'reasoning', text: summary, status: 'complete' }]
+      return [{
+        id: stableId,
+        type: 'summary',
+        kind: type === 'compaction' ? 'compaction' : 'branch',
+        text: summary,
+        status: 'complete',
+      }]
     }
     if (!message || typeof message !== 'object') return []
     const value = message as { role?: string; content?: unknown }

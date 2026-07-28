@@ -121,6 +121,8 @@ h1 { margin: 0; font: 600 clamp(28px, 4vw, 52px)/0.95 'Oswald', sans-serif; lett
 .activity-status.status-error { color: var(--ink); }
 .reasoning-card { border-style: dashed; background: rgba(23, 23, 20, 0.055); color: rgba(23, 23, 20, 0.76); }
 .reasoning-card[data-open] .activity-icon { color: var(--orange); }
+.summary-card { border-width: 2px; background: var(--paper); }
+.summary-card .activity-icon { color: var(--orange); }
 .reasoning-content { max-height: 220px; overflow-y: auto; border-top: 1px dashed var(--line); padding: 12px 14px; white-space: pre-wrap; font-size: 10px; line-height: 1.65; }
 .tool-card { background: var(--acid); box-shadow: 3px 3px 0 rgba(23, 23, 20, 0.18); }
 .tool-card.status-error { background: var(--orange); }

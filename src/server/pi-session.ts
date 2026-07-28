@@ -22,6 +22,7 @@ import type {
   WorkspaceFileContent,
 } from '../shared/pi-contract'
 import { createPiHarness, type PiHarness } from './create-pi-harness'
+import { prepareManualCompaction } from './manual-compaction'
 import { PiSessionStorage, type PiSessionMetadata } from './pi-session-storage'
 import { toPiStreamEvent } from './stream-events'
 import { PI_REGISTRY_INSTANCE } from '../shared/pi-contract'
@@ -152,7 +153,7 @@ export class PiSession extends Agent<Env> {
     if (this.active) throw new Error('Pi is currently running.')
     this.active = true
     try {
-      const result = await this.runCompaction(this.getHarness(), this.compactionSettings(), focus)
+      const result = await this.runCompaction(this.getHarness(), this.compactionSettings(), focus, true)
       await this.flushOutboxToRegistry()
       return result
     } finally {
@@ -320,10 +321,14 @@ export class PiSession extends Agent<Env> {
     await this.runCompaction(harness, settings)
   }
 
-  private async runCompaction(harness: PiHarness, settings: CompactionSettings, focus?: string) {
-    const preparation = prepareCompaction(await this.session.getBranch(), settings)
+  private async runCompaction(harness: PiHarness, settings: CompactionSettings, focus?: string, manual = false) {
+    const entries = await this.session.getBranch()
+    const preparation = manual ? prepareManualCompaction(entries, settings) : prepareCompaction(entries, settings)
     if (!preparation.ok) throw preparation.error
     if (!preparation.value) throw new Error('Nothing to compact')
+    if (preparation.value.messagesToSummarize.length === 0 && preparation.value.turnPrefixMessages.length === 0) {
+      throw new Error('Nothing to compact')
+    }
     const result = await compactSession(
       preparation.value,
       harness.models,
