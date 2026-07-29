@@ -1,0 +1,21 @@
+package-lock.json
+  s_7b6a207c282a2d::t_fbcaabc8fe3004 8
+worker-configuration.d.ts
+  s_7b6a207c282a2d::t_0324e735b20ffd 2,5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2b6cc2cf5a1ef89459313fd677763ee728445027",
+  "prompts": {},
+  "sessions": {
+    "s_7b6a207c282a2d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_05219ae67ffebVVIvxi523LbNd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
