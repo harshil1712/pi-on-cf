@@ -1,6 +1,7 @@
 {
   "name": "pi-on-cf",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "imports": {
     "#/*": "./src/*"

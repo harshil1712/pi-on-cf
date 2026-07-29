@@ -7,6 +7,8 @@ dist-ssr
 .nitro
 .tanstack
 .wrangler
+wrangler.local.jsonc
+wrangler.*.local.jsonc
 .output
 .vinxi
 __unconfig*

@@ -2,6 +2,9 @@
 
 A Worker-native experiment using Pi's portable agent loop, Cloudflare Durable Objects, AI Gateway, and a SQLite-backed workspace.
 
+> [!WARNING]
+> This is a single-user prototype with no application-level authentication or authorization. Anyone who can reach a deployment can use its server-side AI credentials and read, change, or delete its sessions and workspace files. Do not expose it to the public Internet without protecting the entire Worker with Cloudflare Access or another authentication layer.
+
 ## Architecture
 
 - `@earendil-works/pi-agent-core` runs Pi's model and tool loop.
@@ -21,22 +24,28 @@ The source is organized by runtime boundary:
 
 The current tools are `read`, `write`, `edit`, `list`, `find`, and `grep`. This version does not provide native processes or a POSIX shell.
 
-See [Pi Feature and Cloudflare Platform Audit](docs/pi-feature-audit.md) for a detailed comparison of the current application, upstream Pi, and relevant Cloudflare platform capabilities.
-
-> This is a single-workspace prototype. Before deploying it publicly, protect the Worker with Cloudflare Access or another authentication layer. The API uses your server-side AI Gateway token and is intentionally not a public anonymous service.
+See [Pi on Cloudflare Architecture](docs/architecture.md) for the current system design, and [Pi Feature and Cloudflare Platform Audit](docs/pi-feature-audit.md) for upstream Pi feature and platform research with implementation ideas.
 
 ## Local Development
 
-Create `.env` from `.env.example`, then provide a Cloudflare API token with AI Gateway permissions and your account ID.
+Create `.env` from `.env.example`, then provide a Cloudflare API token with AI Gateway permissions and your account ID. Local Durable Object state is written to `.wrangler/` and may contain transcripts, learned memory, and workspace files.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
 Open `http://localhost:3000`.
 
+## Configuration
+
+The shared `wrangler.jsonc` intentionally uses the neutral AI Gateway ID `default`. Keep account-specific Gateway IDs out of that file. `wrangler.local.jsonc` is not a special Wrangler filename; it is an ignored copy that can be selected explicitly. For Vite commands, including this project's development, build, and deploy scripts, set `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc`. For direct Wrangler commands, pass `--config wrangler.local.jsonc`.
+
+`AI_MODEL` and `AI_MEMORY_MODEL` select the primary and memory-extraction models. They are non-secret variables in `wrangler.jsonc`.
+
 ## Production
+
+Protect the entire Worker with Cloudflare Access or another authentication layer before deploying. The application does not enforce this itself.
 
 Configure the two runtime secrets before deploying:
 
@@ -46,13 +55,18 @@ npx wrangler secret put CLOUDFLARE_API_TOKEN
 npm run deploy
 ```
 
-`AI_MODEL` and `AI_GATEWAY_ID` are non-secret variables in `wrangler.jsonc`.
+Do not publish the working directory as an archive. Publish from a clean clone or through normal Git operations so ignored `.env`, `.wrangler`, `dist`, and `node_modules` content cannot be included accidentally.
 
 ## Verification
 
 ```bash
 npm run generate-routes
+npm run lint
 npm run typecheck
 npm test
 npm run build
 ```
+
+## License
+
+Licensed under the [MIT License](LICENSE).
