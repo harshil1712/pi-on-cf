@@ -1,0 +1,19 @@
+worker-configuration.d.ts
+  s_04363e6647e6d9::t_8fc35f03dabba5 2,7,25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b291dfb49c36fdf9360a4bb3cecaa1b10efb47a5",
+  "prompts": {},
+  "sessions": {
+    "s_04363e6647e6d9": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_054e1fca7ffeXzninlpbCjkkxX",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
