@@ -11,7 +11,10 @@ import {
 import { Agent, callable } from 'agents'
 import type { StreamingResponse } from 'agents'
 import type {
+  ApplyMemoryExtractionInput,
   CompactionSettings,
+  Memory,
+  MemoryKind,
   PiStreamEvent,
   SessionBranch,
   SessionIndexEvent,
@@ -21,7 +24,9 @@ import type {
   WorkspaceFile,
   WorkspaceFileContent,
 } from '../shared/pi-contract'
-import { createPiHarness, type PiHarness } from './create-pi-harness'
+import { createPiHarness, getMemoryModel, type PiHarness } from './create-pi-harness'
+import { extractMemoryOperations, type MemorySourceEntry } from './memory-extractor'
+import { createMemoryTool } from './memory-tools'
 import { prepareManualCompaction } from './manual-compaction'
 import { PiSessionStorage, type PiSessionMetadata } from './pi-session-storage'
 import { toPiStreamEvent } from './stream-events'
@@ -37,10 +42,24 @@ type SessionExport = {
 }
 
 const WORKSPACE_PAGE_SIZE = 250
+const MEMORY_EXTRACTION_CURSOR = 'memoryExtractionRevision'
+const MEMORY_EXTRACTION_BATCH_CHARS = 30_000
+const MEMORY_SOURCE_ENTRY_CHARS = 12_000
+
+type MemoryRegistry = {
+  searchSessions(input: { query: string; limit?: number }): Promise<import('../shared/pi-contract').SessionSearchResult[]>
+  getMemoryContext(): Promise<string>
+  listMemories(): Promise<Memory[]>
+  setMemory(input: { id?: string; kind: MemoryKind; content: string; sourceSessionId?: string }): Promise<Memory>
+  deleteMemory(id: string): Promise<void>
+  applyMemoryExtraction(input: ApplyMemoryExtractionInput): Promise<void>
+  applyIndexEvents(sessionId: string, events: SessionIndexEvent[]): Promise<void>
+}
 
 export class PiSession extends Agent<Env> {
   private active = false
   private harness?: PiHarness
+  private memoryExtraction?: Promise<void>
   private readonly sessionStorage = new PiSessionStorage(this.ctx.storage)
   private readonly session = new Session(this.sessionStorage)
   private readonly workspace = new Workspace({
@@ -51,7 +70,7 @@ export class PiSession extends Agent<Env> {
 
   async onStart(): Promise<void> {
     if (this.sessionStorage.isInitialized()) {
-      this.ctx.waitUntil(this.flushOutboxToRegistry().catch((error) => console.error('Could not index session', error)))
+      this.scheduleMemoryExtraction()
     }
   }
 
@@ -230,7 +249,7 @@ export class PiSession extends Agent<Env> {
       this.active = false
       stream.send({ type: 'done' } satisfies PiStreamEvent)
       stream.end()
-      this.ctx.waitUntil(this.flushOutboxToRegistry().catch((error) => console.error('Could not index session', error)))
+      this.scheduleMemoryExtraction()
     }
   }
 
@@ -262,6 +281,7 @@ export class PiSession extends Agent<Env> {
       } : snapshot.metadata
       this.sessionStorage.replace(targetMetadata, snapshot.entries)
       this.sessionStorage.setSetting('compaction', snapshot.compaction)
+      this.sessionStorage.setSetting(MEMORY_EXTRACTION_CURSOR, this.sessionStorage.getEntriesWithSeq().at(-1)?.seq ?? 0)
       for (const file of snapshot.files) {
         validatePath(file.path)
         await this.workspace.mkdir(file.path.slice(0, file.path.lastIndexOf('/')) || '/', { recursive: true })
@@ -296,14 +316,18 @@ export class PiSession extends Agent<Env> {
   }
 
   private getHarness(): PiHarness {
-    const registry = this.env.PiRegistry.getByName(PI_REGISTRY_INSTANCE) as unknown as {
-      searchSessions(input: { query: string; limit?: number }): Promise<import('../shared/pi-contract').SessionSearchResult[]>
-    }
+    const registry = this.registry()
+    const sessionId = this.sessionStorage.getMetadataSync().id
     this.harness ??= createPiHarness({
       env: this.env,
-      sessionId: this.sessionStorage.getMetadataSync().id,
+      sessionId,
       storage: this.sessionStorage,
-      tools: [...createWorkspaceTools(this.workspace, this.workspaceState), createSessionSearchTool(registry)],
+      tools: [
+        ...createWorkspaceTools(this.workspace, this.workspaceState),
+        createSessionSearchTool(registry),
+        createMemoryTool(registry, sessionId),
+      ],
+      memory: registry,
     })
     return this.harness
   }
@@ -396,11 +420,69 @@ export class PiSession extends Agent<Env> {
   private async flushOutboxToRegistry(): Promise<void> {
     const events = this.sessionStorage.getOutbox() as SessionIndexEvent[]
     if (events.length === 0) return
-    const registry = this.env.PiRegistry.getByName(PI_REGISTRY_INSTANCE) as unknown as {
-      applyIndexEvents(sessionId: string, events: SessionIndexEvent[]): Promise<void>
-    }
-    await registry.applyIndexEvents(this.sessionStorage.getMetadataSync().id, events)
+    await this.registry().applyIndexEvents(this.sessionStorage.getMetadataSync().id, events)
     this.sessionStorage.acknowledgeOutbox(events.map((event) => event.eventId))
+  }
+
+  private registry(): MemoryRegistry {
+    return this.env.PiRegistry.getByName(PI_REGISTRY_INSTANCE) as unknown as MemoryRegistry
+  }
+
+  private scheduleMemoryExtraction(): void {
+    const previous = this.memoryExtraction
+    const extraction = (previous ? previous.catch(() => undefined) : Promise.resolve())
+      .then(async () => {
+        await this.flushOutboxToRegistry()
+        await this.extractNextMemoryBatch()
+      })
+    this.memoryExtraction = extraction
+    this.ctx.waitUntil(extraction
+      .catch((error) => console.error('Could not extract session memory', error))
+      .finally(() => {
+        if (this.memoryExtraction === extraction) this.memoryExtraction = undefined
+      }))
+  }
+
+  private async extractNextMemoryBatch(): Promise<void> {
+    if (!this.env.CLOUDFLARE_ACCOUNT_ID || !this.env.CLOUDFLARE_API_TOKEN) return
+    const cursor = this.sessionStorage.getSetting<number>(MEMORY_EXTRACTION_CURSOR) ?? 0
+    const pending = this.sessionStorage.getEntriesWithSeq().filter(({ seq }) => seq > cursor)
+    if (pending.length === 0) return
+
+    const entries: MemorySourceEntry[] = []
+    let characters = 0
+    let throughRevision = cursor
+    for (const { seq, entry } of pending) {
+      const source = memorySourceEntry(entry)
+      const size = source?.text.length ?? 0
+      if (entries.length > 0 && characters + size > MEMORY_EXTRACTION_BATCH_CHARS) break
+      throughRevision = seq
+      if (source) {
+        entries.push(source)
+        characters += size
+      }
+    }
+    if (entries.length === 0) {
+      this.sessionStorage.setSetting(MEMORY_EXTRACTION_CURSOR, throughRevision)
+      return
+    }
+
+    const registry = this.registry()
+    const operations = await extractMemoryOperations({
+      models: this.getHarness().models,
+      model: getMemoryModel(this.env),
+      memories: await registry.listMemories(),
+      entries,
+      sessionId: this.sessionStorage.getMetadataSync().id,
+    })
+    await registry.applyMemoryExtraction({
+      extractionId: `${this.sessionStorage.getMetadataSync().id}:${throughRevision}`,
+      sessionId: this.sessionStorage.getMetadataSync().id,
+      throughRevision,
+      operations,
+    })
+    const latestCursor = this.sessionStorage.getSetting<number>(MEMORY_EXTRACTION_CURSOR) ?? 0
+    this.sessionStorage.setSetting(MEMORY_EXTRACTION_CURSOR, Math.max(latestCursor, throughRevision))
   }
 }
 
@@ -453,4 +535,15 @@ function messageText(message: unknown): string {
       typeof (part as { text?: unknown }).text === 'string')
     .map((part) => part.text)
     .join('\n')
+}
+
+function memorySourceEntry(entry: SessionTreeEntry): MemorySourceEntry | undefined {
+  if (entry.type !== 'message' || (entry.message.role !== 'user' && entry.message.role !== 'assistant')) return
+  let text = messageText(entry.message).trim()
+  if (!text) return
+  if (text.length > MEMORY_SOURCE_ENTRY_CHARS) {
+    const half = MEMORY_SOURCE_ENTRY_CHARS / 2
+    text = `${text.slice(0, half)}\n[...truncated for memory extraction...]\n${text.slice(-half)}`
+  }
+  return { id: entry.id, role: entry.message.role, text }
 }

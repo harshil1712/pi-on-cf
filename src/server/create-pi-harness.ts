@@ -8,25 +8,23 @@ type CreatePiHarnessOptions = {
   sessionId: string
   storage: PiSessionStorage
   tools: AgentHarnessTool<undefined>[]
+  memory: { getMemoryContext(): Promise<string> }
 }
 
-export function createPiHarness({ env, sessionId, storage, tools }: CreatePiHarnessOptions) {
-  const accountId = env.CLOUDFLARE_ACCOUNT_ID
+const BASE_SYSTEM_PROMPT = [
+  'You are Pi running natively on Cloudflare Workers.',
+  'Use the durable workspace tools to inspect and modify files.',
+  'There is no POSIX filesystem or native process runtime. Do not claim to run shell commands.',
+  'Workspace paths are absolute and rooted at /.',
+  'Use the memory tool only when the user directly asks to remember, save, correct, or forget something. Do not call it merely because they state a fact or preference; background extraction handles that.',
+].join('\n')
+
+export function createPiHarness({ env, sessionId, storage, tools, memory }: CreatePiHarnessOptions) {
   const gatewayId = env.AI_GATEWAY_ID || 'default'
   const modelId = env.AI_MODEL || 'anthropic/claude-sonnet-4-5'
-  const model: Model<'openai-completions'> = {
-    id: modelId,
-    name: env.AI_MODEL || 'Anthropic Claude Sonnet',
-    api: 'openai-completions',
-    provider: 'cloudflare-ai-gateway',
-    baseUrl: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
-    reasoning: true,
-    input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200_000,
-    maxTokens: 16_384,
-    headers: { 'cf-aig-gateway-id': gatewayId },
-  }
+  const model = gatewayModel(env, modelId)
+  const memoryModel = gatewayModel(env, env.AI_MEMORY_MODEL || modelId)
+  const providerModels = memoryModel.id === model.id ? [model] : [model, memoryModel]
   const models = createModels()
   models.setProvider(createProvider({
     id: model.provider,
@@ -40,7 +38,7 @@ export function createPiHarness({ env, sessionId, storage, tools }: CreatePiHarn
         }),
       },
     },
-    models: [model],
+    models: providerModels,
     api: { stream, streamSimple },
   }))
 
@@ -49,12 +47,14 @@ export function createPiHarness({ env, sessionId, storage, tools }: CreatePiHarn
     models,
     model,
     tools,
-    systemPrompt: [
-      'You are Pi running natively on Cloudflare Workers.',
-      'Use the durable workspace tools to inspect and modify files.',
-      'There is no POSIX filesystem or native process runtime. Do not claim to run shell commands.',
-      'Workspace paths are absolute and rooted at /.',
-    ].join('\n'),
+    systemPrompt: async () => {
+      try {
+        return buildPiSystemPrompt(await memory.getMemoryContext())
+      } catch (error) {
+        console.error('Could not load long-term memory', error)
+        return buildPiSystemPrompt('')
+      }
+    },
     thinkingLevel: 'medium',
     streamOptions: {
       headers: {
@@ -63,6 +63,32 @@ export function createPiHarness({ env, sessionId, storage, tools }: CreatePiHarn
       },
     },
   })
+}
+
+export function getMemoryModel(env: Env): Model<'openai-completions'> {
+  return gatewayModel(env, env.AI_MEMORY_MODEL || env.AI_MODEL || 'anthropic/claude-sonnet-4-5')
+}
+
+export function buildPiSystemPrompt(memoryContext: string): string {
+  return memoryContext ? `${BASE_SYSTEM_PROMPT}\n\n${memoryContext}` : BASE_SYSTEM_PROMPT
+}
+
+function gatewayModel(env: Env, modelId: string): Model<'openai-completions'> {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID
+  const gatewayId = env.AI_GATEWAY_ID || 'default'
+  return {
+    id: modelId,
+    name: modelId,
+    api: 'openai-completions',
+    provider: 'cloudflare-ai-gateway',
+    baseUrl: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
+    reasoning: true,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 16_384,
+    headers: { 'cf-aig-gateway-id': gatewayId },
+  }
 }
 
 export type PiHarness = ReturnType<typeof createPiHarness>

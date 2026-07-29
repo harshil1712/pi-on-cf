@@ -219,6 +219,22 @@ Pi's other context mechanisms are distinct from long-term memory:
 Compaction and branch summaries remain attached to their originating session.
 They do not search or learn from unrelated sessions.
 
+### Pi on Cloudflare learned memory
+
+Pi on Cloudflare adds application-level learned memory while preserving Pi's
+runtime and session format. The singleton `PiRegistry` stores a bounded set of
+concise facts, preferences, instructions, and decisions. Every Pi session reads
+the same block when constructing its system prompt.
+
+The model can update memory explicitly through the `memory` tool. After a turn
+finishes, a background extraction pass examines only newly persisted user and
+assistant text and submits structured changes tied to user-message provenance.
+The source transcript is not copied into memory storage. Extraction progress is
+recorded per session and registry writes are idempotent and version-checked.
+
+This is a Pi on Cloudflare product feature, not behavior supplied by Pi core or
+the Cloudflare Session API.
+
 ## How Pi Implements Compaction
 
 Automatic compaction is enabled by default. Pi triggers it when estimated
@@ -353,7 +369,7 @@ Other Pi interaction features include:
 | Retry | Classified exponential retry | Missing | Pi runtime, Think, or Workflows |
 | Stream resumption | RPC lifecycle managed by client | Missing on browser refresh | AIChatAgent or Think recovery |
 | Context files | `AGENTS.md`, `CLAUDE.md`, system files | Missing | Workspace plus prompt assembly |
-| Writable memory | Not built in | Missing | Cloudflare Session context blocks |
+| Writable memory | Not built in | Global curated context with explicit and automatic updates | Registry SQLite; Session context-block pattern |
 | Skills | Progressive disclosure | Missing | Pi harness or Agents Skills |
 | Prompt templates | Markdown command expansion | Missing | Pi harness or application implementation |
 | Extensions | Trusted TypeScript modules | Missing | Dynamic Workers or Think extensions, not Pi-compatible |

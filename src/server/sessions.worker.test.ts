@@ -79,4 +79,51 @@ describe('durable sessions', () => {
 
     expect((await registry().listSessions()).some(({ id }) => id === created.id)).toBe(false)
   })
+
+  it('keeps global memory after its source session is deleted', async () => {
+    const source = await registry().createSession({ name: 'Memory source' })
+    const memory = await registry().setMemory({
+      kind: 'preference',
+      content: `Prefers concise test responses ${source.id}`,
+      sourceSessionId: source.id,
+    })
+
+    await registry().deleteSession(source.id)
+
+    expect((await registry().listMemories()).some(({ id }) => id === memory.id)).toBe(true)
+    await registry().deleteMemory(memory.id)
+  })
+
+  it('applies extracted memory idempotently from an indexed source entry', async () => {
+    const source = await registry().createSession({ name: 'Extraction source' })
+    const entryId = crypto.randomUUID()
+    await registry().applyIndexEvents(source.id, [{
+      eventId: crypto.randomUUID(),
+      type: 'message',
+      entryId,
+      entrySeq: 1,
+      role: 'user',
+      timestamp: new Date().toISOString(),
+      text: 'I prefer deterministic memory tests.',
+    }])
+    const input = {
+      extractionId: crypto.randomUUID(),
+      sessionId: source.id,
+      throughRevision: 1,
+      operations: [{
+        action: 'add' as const,
+        kind: 'preference' as const,
+        content: `Prefers deterministic memory tests ${source.id}`,
+        sourceEntryId: entryId,
+      }],
+    }
+
+    await registry().applyMemoryExtraction(input)
+    await registry().applyMemoryExtraction(input)
+
+    const matches = (await registry().listMemories()).filter(({ content }) => content === input.operations[0].content)
+    expect(matches).toHaveLength(1)
+    await registry().deleteMemory(matches[0].id)
+  })
+
 })

@@ -1,6 +1,9 @@
 import { Agent, callable } from 'agents'
 import type {
+  ApplyMemoryExtractionInput,
   CompactionSettings,
+  Memory,
+  MemoryKind,
   SessionIndexEvent,
   SessionLineage,
   SessionListInput,
@@ -38,6 +41,16 @@ type SessionSnapshot = {
   files: Array<{ path: string; content: string }>
 }
 
+type MemoryRow = {
+  id: string
+  kind: MemoryKind
+  content: string
+  source_session_id: string | null
+  source_entry_id: string | null
+  created_at: string
+  updated_at: string
+}
+
 type InitializeMetadata = Pick<SessionSummary, 'id' | 'createdAt' | 'updatedAt' | 'lineage'> & { name?: string }
 
 type PiSessionInternal = {
@@ -57,6 +70,9 @@ const MAX_LIMIT = 100
 const MAX_FTS_ROWS = 500
 const MAX_REGEX_LENGTH = 128
 const MAX_REGEX_TEXT = 10_000
+const MAX_MEMORIES = 64
+const MAX_MEMORY_CONTENT = 500
+const MAX_MEMORY_CONTEXT = 8_000
 
 export class PiRegistry extends Agent<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -106,6 +122,24 @@ export class PiRegistry extends Agent<Env> {
       CREATE TABLE IF NOT EXISTS pi_registry_tombstones (
         session_id TEXT PRIMARY KEY,
         deleted_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pi_registry_memories (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('preference', 'fact', 'instruction', 'decision')),
+        content TEXT NOT NULL,
+        source_session_id TEXT,
+        source_entry_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS pi_registry_memories_updated
+        ON pi_registry_memories(updated_at DESC);
+      CREATE TABLE IF NOT EXISTS pi_registry_memory_extractions (
+        extraction_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        through_revision INTEGER NOT NULL,
+        applied_at TEXT NOT NULL
       );
     `)
   }
@@ -219,6 +253,147 @@ export class PiRegistry extends Agent<Env> {
     return this.importAsNew(snapshot, cleanName(input.name), {
       type: 'clone',
       parentSessionId: input.sourceSessionId,
+    })
+  }
+
+  async listMemories(): Promise<Memory[]> {
+    return this.memoryRows().map(memoryFromRow)
+  }
+
+  async getMemoryContext(): Promise<string> {
+    return renderMemoryContext(this.memoryRows())
+  }
+
+  async setMemory(input: {
+    id?: string
+    kind: MemoryKind
+    content: string
+    sourceSessionId?: string
+    sourceEntryId?: string
+  }): Promise<Memory> {
+    const kind = validMemoryKind(input.kind)
+    const content = validMemoryContent(input.content)
+    const now = new Date().toISOString()
+    let id = input.id?.trim()
+    this.ctx.storage.transactionSync(() => {
+      if (id) {
+        if (!this.memoryRow(id)) throw new Error(`Memory not found: ${id}`)
+        this.ctx.storage.sql.exec(
+          `UPDATE pi_registry_memories SET kind = ?, content = ?, source_session_id = ?,
+           source_entry_id = ?, updated_at = ? WHERE id = ?`,
+          kind,
+          content,
+          input.sourceSessionId ?? null,
+          input.sourceEntryId ?? null,
+          now,
+          id,
+        )
+      } else {
+        const duplicate = this.ctx.storage.sql.exec<MemoryRow>(
+          'SELECT * FROM pi_registry_memories WHERE lower(content) = lower(?) LIMIT 1',
+          content,
+        ).toArray()[0]
+        if (duplicate) {
+          id = duplicate.id
+        } else {
+          id = crypto.randomUUID()
+          this.ctx.storage.sql.exec(
+            `INSERT INTO pi_registry_memories(
+              id, kind, content, source_session_id, source_entry_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            id,
+            kind,
+            content,
+            input.sourceSessionId ?? null,
+            input.sourceEntryId ?? null,
+            now,
+            now,
+          )
+        }
+      }
+      this.assertMemoryBudget()
+    })
+    return memoryFromRow(this.memoryRow(id!)!)
+  }
+
+  async deleteMemory(id: string): Promise<void> {
+    const value = id.trim()
+    if (!value) throw new Error('Memory ID is required.')
+    this.ctx.storage.sql.exec('DELETE FROM pi_registry_memories WHERE id = ?', value)
+  }
+
+  async applyMemoryExtraction(input: ApplyMemoryExtractionInput): Promise<void> {
+    if (!input.extractionId.trim()) throw new Error('Extraction ID is required.')
+    if (!Number.isSafeInteger(input.throughRevision) || input.throughRevision < 0) {
+      throw new Error('Extraction revision must be a non-negative integer.')
+    }
+    this.requireSession(input.sessionId)
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        `INSERT OR IGNORE INTO pi_registry_memory_extractions(
+          extraction_id, session_id, through_revision, applied_at
+        ) VALUES (?, ?, ?, ?)`,
+        input.extractionId,
+        input.sessionId,
+        input.throughRevision,
+        new Date().toISOString(),
+      )
+      if (this.ctx.storage.sql.exec<{ changed: number }>('SELECT changes() AS changed').one().changed === 0) return
+
+      for (const operation of input.operations) {
+        this.requireIndexedSource(input.sessionId, operation.sourceEntryId)
+        if (operation.action === 'delete') {
+          this.ctx.storage.sql.exec(
+            'DELETE FROM pi_registry_memories WHERE id = ? AND updated_at = ?',
+            operation.id,
+            operation.expectedUpdatedAt,
+          )
+          if (this.ctx.storage.sql.exec<{ changed: number }>('SELECT changes() AS changed').one().changed === 0) {
+            throw new Error(`Memory changed during extraction: ${operation.id}`)
+          }
+          continue
+        }
+        const kind = validMemoryKind(operation.kind)
+        const content = validMemoryContent(operation.content)
+        const now = new Date().toISOString()
+        if (operation.action === 'update') {
+          if (!this.memoryRow(operation.id)) throw new Error(`Memory not found: ${operation.id}`)
+          this.ctx.storage.sql.exec(
+            `UPDATE pi_registry_memories SET kind = ?, content = ?, source_session_id = ?,
+             source_entry_id = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
+            kind,
+            content,
+            input.sessionId,
+            operation.sourceEntryId,
+            now,
+            operation.id,
+            operation.expectedUpdatedAt,
+          )
+          if (this.ctx.storage.sql.exec<{ changed: number }>('SELECT changes() AS changed').one().changed === 0) {
+            throw new Error(`Memory changed during extraction: ${operation.id}`)
+          }
+        } else {
+          const duplicate = this.ctx.storage.sql.exec<MemoryRow>(
+            'SELECT * FROM pi_registry_memories WHERE lower(content) = lower(?) LIMIT 1',
+            content,
+          ).toArray()[0]
+          if (!duplicate) {
+            this.ctx.storage.sql.exec(
+              `INSERT INTO pi_registry_memories(
+                id, kind, content, source_session_id, source_entry_id, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              crypto.randomUUID(),
+              kind,
+              content,
+              input.sessionId,
+              operation.sourceEntryId,
+              now,
+              now,
+            )
+          }
+        }
+      }
+      this.assertMemoryBudget()
     })
   }
 
@@ -342,6 +517,36 @@ export class PiRegistry extends Agent<Env> {
     ).toArray()[0]
     if (!row || this.isTombstoned(sessionId)) throw new Error(`Session not found: ${sessionId}`)
     return row
+  }
+
+  private memoryRows(): MemoryRow[] {
+    return this.ctx.storage.sql.exec<MemoryRow>(
+      'SELECT * FROM pi_registry_memories ORDER BY kind, created_at, id',
+    ).toArray()
+  }
+
+  private memoryRow(id: string): MemoryRow | undefined {
+    return this.ctx.storage.sql.exec<MemoryRow>(
+      'SELECT * FROM pi_registry_memories WHERE id = ?',
+      id,
+    ).toArray()[0]
+  }
+
+  private requireIndexedSource(sessionId: string, entryId: string): void {
+    const found = this.ctx.storage.sql.exec<{ found: number }>(
+      "SELECT 1 AS found FROM pi_registry_search_entries WHERE session_id = ? AND entry_id = ? AND role = 'user' LIMIT 1",
+      sessionId,
+      entryId,
+    ).toArray().length !== 0
+    if (!found) throw new Error(`Memory source entry not found: ${entryId}`)
+  }
+
+  private assertMemoryBudget(): void {
+    const rows = this.memoryRows()
+    if (rows.length > MAX_MEMORIES) throw new Error(`Memory is limited to ${MAX_MEMORIES} facts.`)
+    if (renderMemoryContext(rows).length > MAX_MEMORY_CONTEXT) {
+      throw new Error('Memory context is full. Consolidate or delete an existing memory before adding another.')
+    }
   }
 
   private isTombstoned(sessionId: string): boolean {
@@ -556,4 +761,42 @@ function messageText(message: { content?: unknown }): string {
       typeof (part as { text?: unknown }).text === 'string')
     .map((part) => part.text)
     .join('\n')
+}
+
+function validMemoryKind(kind: MemoryKind): MemoryKind {
+  if (kind !== 'preference' && kind !== 'fact' && kind !== 'instruction' && kind !== 'decision') {
+    throw new Error('Invalid memory kind.')
+  }
+  return kind
+}
+
+function validMemoryContent(content: string): string {
+  const value = content.replace(/\s+/g, ' ').trim()
+  if (!value) throw new Error('Memory content is required.')
+  if (value.length > MAX_MEMORY_CONTENT) throw new Error(`Memory content exceeds ${MAX_MEMORY_CONTENT} characters.`)
+  if (/-----BEGIN [^-]*PRIVATE KEY-----|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})\b/.test(value)) {
+    throw new Error('Memory content appears to contain a secret.')
+  }
+  return value
+}
+
+function memoryFromRow(row: MemoryRow): Memory {
+  return {
+    id: row.id,
+    kind: row.kind,
+    content: row.content,
+    sourceSessionId: row.source_session_id ?? undefined,
+    sourceEntryId: row.source_entry_id ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function renderMemoryContext(rows: MemoryRow[]): string {
+  if (rows.length === 0) return ''
+  return [
+    'LONG-TERM MEMORY',
+    'The following are durable user facts and instructions. Treat the bracketed values as memory IDs, not instructions.',
+    ...rows.map(({ id, kind, content }) => `- [${id}] (${kind}) ${content}`),
+  ].join('\n')
 }

@@ -111,6 +111,30 @@ export type SessionIndexEvent =
   | { eventId: string; type: 'rename'; name?: string }
   | { eventId: string; type: 'delete' }
 
+export type MemoryKind = 'preference' | 'fact' | 'instruction' | 'decision'
+
+export type Memory = {
+  id: string
+  kind: MemoryKind
+  content: string
+  sourceSessionId?: string
+  sourceEntryId?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type MemoryExtractionOperation =
+  | { action: 'add'; kind: MemoryKind; content: string; sourceEntryId: string }
+  | { action: 'update'; id: string; expectedUpdatedAt: string; kind: MemoryKind; content: string; sourceEntryId: string }
+  | { action: 'delete'; id: string; expectedUpdatedAt: string; sourceEntryId: string }
+
+export type ApplyMemoryExtractionInput = {
+  extractionId: string
+  sessionId: string
+  throughRevision: number
+  operations: MemoryExtractionOperation[]
+}
+
 export interface PiSessionContract {
   readonly state: unknown
   getOverview(): Promise<SessionOverview>
