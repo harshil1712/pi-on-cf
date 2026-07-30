@@ -1,17 +1,19 @@
 import { Button } from '@cloudflare/kumo/components/button'
-import { GitBranch, GitFork, Tag } from 'lucide-react'
+import { GitBranch, GitFork, Scissors, Tag } from 'lucide-react'
 import type { SessionOverview } from '../../../shared/pi-contract'
 
 type SessionTreeProps = {
+  compacting: boolean
   hidden: boolean
   overview: SessionOverview | null
   pending: boolean
+  onCompact: () => void
   onFork: (entryId: string) => void
   onLabel: (entryId: string, label?: string) => void
   onNavigate: (entryId: string) => void
 }
 
-export function SessionTree({ hidden, overview, pending, onFork, onLabel, onNavigate }: SessionTreeProps) {
+export function SessionTree({ compacting, hidden, overview, pending, onCompact, onFork, onLabel, onNavigate }: SessionTreeProps) {
   const nodes = overview?.tree ?? []
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const depth = (id: string) => {
@@ -48,7 +50,10 @@ export function SessionTree({ hidden, overview, pending, onFork, onLabel, onNavi
           </article>
         ))}
       </div>
-      <footer className="tree-footer"><span>{nodes.filter((node) => node.isOnActiveBranch).length} ACTIVE</span><span>{nodes.filter((node) => node.isLeaf).length} LEAVES</span></footer>
+      <footer className="tree-footer">
+        <Button variant="ghost" aria-label="Compact session" disabled={pending} onClick={onCompact}><Scissors size={12} /> {compacting ? 'COMPACTING' : 'COMPACT'}</Button>
+        <div><span>{nodes.filter((node) => node.isOnActiveBranch).length} ACTIVE</span><span>{nodes.filter((node) => node.isLeaf).length} LEAVES</span></div>
+      </footer>
     </section>
   )
 }

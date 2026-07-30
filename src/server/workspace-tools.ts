@@ -114,6 +114,22 @@ export function createWorkspaceTools(workspace: WorkspaceFsLike, workspaceState:
   return [readTool, writeTool, editTool, listTool, findTool, grepTool]
 }
 
+export function createInitializeAppTool(initialize: () => Promise<void>): AgentHarnessTool<undefined> {
+  return {
+    name: 'initialize_app',
+    label: 'Initialize app',
+    description: 'Install the pinned React and Cloudflare starter into this session. Call this only when the user asks to build an app.',
+    parameters: Type.Object({}),
+    executionMode: 'sequential',
+    execute: async (_id, _params, signal) => {
+      signal?.throwIfAborted()
+      await initialize()
+      signal?.throwIfAborted()
+      return text('Initialized the React and Cloudflare app workspace.')
+    },
+  }
+}
+
 export function createSessionSearchTool(
   registry: RegistrySearch,
 ): AgentHarnessTool<undefined> {

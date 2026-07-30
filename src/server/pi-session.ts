@@ -12,6 +12,8 @@ import { Agent, callable } from 'agents'
 import type { StreamingResponse } from 'agents'
 import type {
   ApplyMemoryExtractionInput,
+  AppDeploymentSummary,
+  AppStatus,
   CompactionSettings,
   Memory,
   MemoryKind,
@@ -31,20 +33,30 @@ import { prepareManualCompaction } from './manual-compaction'
 import { PiSessionStorage, type PiSessionMetadata } from './pi-session-storage'
 import { toPiStreamEvent } from './stream-events'
 import { PI_REGISTRY_INSTANCE } from '../shared/pi-contract'
-import { createSessionSearchTool, createWorkspaceTools } from './workspace-tools'
+import { createInitializeAppTool, createSessionSearchTool, createWorkspaceTools } from './workspace-tools'
+import { buildApp } from './apps/build-app'
+import { deployApp as deployBuiltApp } from './apps/deploy-app'
+import { previewApp } from './apps/preview-runtime'
+import { createSourceSnapshot } from './apps/source'
+import { TemplateRepository } from './apps/template-repository'
+import type { BuiltApp, TemplateSourceSummary } from './apps/types'
+import { WorkersClient } from './apps/workers-client'
 
 type InitializeMetadata = Pick<SessionSummary, 'id' | 'createdAt' | 'updatedAt' | 'lineage'> & { name?: string }
 type SessionExport = {
   metadata: PiSessionMetadata
   entries: SessionTreeEntry[]
   compaction: CompactionSettings
-  files: Array<{ path: string; content: string }>
+  files: Array<{ path: string; content: string; encoding?: 'base64' }>
+  appTemplate?: TemplateSourceSummary
 }
 
 const WORKSPACE_PAGE_SIZE = 250
 const MEMORY_EXTRACTION_CURSOR = 'memoryExtractionRevision'
 const MEMORY_EXTRACTION_BATCH_CHARS = 30_000
 const MEMORY_SOURCE_ENTRY_CHARS = 12_000
+const APP_TEMPLATE_SETTING = 'appTemplate'
+const APP_DEPLOYMENT_SETTING = 'appDeployment'
 
 type MemoryRegistry = {
   searchSessions(input: { query: string; limit?: number }): Promise<import('../shared/pi-contract').SessionSearchResult[]>
@@ -60,6 +72,7 @@ export class PiSession extends Agent<Env> {
   private active = false
   private harness?: PiHarness
   private memoryExtraction?: Promise<void>
+  private builtApp?: BuiltApp
   private readonly sessionStorage = new PiSessionStorage(this.ctx.storage)
   private readonly session = new Session(this.sessionStorage)
   private readonly workspace = new Workspace({
@@ -87,6 +100,7 @@ export class PiSession extends Agent<Env> {
 
   @callable()
   async getOverview(): Promise<SessionOverview> {
+    await this.waitUntilInitialized()
     const metadata = await this.session.getMetadata()
     const rows = this.sessionStorage.getEntriesWithSeq()
     const leafId = await this.session.getLeafId()
@@ -125,6 +139,7 @@ export class PiSession extends Agent<Env> {
 
   @callable()
   async getBranch(leafId?: string): Promise<SessionBranch> {
+    await this.waitUntilInitialized()
     const rows = this.sessionStorage.getEntriesWithSeq()
     const seqById = new Map(rows.map(({ seq, entry }) => [entry.id, seq]))
     const selectedLeaf = leafId ?? await this.session.getLeafId()
@@ -222,6 +237,53 @@ export class PiSession extends Agent<Env> {
     return { path, content, size: stat.size, mtime: stat.mtime.toISOString() }
   }
 
+  @callable()
+  async initializeApp(): Promise<AppStatus> {
+    return this.withExclusiveOperation(async () => {
+      await this.initializeAppTemplate()
+      return this.getAppStatus()
+    })
+  }
+
+  @callable()
+  async getAppStatus(): Promise<AppStatus> {
+    if (!this.sessionStorage.getSetting<TemplateSourceSummary>(APP_TEMPLATE_SETTING)) {
+      return { initialized: false, sourceHash: '', dirty: false }
+    }
+    const source = await createSourceSnapshot(this.workspace)
+    const deployment = this.sessionStorage.getSetting<AppDeploymentSummary>(APP_DEPLOYMENT_SETTING)
+    return { initialized: true, sourceHash: source.hash, dirty: deployment?.sourceHash !== source.hash, deployment }
+  }
+
+  @callable()
+  async deployApp(): Promise<AppDeploymentSummary> {
+    return this.withExclusiveOperation(async () => {
+      this.requireInitializedApp()
+      const source = await createSourceSnapshot(this.workspace)
+      const built = await this.build(source)
+      const deployment = await deployBuiltApp({
+        env: this.env,
+        sessionId: this.sessionStorage.getMetadataSync().id,
+        workspace: this.workspace,
+        source,
+        built,
+        template: this.appTemplate(source.files.length, source.totalBytes),
+      })
+      this.sessionStorage.setSetting(APP_DEPLOYMENT_SETTING, deployment)
+      return deployment
+    })
+  }
+
+  async preview(request: Request): Promise<Response> {
+    if (!this.sessionStorage.getSetting<TemplateSourceSummary>(APP_TEMPLATE_SETTING)) {
+      return new Response('This session does not have an app. Initialize one first.', { status: 409 })
+    }
+    return this.withExclusiveOperation(async () => {
+      const source = await createSourceSnapshot(this.workspace)
+      return previewApp(request, await this.build(source), this.env.APP_LOADER)
+    })
+  }
+
   @callable({ streaming: true })
   async prompt(stream: StreamingResponse, prompt: string): Promise<void> {
     if (!this.env.CLOUDFLARE_ACCOUNT_ID || !this.env.CLOUDFLARE_API_TOKEN) {
@@ -285,10 +347,13 @@ export class PiSession extends Agent<Env> {
       for (const file of snapshot.files) {
         validatePath(file.path)
         await this.workspace.mkdir(file.path.slice(0, file.path.lastIndexOf('/')) || '/', { recursive: true })
-        await this.workspace.writeFile(file.path, file.content)
+        if (file.encoding === 'base64') await this.workspace.writeFileBytes(file.path, decodeBase64(file.content))
+        else await this.workspace.writeFile(file.path, file.content)
       }
+      if (snapshot.appTemplate) this.sessionStorage.setSetting(APP_TEMPLATE_SETTING, snapshot.appTemplate)
       if (metadata?.name) await this.session.appendSessionName(metadata.name)
       this.harness = undefined
+      this.builtApp = undefined
       return this.getOverview()
     })
   }
@@ -300,6 +365,16 @@ export class PiSession extends Agent<Env> {
       await harness.waitForIdle()
     }
     this.active = true
+    const deployment = this.sessionStorage.getSetting<AppDeploymentSummary>(APP_DEPLOYMENT_SETTING)
+    if (deployment) {
+      await Promise.all([
+        new WorkersClient({
+          accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+          token: this.env.WORKERS_DEPLOY_API_TOKEN,
+        }).deleteWorker(deployment.workerName),
+        this.env.APP_ARTIFACTS.delete(`${this.env.APP_REPOSITORY_PREFIX || 'pi-app'}-${this.sessionStorage.getMetadataSync().id}`),
+      ])
+    }
     for (const entry of await this.workspace.readDir('/')) {
       await this.workspace.rm(entry.path, { recursive: true, force: true })
     }
@@ -324,6 +399,7 @@ export class PiSession extends Agent<Env> {
       storage: this.sessionStorage,
       tools: [
         ...createWorkspaceTools(this.workspace, this.workspaceState),
+        createInitializeAppTool(() => this.initializeAppTemplate()),
         createSessionSearchTool(registry),
         createMemoryTool(registry, sessionId),
       ],
@@ -377,16 +453,55 @@ export class PiSession extends Agent<Env> {
   private async createExport(entryId?: string): Promise<SessionExport> {
     const entries = entryId ? await this.sessionStorage.getPathToRoot(entryId) : []
     const files = await this.listAllWorkspaceFiles()
-    const contents: Array<{ path: string; content: string }> = []
+    const contents: Array<{ path: string; content: string; encoding: 'base64' }> = []
     for (const { path } of files) {
-      const content = await this.workspace.readFile(path)
-      if (content !== null) contents.push({ path, content })
+      const content = await this.workspace.readFileBytes(path)
+      if (content !== null) contents.push({ path, content: encodeBase64(content), encoding: 'base64' })
     }
     return {
       metadata: await this.session.getMetadata(),
       entries,
       compaction: this.compactionSettings(),
       files: contents,
+      appTemplate: this.sessionStorage.getSetting<TemplateSourceSummary>(APP_TEMPLATE_SETTING),
+    }
+  }
+
+  private async build(source: Awaited<ReturnType<typeof createSourceSnapshot>>): Promise<BuiltApp> {
+    if (this.builtApp?.sourceHash === source.hash) return this.builtApp
+    this.builtApp = await buildApp(source)
+    return this.builtApp
+  }
+
+  private async initializeAppTemplate(): Promise<void> {
+    if (this.sessionStorage.getSetting<TemplateSourceSummary>(APP_TEMPLATE_SETTING)) return
+    const template = await new TemplateRepository(this.workspace).install({
+      repository: this.env.APP_TEMPLATE_REPOSITORY,
+      commit: this.env.APP_TEMPLATE_COMMIT,
+    })
+    this.sessionStorage.setSetting(APP_TEMPLATE_SETTING, template)
+    this.builtApp = undefined
+  }
+
+  private requireInitializedApp(): void {
+    if (!this.sessionStorage.getSetting<TemplateSourceSummary>(APP_TEMPLATE_SETTING)) {
+      throw new Error('This session does not have an app. Initialize one first.')
+    }
+  }
+
+  private async waitUntilInitialized(): Promise<void> {
+    for (let attempt = 0; attempt < 40 && !this.sessionStorage.isInitialized(); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    if (!this.sessionStorage.isInitialized()) throw new Error('Session has not been initialized.')
+  }
+
+  private appTemplate(fileCount: number, totalBytes: number): TemplateSourceSummary {
+    return this.sessionStorage.getSetting<TemplateSourceSummary>(APP_TEMPLATE_SETTING) ?? {
+      repository: this.env.APP_TEMPLATE_REPOSITORY,
+      commit: this.env.APP_TEMPLATE_COMMIT,
+      fileCount,
+      totalBytes,
     }
   }
 
@@ -546,4 +661,16 @@ function memorySourceEntry(entry: SessionTreeEntry): MemorySourceEntry | undefin
     text = `${text.slice(0, half)}\n[...truncated for memory extraction...]\n${text.slice(-half)}`
   }
   return { id: entry.id, role: entry.message.role, text }
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  let value = ''
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    value += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(value)
+}
+
+function decodeBase64(value: string): Uint8Array {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0))
 }

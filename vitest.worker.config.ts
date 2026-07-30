@@ -7,10 +7,11 @@ export default defineConfig({
     agents(),
     cloudflareTest({
       main: './src/server-test-entry.ts',
-      wrangler: { configPath: './wrangler.jsonc' },
+      wrangler: { configPath: './wrangler.test.jsonc' },
     }),
   ],
   test: {
     include: ['src/server/**/*.worker.test.ts'],
+    testTimeout: 10_000,
   },
 })

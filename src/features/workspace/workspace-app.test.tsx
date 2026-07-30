@@ -9,12 +9,15 @@ const mocks = vi.hoisted(() => {
       abort: vi.fn(),
       compact: vi.fn(),
       getBranch: vi.fn(),
+      getAppStatus: vi.fn(),
+      initializeApp: vi.fn(),
       getOverview: vi.fn(),
       listFiles: vi.fn(),
       navigateTree: vi.fn(),
       readWorkspaceFile: vi.fn(),
       setEntryLabel: vi.fn(),
       setSessionName: vi.fn(),
+      deployApp: vi.fn(),
     },
   }
   const registryAgent = { stub: { forkSession: vi.fn() } }
@@ -97,11 +100,18 @@ describe('WorkspaceApp orchestration', () => {
     mocks.sessionAgent.stub.compact.mockResolvedValue({ summary: '', tokensBefore: 0 })
     mocks.sessionAgent.stub.getOverview.mockResolvedValue(overview())
     mocks.sessionAgent.stub.getBranch.mockResolvedValue(branch())
+    mocks.sessionAgent.stub.getAppStatus.mockResolvedValue({ initialized: true, sourceHash: 'source-hash', dirty: true })
+    mocks.sessionAgent.stub.initializeApp.mockResolvedValue({ initialized: true, sourceHash: 'source-hash', dirty: true })
     mocks.sessionAgent.stub.listFiles.mockResolvedValue([])
     mocks.sessionAgent.stub.navigateTree.mockResolvedValue({})
     mocks.sessionAgent.stub.readWorkspaceFile.mockResolvedValue(fileContent('/default.ts', ''))
     mocks.sessionAgent.stub.setEntryLabel.mockResolvedValue(overview())
     mocks.sessionAgent.stub.setSessionName.mockResolvedValue(overview())
+    mocks.sessionAgent.stub.deployApp.mockResolvedValue({
+      sourceHash: 'source-hash', bundleHash: 'bundle-hash', templateCommit: 'template-commit', commitSha: 'commit-sha',
+      workerId: 'worker-id', workerName: 'worker-name', versionId: 'version-id', deploymentId: 'deployment-id',
+      productionUrl: 'https://worker.example.workers.dev', deployedAt: now,
+    })
     mocks.registryAgent.stub.forkSession.mockResolvedValue({
       id: 'forked-session', name: 'Current session fork', status: 'ready', createdAt: now, updatedAt: now,
       messageCount: 1, activeLeafId: 'entry-1', lineage: { type: 'fork', parentSessionId: 'session-12345678', sourceEntryId: 'entry-1' },
@@ -123,6 +133,38 @@ describe('WorkspaceApp orchestration', () => {
       sourceSessionId: 'session-12345678', entryId: 'entry-1', name: 'Current session fork',
     }))
     expect(mocks.navigate).toHaveBeenCalledWith({ to: '/sessions/$sessionId', params: { sessionId: 'forked-session' } })
+  })
+
+  it('deploys the current app and refreshes its deployment status', async () => {
+    mocks.sessionAgent.stub.getAppStatus
+      .mockResolvedValueOnce({ initialized: true, sourceHash: 'source-hash', dirty: true })
+      .mockResolvedValueOnce({
+        initialized: true,
+        sourceHash: 'source-hash',
+        dirty: false,
+        deployment: await mocks.sessionAgent.stub.deployApp(),
+      })
+    mocks.sessionAgent.stub.deployApp.mockClear()
+    render(<WorkspaceApp sessionId="session-12345678" />)
+
+    const deployButton = await screen.findByRole('button', { name: 'DEPLOY' })
+    expect(deployButton.closest('.right-panel')).toBeTruthy()
+    expect(deployButton.closest('.workspace-masthead')).toBeNull()
+    fireEvent.click(deployButton)
+
+    await waitFor(() => expect(mocks.sessionAgent.stub.deployApp).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mocks.sessionAgent.stub.getAppStatus).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('button', { name: 'REDEPLOY' })).toBeTruthy()
+  })
+
+  it('hides app actions until the agent initializes an app', async () => {
+    mocks.sessionAgent.stub.getAppStatus.mockResolvedValue({ initialized: false, sourceHash: '', dirty: false })
+    render(<WorkspaceApp sessionId="session-12345678" />)
+
+    await waitFor(() => expect(mocks.sessionAgent.stub.getAppStatus).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /START APP/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'PREVIEW' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'DEPLOY' })).toBeNull()
   })
 
   it('ignores getOverview and getBranch responses for an obsolete session', async () => {

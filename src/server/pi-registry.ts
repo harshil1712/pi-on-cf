@@ -38,7 +38,8 @@ type SessionSnapshot = {
   metadata: unknown
   entries: unknown[]
   compaction: CompactionSettings
-  files: Array<{ path: string; content: string }>
+  files: Array<{ path: string; content: string; encoding?: 'base64' }>
+  appTemplate?: unknown
 }
 
 type MemoryRow = {

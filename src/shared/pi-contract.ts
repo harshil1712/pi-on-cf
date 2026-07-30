@@ -20,6 +20,26 @@ export type WorkspaceFileContent = WorkspaceFile & {
   content: string
 }
 
+export type AppDeploymentSummary = {
+  sourceHash: string
+  bundleHash: string
+  templateCommit: string
+  commitSha: string
+  workerId: string
+  workerName: string
+  versionId: string
+  deploymentId: string
+  productionUrl: string
+  deployedAt: string
+}
+
+export type AppStatus = {
+  initialized: boolean
+  sourceHash: string
+  dirty: boolean
+  deployment?: AppDeploymentSummary
+}
+
 export type TranscriptMessage = {
   role?: string
   content?: unknown
@@ -149,6 +169,9 @@ export interface PiSessionContract {
   abort(): Promise<void>
   listFiles(): Promise<WorkspaceFile[]>
   readWorkspaceFile(path: string): Promise<WorkspaceFileContent>
+  initializeApp(): Promise<AppStatus>
+  getAppStatus(): Promise<AppStatus>
+  deployApp(): Promise<AppDeploymentSummary>
   prompt(prompt: string): Promise<void>
 }
 

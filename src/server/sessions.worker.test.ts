@@ -7,7 +7,10 @@ type RegistryStub = DurableObjectStub<PiRegistry>
 type SessionStub = {
   getOverview(): ReturnType<import('./pi-session').PiSession['getOverview']>
   getBranch(): ReturnType<import('./pi-session').PiSession['getBranch']>
+  getAppStatus(): ReturnType<import('./pi-session').PiSession['getAppStatus']>
+  listFiles(): ReturnType<import('./pi-session').PiSession['listFiles']>
   importSession(snapshot: unknown): ReturnType<import('./pi-session').PiSession['getOverview']>
+  exportClone(): Promise<{ files: Array<{ path: string; content: string; encoding?: 'base64' }> }>
   readWorkspaceFile(path: string): ReturnType<import('./pi-session').PiSession['readWorkspaceFile']>
 }
 
@@ -21,6 +24,8 @@ describe('durable sessions', () => {
 
     expect(first.id).not.toBe(second.id)
     expect((await session(first.id).getOverview()).name).toBe('First session')
+    expect(await session(first.id).listFiles()).toEqual([])
+    expect(await session(first.id).getAppStatus()).toEqual({ initialized: false, sourceHash: '', dirty: false })
     expect((await session(second.id).getOverview()).name).toBe('Second session')
     expect((await registry().listSessions()).map(({ id }) => id)).toEqual(expect.arrayContaining([first.id, second.id]))
   })
@@ -70,6 +75,22 @@ describe('durable sessions', () => {
       type: 'fork',
       parentSessionId: source.id,
       sourceEntryId: 'user-2',
+    })
+  })
+
+  it('preserves binary workspace files in session snapshots', async () => {
+    const source = await registry().createSession({ name: 'Binary source' })
+    await session(source.id).importSession({
+      metadata: { id: source.id, createdAt: source.createdAt, updatedAt: source.updatedAt, lineage: { type: 'new' } },
+      entries: [],
+      compaction: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
+      files: [{ path: '/asset.bin', content: 'AP+AQA==', encoding: 'base64' }],
+    })
+
+    expect((await session(source.id).exportClone()).files).toContainEqual({
+      path: '/asset.bin',
+      content: 'AP+AQA==',
+      encoding: 'base64',
     })
   })
 
