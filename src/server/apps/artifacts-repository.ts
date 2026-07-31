@@ -1,9 +1,8 @@
-import { Workspace, WorkspaceFileSystem } from '@cloudflare/shell'
-import { createGit } from '@cloudflare/shell/git'
+import type { GitClient } from '@cloudflare/computer/git'
+import type { ComputerWorkspace } from '../computer-workspace'
 import type { AppSourceSnapshot } from './types'
 
 export class AppArtifactsRepository {
-  private readonly filesystem: WorkspaceFileSystem
   private readonly remote: string
 
   constructor(
@@ -11,11 +10,10 @@ export class AppArtifactsRepository {
     private readonly repositoryName: string,
     namespace: string,
     accountId: string,
-    private readonly workspace: Workspace,
+    private readonly workspace: ComputerWorkspace,
     private readonly templateUrl: string,
     private readonly templateCommit: string,
   ) {
-    this.filesystem = new WorkspaceFileSystem(workspace)
     this.remote = `https://${accountId}.artifacts.cloudflare.net/git/${encodeURIComponent(namespace)}/${encodeURIComponent(repositoryName)}.git`
   }
 
@@ -32,7 +30,9 @@ export class AppArtifactsRepository {
     if (typeof token !== 'string') throw new Error('Artifacts returned an invalid repository token.')
     const password = token
     const repositoryDir = `/app-artifacts-${crypto.randomUUID()}`
-    const git = createGit(this.filesystem, repositoryDir)
+    const git = this.workspace.git
+    const onAuth = () => ({ username: 'x', password })
+    const headers = { Authorization: `Basic ${btoa(`x:${password}`)}` }
 
     try {
       await this.workspace.mkdir(repositoryDir, { recursive: true })
@@ -41,11 +41,10 @@ export class AppArtifactsRepository {
           await git.clone({
             url: this.remote,
             dir: repositoryDir,
-            branch: 'main',
+            ref: 'main',
             depth: 1,
             singleBranch: true,
-            username: 'x',
-            password,
+            headers,
           })
         } catch (error) {
           if (!isEmptyRepositoryError(error)) throw error
@@ -67,15 +66,12 @@ export class AppArtifactsRepository {
       for (const file of source.files) {
         const target = `${repositoryDir}/${file.path}`
         await this.workspace.mkdir(target.slice(0, target.lastIndexOf('/')), { recursive: true })
-        await this.workspace.writeFileBytes(target, file.bytes)
+        await this.workspace.fs.writeFile(target, file.bytes)
       }
 
-      for (const status of await git.status({ dir: repositoryDir })) {
-        if (status.head === 1 && status.workdir === 0) await git.rm({ dir: repositoryDir, filepath: status.filepath })
-      }
-      await git.add({ dir: repositoryDir, filepath: '.' })
+      await git.add({ dir: repositoryDir, paths: [], all: true })
       const changes = await git.status({ dir: repositoryDir })
-      if (changes.every(({ head, stage }) => head === stage)) {
+      if (changes.length === 0) {
         const current = (await git.log({ dir: repositoryDir, depth: 1 }))[0]
         if (!current) throw new Error('The app repository has no current revision.')
         return current.oid
@@ -90,8 +86,7 @@ export class AppArtifactsRepository {
         dir: repositoryDir,
         remote: 'origin',
         ref: 'main',
-        username: 'x',
-        password,
+        onAuth,
       })
       if (!pushed.ok) throw new Error('Artifacts rejected the app push because the repository changed. Retry the publish.')
       return commit.oid
@@ -103,25 +98,24 @@ export class AppArtifactsRepository {
     }
   }
 
-  private async initializeFromTemplate(git: ReturnType<typeof createGit>, repositoryDir: string): Promise<void> {
+  private async initializeFromTemplate(git: GitClient, repositoryDir: string): Promise<void> {
     validateTemplate(this.templateUrl, this.templateCommit)
     await this.workspace.rm(repositoryDir, { recursive: true, force: true })
     await this.workspace.mkdir(repositoryDir, { recursive: true })
-    await git.clone({ url: this.templateUrl, dir: repositoryDir, noCheckout: true })
+    await git.clone({ url: this.templateUrl, dir: repositoryDir, depth: 0 })
     await git.checkout({ dir: repositoryDir, ref: this.templateCommit, force: true })
     const current = (await git.log({ dir: repositoryDir, ref: 'HEAD', depth: 1 }))[0]
     if (!current || current.oid.toLowerCase() !== this.templateCommit.toLowerCase()) {
       throw new Error(`Template checkout did not resolve to pinned commit ${this.templateCommit}.`)
     }
-    const branches = await git.branch({ dir: repositoryDir, list: true })
-    const branchNames = 'branches' in branches ? branches.branches : undefined
-    if (branchNames?.includes('main')) {
-      await git.branch({ dir: repositoryDir, delete: 'main' })
+    const branches = await git.branchList({ dir: repositoryDir })
+    if (branches.includes('main')) {
+      await git.branchDelete({ dir: repositoryDir, name: 'main' })
     }
     await git.branch({ dir: repositoryDir, name: 'main' })
     await git.checkout({ dir: repositoryDir, ref: 'main' })
-    await git.remote({ dir: repositoryDir, remove: 'origin' })
-    await git.remote({ dir: repositoryDir, add: { name: 'origin', url: this.remote } })
+    await git.remoteRemove({ dir: repositoryDir, name: 'origin' })
+    await git.remoteAdd({ dir: repositoryDir, name: 'origin', url: this.remote })
   }
 
   private async getOrCreateRepository(): Promise<{ repo: ArtifactsRepo; created: boolean }> {

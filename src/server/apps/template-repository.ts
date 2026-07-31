@@ -1,5 +1,4 @@
-import { WorkspaceFileSystem, type WorkspaceFsLike } from '@cloudflare/shell'
-import { createGit } from '@cloudflare/shell/git'
+import type { ComputerWorkspace } from '../computer-workspace'
 import type { TemplateSourceSummary } from './types'
 
 export type TemplateSource = {
@@ -8,11 +7,7 @@ export type TemplateSource = {
 }
 
 export class TemplateRepository {
-  private readonly filesystem: WorkspaceFileSystem
-
-  constructor(private readonly workspace: WorkspaceFsLike) {
-    this.filesystem = new WorkspaceFileSystem(workspace)
-  }
+  constructor(private readonly workspace: ComputerWorkspace) {}
 
   async install(source: TemplateSource, destination = '/'): Promise<TemplateSourceSummary> {
     validateRepository(source.repository)
@@ -23,13 +18,13 @@ export class TemplateRepository {
     const target = normalizeAbsolutePath(destination)
     const temporaryDirectory = `/.template-repository-${crypto.randomUUID()}`
     await this.workspace.mkdir(temporaryDirectory, { recursive: true })
-    const git = createGit(this.filesystem, temporaryDirectory)
+    const git = this.workspace.git
 
     try {
       await git.clone({
         url: source.repository,
         dir: temporaryDirectory,
-        noCheckout: true,
+        depth: 0,
       })
       await git.checkout({ dir: temporaryDirectory, ref: source.commit, force: true })
       const current = (await git.log({ dir: temporaryDirectory, ref: 'HEAD', depth: 1 }))[0]
@@ -39,7 +34,7 @@ export class TemplateRepository {
 
       let fileCount = 0
       let totalBytes = 0
-      await this.workspace.mkdir(target, { recursive: true })
+      if (target !== '/') await this.workspace.mkdir(target, { recursive: true })
 
       const copyDirectory = async (directory: string, relativeDirectory: string): Promise<void> => {
         for (let offset = 0; ; offset += 200) {
@@ -57,8 +52,9 @@ export class TemplateRepository {
 
             const bytes = await this.workspace.readFileBytes(entry.path)
             if (bytes === null) throw new Error(`Template file disappeared while copying: ${relativePath}`)
-            await this.workspace.mkdir(parentPath(destinationPath), { recursive: true })
-            await this.workspace.writeFileBytes(destinationPath, bytes)
+            const parent = parentPath(destinationPath)
+            if (parent !== '/') await this.workspace.mkdir(parent, { recursive: true })
+            await this.workspace.fs.writeFile(destinationPath, bytes)
             fileCount += 1
             totalBytes += bytes.byteLength
           }

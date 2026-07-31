@@ -1,5 +1,5 @@
-import type { Workspace } from '@cloudflare/shell'
 import type { Modules } from '@cloudflare/worker-bundler'
+import type { ComputerWorkspace } from '../computer-workspace'
 import { AppArtifactsRepository } from './artifacts-repository'
 import type { AppSourceSnapshot, BuiltApp, DeploymentSummary, TemplateSourceSummary } from './types'
 import { WorkersClient, type WorkerModule } from './workers-client'
@@ -7,7 +7,7 @@ import { WorkersClient, type WorkerModule } from './workers-client'
 type DeployAppOptions = {
   env: Env
   sessionId: string
-  workspace: Workspace
+  workspace: ComputerWorkspace
   source: AppSourceSnapshot
   built: BuiltApp
   template: TemplateSourceSummary

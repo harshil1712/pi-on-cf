@@ -9,7 +9,7 @@ A Worker-native experiment using Pi's portable agent loop, Cloudflare Durable Ob
 
 - `@earendil-works/pi-agent-core` runs Pi's model and tool loop.
 - One `PiSession` Durable Object owns each transcript and workspace.
-- `@cloudflare/shell` stores workspace files in Durable Object SQLite.
+- `@cloudflare/computer` stores workspace files in Durable Object SQLite and runs a just-bash shell in a Dynamic Worker.
 - AI requests use Cloudflare AI Gateway's OpenAI-compatible REST API.
 - Cloudflare Agents SDK routes callable methods and streamed Pi events over WebSockets at `/api/agents/*`.
 - TanStack Start renders the UI and handles requests that do not match an Agent route.
@@ -22,7 +22,7 @@ The source is organized by runtime boundary:
 - `src/features/workspace` contains transcript state, session orchestration, and the workspace UI.
 - `src/routes` contains thin TanStack route entries.
 
-The current tools are `read`, `write`, `edit`, `list`, `find`, and `grep`. This version does not provide native processes or a POSIX shell.
+The current tools are `read`, `write`, `edit`, `list`, `find`, `grep`, and `exec`. Computer's Worker backend supports common shell text utilities and Git, but not native processes such as Node.js, npm, or Python.
 
 See [Pi on Cloudflare Architecture](docs/architecture.md) for the current system design, and [Pi Feature and Cloudflare Platform Audit](docs/pi-feature-audit.md) for upstream Pi feature and platform research with implementation ideas.
 

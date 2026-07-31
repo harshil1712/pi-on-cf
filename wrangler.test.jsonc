@@ -12,12 +12,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "PiSession", "class_name": "PiSession" },
-      { "name": "PiRegistry", "class_name": "PiRegistry" }
+      { "name": "PiRegistry", "class_name": "PiRegistry" },
+      { "name": "ComputerTest", "class_name": "ComputerTest" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["PiSession"] },
-    { "tag": "v2", "new_sqlite_classes": ["PiRegistry"] }
+    { "tag": "v2", "new_sqlite_classes": ["PiRegistry"] },
+    { "tag": "v3", "new_sqlite_classes": ["ComputerTest"] }
   ],
   "worker_loaders": [
     { "binding": "APP_LOADER" }

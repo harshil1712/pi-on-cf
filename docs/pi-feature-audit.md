@@ -96,7 +96,7 @@ workspace.
 - `clearTranscript()` deletes the key permanently.
 
 The workspace files are stored separately in the same Durable Object SQLite
-database through `@cloudflare/shell`. Clearing the transcript does not clear
+database through `@cloudflare/computer`. Clearing the transcript does not clear
 the files.
 
 Consequences of the current snapshot model include:
@@ -115,7 +115,7 @@ cannot abort it, steer it, or enqueue follow-up work.
 
 ### Workspace
 
-The application correctly uses `@cloudflare/shell` `Workspace` as a durable
+The application uses `@cloudflare/computer` `Workspace` as a durable
 virtual filesystem. The current custom tools expose only part of the package's
 filesystem functionality and operate on UTF-8 text.
 
@@ -373,11 +373,11 @@ Other Pi interaction features include:
 | Skills | Progressive disclosure | Missing | Pi harness or Agents Skills |
 | Prompt templates | Markdown command expansion | Missing | Pi harness or application implementation |
 | Extensions | Trusted TypeScript modules | Missing | Dynamic Workers or Think extensions, not Pi-compatible |
-| Durable files | Local filesystem | Implemented | `@cloudflare/shell` Workspace |
-| Structured file operations | Native tools and shell utilities | Partial | `@cloudflare/shell` state APIs |
-| Git | Native Git | Missing | `@cloudflare/shell/git` or Sandbox |
+| Durable files | Local filesystem | Implemented | `@cloudflare/computer` Workspace |
+| Structured file operations | Native tools and shell utilities | Partial | `@cloudflare/computer` filesystem APIs |
+| Git | Native Git | Partial | `@cloudflare/computer` Git interface and Worker shell command |
 | Real shell/processes | Local OS shell | Missing | Sandbox or Containers |
-| Shell emulation | Not used | Missing | `just-bash` |
+| Shell emulation | Bounded shell tool | Implemented | `@cloudflare/computer` Worker backend |
 | Model routing | Pi provider collection | Fixed AI Gateway model | AI Gateway, Workers AI, Pi providers |
 | Model/thinking controls | Persisted session changes | Fixed values | Pi core with session state |
 | Images | Multimodal prompts and file references | Missing | Pi core plus image-capable model |
@@ -454,29 +454,27 @@ Think is a replacement harness, not an adapter around Pi's agent loop. Adopting
 it would provide similar product features but would no longer exercise Pi's
 runtime semantics.
 
-### `@cloudflare/shell`
+### `@cloudflare/computer`
 
-The installed `@cloudflare/shell` package provides a durable virtual
-filesystem and structured state operations. It includes:
+The installed `@cloudflare/computer` preview provides a durable virtual
+filesystem with pluggable command backends. It includes:
 
-- SQLite-backed `Workspace`, optionally with R2 large-file storage.
-- Text and byte file operations.
-- Copy, move, delete, links, directories, globbing, and metadata.
-- Search, replacement, JSON queries, archives, compression, hashing, and file
-  detection.
-- Transactional multi-file edit plans.
+- A Durable Object SQLite-backed `Workspace`.
+- Text and byte file operations, directory traversal, search, and metadata.
 - Pure-JavaScript Git through `isomorphic-git`.
-- A `state.*` provider for sandboxed JavaScript executed through
-  `@cloudflare/codemode` and Dynamic Workers.
+- A Dynamic Worker backend that runs `just-bash` against the durable files.
+- An optional Container backend for a FUSE-mounted full Linux environment.
+- Agent tools for file operations and command execution.
 
-Despite its name, it is explicitly not a Bash interpreter. It does not parse
-shell syntax, expose pipes, run native binaries, install packages, invoke
-compilers, or manage OS processes.
+The Worker backend parses common shell syntax and exposes text utilities and
+Git. It does not run native binaries, package managers, compilers, or OS
+processes. Those capabilities require the Container backend.
 
-Source: the installed `node_modules/@cloudflare/shell/README.md`.
+Source: the installed `node_modules/@cloudflare/computer/README.md`.
 
-The current project uses `Workspace` but not the broader state APIs, Code Mode,
-Dynamic Workers, or pure-JS Git integration.
+The current project uses `Workspace`, the Worker backend, and the Git interface.
+The package is explicitly preview-only, with unstable APIs, and is not suitable
+for production use.
 
 ### `just-bash`
 
@@ -512,26 +510,6 @@ durable workspace integration.
 Containers are the lower-level full-Linux runtime. They support custom images,
 arbitrary binaries and languages, services, and process execution. Sandbox
 provides a higher-level agent-oriented interface over this class of runtime.
-
-### Cloudflare Workspace preview
-
-`@cloudflare/workspace` is a separate preview project from
-`@cloudflare/shell`. Its intended architecture keeps the authoritative
-filesystem in Durable Object SQLite and offers two shell backends:
-
-- A Dynamic Worker running `just-bash` against the durable filesystem.
-- A container that mounts the durable filesystem through FUSE for real Linux
-  execution.
-
-The same workspace can use both backends. This is the closest available design
-for combining cheap structured/text operations with real Linux execution over
-one durable file tree.
-
-The project explicitly describes itself as preview-only, with unstable APIs,
-and not suitable for production use.
-
-Source:
-[Cloudflare Workspace](https://github.com/cloudflare/workspace)
 
 ### Dynamic Workers and Code Mode
 
@@ -593,7 +571,7 @@ selected here.
 ### Preserve Pi semantics
 
 Use Pi's `AgentHarness`, implement Pi's `SessionStorage` contract with Durable
-Object SQLite, and adapt `@cloudflare/shell` to Pi's execution environment.
+Object SQLite, and adapt `@cloudflare/computer` to Pi's execution environment.
 This preserves Pi entries, explicit leaves, compaction, queues, and branching.
 
 ### Use Cloudflare-native semantics
@@ -605,7 +583,7 @@ session semantics.
 ### Hybrid Pi on Cloudflare
 
 Keep Pi's loop and session semantics while using Cloudflare Agents for durable
-identity and transport, `@cloudflare/shell` for files, AI Gateway for model
+identity and transport, `@cloudflare/computer` for files and shell commands, AI Gateway for model
 routing, and optionally Sandbox for native execution. This keeps the product
 faithful to its name but requires the missing session and runtime adapters.
 

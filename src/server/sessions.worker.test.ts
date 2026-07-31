@@ -71,6 +71,7 @@ describe('durable sessions', () => {
 
     expect(branch.entries.filter(({ type }) => type === 'message').map(({ id }) => id)).toEqual(['user-1', 'assistant-1'])
     expect((await session(forked.id).readWorkspaceFile('/notes.txt')).content).toBe('current workspace')
+    expect(await session(forked.id).listFiles()).toContainEqual(expect.objectContaining({ path: '/notes.txt', size: 17 }))
     expect((await session(forked.id).getOverview()).lineage).toEqual({
       type: 'fork',
       parentSessionId: source.id,

@@ -1,4 +1,4 @@
-import type { WorkspaceFsLike } from '@cloudflare/shell'
+import type { ComputerWorkspace } from '../computer-workspace'
 import type { SourceFile, SourceSnapshot } from './types'
 
 export const MAX_SOURCE_FILES = 1_000
@@ -16,7 +16,7 @@ export type SourceSnapshotOptions = {
 }
 
 export async function createSourceSnapshot(
-  workspace: WorkspaceFsLike,
+  workspace: ComputerWorkspace,
   options: SourceSnapshotOptions = {},
 ): Promise<SourceSnapshot> {
   const root = normalizeAbsolutePath(options.root ?? '/')

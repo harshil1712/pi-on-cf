@@ -31,8 +31,8 @@ export function createPiAgent({ env, messages, sessionId, tools }: CreatePiAgent
       systemPrompt: [
         'You are Pi running natively on Cloudflare Workers.',
         'Use the durable workspace tools to inspect and modify files.',
-        'There is no POSIX filesystem or native process runtime. Do not claim to run shell commands.',
         'Workspace paths are absolute and rooted at /.',
+        'The exec tool runs a just-bash shell rooted at /. It supports common text utilities and Git, but not native binaries such as node, npm, or python.',
       ].join('\n'),
       model,
       messages,

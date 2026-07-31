@@ -1,7 +1,7 @@
-import type { FileSystemStateBackend, WorkspaceFsLike } from '@cloudflare/shell'
 import type { AgentHarnessTool } from '@earendil-works/pi-agent-core'
 import { Type } from 'typebox'
 import type { SessionSearchResult } from '../shared/pi-contract'
+import type { ComputerWorkspace } from './computer-workspace'
 
 type RegistrySearch = {
   searchSessions(input: { query: string; limit?: number }): Promise<SessionSearchResult[]>
@@ -15,7 +15,7 @@ const text = (value: unknown) => ({
   details: {},
 })
 
-export function createWorkspaceTools(workspace: WorkspaceFsLike, workspaceState: FileSystemStateBackend) {
+export function createWorkspaceTools(workspace: ComputerWorkspace) {
   const readSchema = Type.Object({ path: Type.String({ description: 'Absolute workspace path' }) })
   const writeSchema = Type.Object({
     path: Type.String({ description: 'Absolute workspace path' }),
@@ -33,6 +33,10 @@ export function createWorkspaceTools(workspace: WorkspaceFsLike, workspaceState:
   const grepSchema = Type.Object({
     pattern: Type.String({ description: 'File glob to search' }),
     query: Type.String({ description: 'Text or regular expression to find' }),
+  })
+  const execSchema = Type.Object({
+    command: Type.String({ description: 'Shell command to run in the workspace' }),
+    cwd: Type.Optional(Type.String({ description: 'Working directory, defaults to /' })),
   })
 
   const readTool: AgentHarnessTool<undefined, typeof readSchema> = {
@@ -69,9 +73,13 @@ export function createWorkspaceTools(workspace: WorkspaceFsLike, workspaceState:
     executionMode: 'sequential',
     execute: async (_id, { path, search, replacement }, signal) => {
       signal?.throwIfAborted()
-      const result = await workspaceState.replaceInFile(path, search, replacement)
+      const content = await workspace.readFile(path)
+      if (content === null) throw new Error(`File not found: ${path}`)
+      const occurrences = content.split(search).length - 1
+      if (occurrences !== 1) throw new Error(`Expected exactly one match in ${path}, found ${occurrences}.`)
+      await workspace.writeFile(path, content.replace(search, replacement))
       signal?.throwIfAborted()
-      return text(result)
+      return text(`Updated ${path}`)
     },
   }
   const listTool: AgentHarnessTool<undefined, typeof listSchema> = {
@@ -93,7 +101,7 @@ export function createWorkspaceTools(workspace: WorkspaceFsLike, workspaceState:
     parameters: findSchema,
     execute: async (_id, { pattern }, signal) => {
       signal?.throwIfAborted()
-      const result = await workspaceState.glob(pattern)
+      const result = await workspace.glob(pattern)
       signal?.throwIfAborted()
       return text(result)
     },
@@ -105,13 +113,35 @@ export function createWorkspaceTools(workspace: WorkspaceFsLike, workspaceState:
     parameters: grepSchema,
     execute: async (_id, { pattern, query }, signal) => {
       signal?.throwIfAborted()
-      const result = await workspaceState.searchFiles(pattern, query)
+      const files = (await workspace.glob(pattern)).filter((entry) => entry.type === 'file')
+      const result = (await Promise.all(files.map((file) => workspace.fs.grep(query, file.path)))).flat()
       signal?.throwIfAborted()
       return text(result)
     },
   }
 
-  return [readTool, writeTool, editTool, listTool, findTool, grepTool]
+  const execTool: AgentHarnessTool<undefined, typeof execSchema> = {
+    name: 'exec',
+    label: 'Execute command',
+    description: 'Run a shell command with Computer\'s Worker backend. Supports built-in text tools and Git, but not native binaries such as Node.js or npm.',
+    parameters: execSchema,
+    executionMode: 'sequential',
+    execute: async (_id, { command, cwd }, signal) => {
+      signal?.throwIfAborted()
+      const handle = await workspace.shell.exec(command, { cwd: cwd ?? '/', encoding: 'utf8', backend: 'shell' })
+      const abort = () => void handle.kill('SIGTERM').catch(() => undefined)
+      signal?.addEventListener('abort', abort, { once: true })
+      try {
+        const result = await handle.result()
+        signal?.throwIfAborted()
+        return text({ exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr })
+      } finally {
+        signal?.removeEventListener('abort', abort)
+      }
+    },
+  }
+
+  return [readTool, writeTool, editTool, listTool, findTool, grepTool, execTool]
 }
 
 export function createInitializeAppTool(initialize: () => Promise<void>): AgentHarnessTool<undefined> {

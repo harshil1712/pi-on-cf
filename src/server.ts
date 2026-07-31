@@ -5,6 +5,7 @@ import { PI_AGENT_PREFIX } from './shared/pi-contract'
 
 export { PiSession } from './server/pi-session'
 export { PiRegistry } from './server/pi-registry'
+export { WorkspaceServiceProxy } from '@cloudflare/computer'
 
 export default createServerEntry({
   async fetch(request) {

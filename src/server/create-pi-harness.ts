@@ -14,8 +14,8 @@ type CreatePiHarnessOptions = {
 const BASE_SYSTEM_PROMPT = [
   'You are Pi running natively on Cloudflare Workers.',
   'Use the durable workspace tools to inspect and modify files.',
-  'There is no POSIX filesystem or native process runtime. Do not claim to run shell commands.',
   'Workspace paths are absolute and rooted at /.',
+  'The exec tool runs a just-bash shell rooted at /. It supports common text utilities and Git, but not native binaries such as node, npm, or python.',
   'The workspace starts empty. Call initialize_app only when the user asks to build an app.',
   'After app initialization, browser code is under /src and Worker API code is in /worker/index.ts.',
   'Use /api/* for Worker API routes and let non-API routes return 404 so the React single-page application can handle them.',

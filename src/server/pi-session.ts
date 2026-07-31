@@ -1,4 +1,5 @@
-import { Workspace, createWorkspaceStateBackend } from '@cloudflare/shell'
+import { type DurableObjectStorageLike, Workspace, type WorkspaceStub } from '@cloudflare/computer'
+import { WorkerBackend } from '@cloudflare/computer/backends/worker'
 import {
   DEFAULT_COMPACTION_SETTINGS,
   Session,
@@ -41,6 +42,8 @@ import { createSourceSnapshot } from './apps/source'
 import { TemplateRepository } from './apps/template-repository'
 import type { BuiltApp, TemplateSourceSummary } from './apps/types'
 import { WorkersClient } from './apps/workers-client'
+import type { ComputerWorkspace } from './computer-workspace'
+import { migrateLegacyShellWorkspace } from './legacy-workspace-migration'
 
 type InitializeMetadata = Pick<SessionSummary, 'id' | 'createdAt' | 'updatedAt' | 'lineage'> & { name?: string }
 type SessionExport = {
@@ -57,6 +60,7 @@ const MEMORY_EXTRACTION_BATCH_CHARS = 30_000
 const MEMORY_SOURCE_ENTRY_CHARS = 12_000
 const APP_TEMPLATE_SETTING = 'appTemplate'
 const APP_DEPLOYMENT_SETTING = 'appDeployment'
+const COMPUTER_WORKSPACE_MIGRATION_SETTING = 'computerWorkspaceMigration'
 
 type MemoryRegistry = {
   searchSessions(input: { query: string; limit?: number }): Promise<import('../shared/pi-contract').SessionSearchResult[]>
@@ -76,15 +80,32 @@ export class PiSession extends Agent<Env> {
   private readonly sessionStorage = new PiSessionStorage(this.ctx.storage)
   private readonly session = new Session(this.sessionStorage)
   private readonly workspace = new Workspace({
-    sql: this.ctx.storage.sql,
-    name: () => this.ctx.id.toString(),
-  })
-  private readonly workspaceState = createWorkspaceStateBackend(this.workspace)
+    storage: this.ctx.storage as unknown as DurableObjectStorageLike,
+    backends: [new WorkerBackend({
+      id: 'shell',
+      loader: this.env.APP_LOADER,
+      workspace: { binding: 'PiSession', id: this.ctx.id.toString() },
+      ctx: this.ctx,
+    })],
+    useThink: true,
+  }) as ComputerWorkspace
 
   async onStart(): Promise<void> {
+    if (!this.sessionStorage.getSetting<boolean>(COMPUTER_WORKSPACE_MIGRATION_SETTING)) {
+      await migrateLegacyShellWorkspace(
+        this.ctx.storage as unknown as DurableObjectStorageLike,
+        this.workspace,
+      )
+      this.sessionStorage.setSetting(COMPUTER_WORKSPACE_MIGRATION_SETTING, true)
+    }
     if (this.sessionStorage.isInitialized()) {
       this.scheduleMemoryExtraction()
     }
+  }
+
+  async __getWorkspaceStub(): Promise<WorkspaceStub> {
+    await this.workspace.ready()
+    return this.workspace.stub()
   }
 
   async initialize(metadata: InitializeMetadata): Promise<SessionOverview> {
@@ -232,9 +253,9 @@ export class PiSession extends Agent<Env> {
   @callable()
   async readWorkspaceFile(path: string): Promise<WorkspaceFileContent> {
     validatePath(path)
-    const [content, stat] = await Promise.all([this.workspace.readFile(path), this.workspaceState.stat(path)])
+    const [content, stat] = await Promise.all([this.workspace.readFile(path), this.workspace.stat(path)])
     if (content === null || !stat || stat.type !== 'file') throw new Error(`File not found: ${path}`)
-    return { path, content, size: stat.size, mtime: stat.mtime.toISOString() }
+    return { path, content, size: stat.size, mtime: new Date(stat.updatedAt).toISOString() }
   }
 
   @callable()
@@ -346,8 +367,9 @@ export class PiSession extends Agent<Env> {
       this.sessionStorage.setSetting(MEMORY_EXTRACTION_CURSOR, this.sessionStorage.getEntriesWithSeq().at(-1)?.seq ?? 0)
       for (const file of snapshot.files) {
         validatePath(file.path)
-        await this.workspace.mkdir(file.path.slice(0, file.path.lastIndexOf('/')) || '/', { recursive: true })
-        if (file.encoding === 'base64') await this.workspace.writeFileBytes(file.path, decodeBase64(file.content))
+        const parent = file.path.slice(0, file.path.lastIndexOf('/')) || '/'
+        if (parent !== '/') await this.workspace.mkdir(parent, { recursive: true })
+        if (file.encoding === 'base64') await this.workspace.fs.writeFile(file.path, decodeBase64(file.content))
         else await this.workspace.writeFile(file.path, file.content)
       }
       if (snapshot.appTemplate) this.sessionStorage.setSetting(APP_TEMPLATE_SETTING, snapshot.appTemplate)
@@ -398,7 +420,7 @@ export class PiSession extends Agent<Env> {
       sessionId,
       storage: this.sessionStorage,
       tools: [
-        ...createWorkspaceTools(this.workspace, this.workspaceState),
+        ...createWorkspaceTools(this.workspace),
         createInitializeAppTool(() => this.initializeAppTemplate()),
         createSessionSearchTool(registry),
         createMemoryTool(registry, sessionId),
@@ -519,7 +541,7 @@ export class PiSession extends Agent<Env> {
         if (entries.length < WORKSPACE_PAGE_SIZE) break
       }
     }
-    return files
+    return Promise.all(files.map(async (file) => await this.workspace.stat(file.path) ?? file))
   }
 
   private async withExclusiveOperation<T>(operation: () => Promise<T>): Promise<T> {

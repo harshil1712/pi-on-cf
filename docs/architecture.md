@@ -9,7 +9,7 @@ Pi on Cloudflare is a TanStack Start application deployed as a Cloudflare Worker
 - Pi's `AgentHarness` and `Session` abstractions from `@earendil-works/pi-agent-core`.
 - One `PiSession` Durable Object per session.
 - A singleton `PiRegistry` Durable Object for discovery, search, lineage, and learned memory.
-- A SQLite-backed virtual filesystem from `@cloudflare/shell`.
+- A SQLite-backed virtual filesystem and Dynamic Worker shell from `@cloudflare/computer`.
 - Cloudflare AI Gateway through Pi's OpenAI-compatible provider adapter.
 - Agents SDK RPC and streaming between the React client and Durable Objects.
 
@@ -116,7 +116,7 @@ Relevant source:
 
 ## Workspace and Tools
 
-Each session has an isolated `@cloudflare/shell` workspace. The model can use:
+Each session has an isolated `@cloudflare/computer` workspace. The model can use:
 
 - `read`
 - `write`
@@ -124,12 +124,15 @@ Each session has an isolated `@cloudflare/shell` workspace. The model can use:
 - `list`
 - `find`
 - `grep`
+- `exec`
 - `session_search`
 - `memory`
 
+On first activation after upgrading from `@cloudflare/shell`, the session copies its legacy SQLite workspace into Computer's VFS and records the completed migration.
+
 The browser can list, preview, and download text files. The model can modify the entire session workspace without an approval step.
 
-The application does not provide a POSIX shell, native process execution, Git, package installation, preview servers, or a general network-fetch tool. Workspace operations are text-oriented.
+The `exec` tool runs Computer's just-bash Worker backend with common text utilities and Git. It does not provide native process execution, package installation, preview servers, or a general network-fetch tool.
 
 Relevant source:
 
@@ -196,7 +199,7 @@ Not currently implemented:
 - Image uploads or multimodal prompts.
 - Model and thinking-level selection.
 - Usage and cost reporting.
-- Native shell, Git, package installation, or test execution.
+- Native process execution, package installation, or test execution.
 - Memory-management controls.
 
 ## Verification
