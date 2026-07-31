@@ -1,0 +1,33 @@
+package-lock.json
+  s_981b10351b3cba::t_1d743c90dc88a4 10,18,28,1776-1785,1817-1820,1823-1824,1827-1830,1833,1836,1839,3368-3409,3484-3489,3577-3591,3622-3633,4518-4526,6653-6675,7638-7649,7831-7839,7891-7942,7994-8005,8146-8151,8240-8246,9122-9131,9293-9302,9543-9552,9673-9711,9758-9775,9872-9878,9997-10003,10487-10495,10638-10649,10860-10894,12342-12356,12375-12390,12467-12473,12484-12506,12545-12578,12813-12818,12896-12910,13046-13073,13160-13170,13198-13222,13253-13281,13683-13704,14107-14118,14234-14274,14378-14422,14530-14547,14621-14646,14719-14730,14949,15456-15470
+package.json
+  s_981b10351b3cba::t_d90ecc2e78e08d 22,30,40
+src/server-test-entry.ts
+  s_27fb6afc4d9136::t_ff5b5de84e6f10 3-4
+wrangler.test.jsonc
+  s_27fb6afc4d9136::t_2464bcd3d239a8 15-16,21-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "97557b02e6556620bfdee56689adf70722055d05",
+  "prompts": {},
+  "sessions": {
+    "s_27fb6afc4d9136": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_04815659fffeqjijdFB3gVRUM6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    },
+    "s_981b10351b3cba": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0481bc4baffe9at39g7aVpRof9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
