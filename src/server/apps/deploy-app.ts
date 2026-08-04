@@ -14,16 +14,15 @@ type DeployAppOptions = {
 }
 
 export async function deployApp({ env, sessionId, workspace, source, built, template }: DeployAppOptions): Promise<DeploymentSummary> {
-  if (!env.CLOUDFLARE_ACCOUNT_ID || !env.WORKERS_DEPLOY_API_TOKEN) {
+  const token = (env as Env & { WORKERS_DEPLOY_API_TOKEN?: string }).WORKERS_DEPLOY_API_TOKEN
+  if (!env.CLOUDFLARE_ACCOUNT_ID || !token) {
     throw new Error('CLOUDFLARE_ACCOUNT_ID and WORKERS_DEPLOY_API_TOKEN must be configured.')
   }
-  const repositoryName = `${env.APP_REPOSITORY_PREFIX || 'pi-app'}-${sessionId}`
+  const repositoryName = 'app'
   const workerName = `${env.APP_WORKER_PREFIX || 'pi-app'}-${sessionId}`
   const repository = new AppArtifactsRepository(
-    env.APP_ARTIFACTS,
+    workspace.artifacts,
     repositoryName,
-    env.APP_ARTIFACTS_NAMESPACE || 'pi-apps',
-    env.CLOUDFLARE_ACCOUNT_ID,
     workspace,
     template.repository,
     template.commit,
@@ -31,7 +30,7 @@ export async function deployApp({ env, sessionId, workspace, source, built, temp
   const commitSha = await repository.publish(source)
   const deployed = await new WorkersClient({
     accountId: env.CLOUDFLARE_ACCOUNT_ID,
-    token: env.WORKERS_DEPLOY_API_TOKEN,
+    token,
   }).deploy({
     name: workerName,
     modules: workerModules(built.modules),

@@ -6,7 +6,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pi-on-cf",
   "compatibility_date": "2026-07-27",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "experimental"],
   "main": "src/server.ts",
   "vars": {
     "AI_GATEWAY_ID": "default",
@@ -14,12 +14,17 @@
     "AI_MEMORY_MODEL": "@cf/zai-org/glm-5.2",
     "APP_TEMPLATE_REPOSITORY": "https://github.com/harshil1712/cf-react-template.git",
     "APP_TEMPLATE_COMMIT": "f17ae99edcea0b1be4ea0a6be2f4a4694e2457a7",
-    "APP_ARTIFACTS_NAMESPACE": "pi-apps",
-    "APP_REPOSITORY_PREFIX": "pi-app",
     "APP_WORKER_PREFIX": "pi-app",
+    "COMPUTER_R2_BUCKET": "pi-on-cf-computer",
   },
   "secrets": {
-    "required": ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "WORKERS_DEPLOY_API_TOKEN"],
+    "required": [
+      "CLOUDFLARE_ACCOUNT_ID",
+      "AI_GATEWAY_TOKEN",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY",
+      "WORKERS_DEPLOY_API_TOKEN",
+    ],
   },
   "durable_objects": {
     "bindings": [
@@ -33,6 +38,16 @@
       },
     ],
   },
+  "containers": [
+    {
+      "class_name": "PiSession",
+      "image": "./Dockerfile.computer",
+      "instance_type": "standard-2",
+      "max_instances": 5,
+      "rollout_active_grace_period": 0,
+      "rollout_step_percentage": [100],
+    },
+  ],
   "migrations": [
     {
       "tag": "v1",
@@ -50,6 +65,12 @@
       "remote": true,
     },
   ],
+  "r2_buckets": [
+    {
+      "binding": "COMPUTER_R2",
+      "bucket_name": "pi-on-cf-computer",
+    },
+  ],
   "worker_loaders": [
     {
       "binding": "APP_LOADER",
@@ -57,6 +78,7 @@
   ],
   "observability": {
     "enabled": true,
+    "traces": { "enabled": true },
   },
   "upload_source_maps": true,
   /**

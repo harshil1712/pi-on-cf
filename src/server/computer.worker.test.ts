@@ -26,6 +26,15 @@ describe('@cloudflare/computer integration', () => {
     expect(result.stdout).toMatch(/initial commit/)
   })
 
+  it('runs structured modules in the Worker JavaScript backend', async () => {
+    await expect(computer('javascript').exerciseJavaScript()).resolves.toEqual({
+      exitCode: 0,
+      stdout: 'computed 42\n',
+      value: { value: 42 },
+      file: '42',
+    })
+  })
+
   it('clones and installs the pinned public app template', async () => {
     const commit = 'f17ae99edcea0b1be4ea0a6be2f4a4694e2457a7'
     const result = await computer('template').installTemplate(

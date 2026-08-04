@@ -1,4 +1,5 @@
 import type { AgentHarnessTool } from '@earendil-works/pi-agent-core'
+import type { WorkspaceRuntimeValue } from '@cloudflare/computer'
 import { Type } from 'typebox'
 import type { SessionSearchResult } from '../shared/pi-contract'
 import type { ComputerWorkspace } from './computer-workspace'
@@ -23,7 +24,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
   })
   const editSchema = Type.Object({
     path: Type.String({ description: 'Absolute workspace path' }),
-    search: Type.String({ description: 'Exact text to replace' }),
+    search: Type.String({ minLength: 1, description: 'Non-empty exact text to replace' }),
     replacement: Type.String({ description: 'Replacement text' }),
   })
   const listSchema = Type.Object({
@@ -36,7 +37,23 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
   })
   const execSchema = Type.Object({
     command: Type.String({ description: 'Shell command to run in the workspace' }),
-    cwd: Type.Optional(Type.String({ description: 'Working directory, defaults to /' })),
+    cwd: Type.Optional(Type.String({ description: 'Durable workspace directory. Container execution maps / to /workspace.' })),
+    backend: Type.Optional(Type.Union([
+      Type.Literal('shell'),
+      Type.Literal('container'),
+    ], { description: 'Use shell for fast text and Git operations, or container for native binaries and network access' })),
+  })
+  const javascriptSchema = Type.Object({
+    source: Type.String({ description: 'ECMAScript module with a default export or default function' }),
+    input: Type.Optional(Type.Unknown({ description: 'JSON-compatible input passed to the default function' })),
+    cwd: Type.Optional(Type.String({ description: 'Module working directory, defaults to /' })),
+  })
+  const publishSchema = Type.Object({
+    path: Type.String({ description: 'Absolute path of the workspace file to share' }),
+    expiresAfterMs: Type.Optional(Type.Integer({ minimum: 1_000, maximum: 604_800_000 })),
+  })
+  const artifactsSchema = Type.Object({
+    argv: Type.Array(Type.String(), { minItems: 1, description: 'Artifacts CLI arguments, such as ["list"]' }),
   })
 
   const readTool: AgentHarnessTool<undefined, typeof readSchema> = {
@@ -123,25 +140,116 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
   const execTool: AgentHarnessTool<undefined, typeof execSchema> = {
     name: 'exec',
     label: 'Execute command',
-    description: 'Run a shell command with Computer\'s Worker backend. Supports built-in text tools and Git, but not native binaries such as Node.js or npm.',
+    description: 'Run a command with Computer. Use shell for fast built-in text tools and Git; use container for Linux, Node.js, npm, native binaries, and network access.',
     parameters: execSchema,
     executionMode: 'sequential',
-    execute: async (_id, { command, cwd }, signal) => {
+    execute: async (_id, { command, cwd, backend }, signal) => {
       signal?.throwIfAborted()
-      const handle = await workspace.shell.exec(command, { cwd: cwd ?? '/', encoding: 'utf8', backend: 'shell' })
+      const selectedBackend = backend ?? 'shell'
+      using handle = await workspace.runtime.exec(command, {
+        cwd: selectedBackend === 'container' ? containerPath(cwd ?? '/') : (cwd ?? '/'),
+        encoding: 'utf8',
+        backend: selectedBackend,
+      })
       const abort = () => void handle.kill('SIGTERM').catch(() => undefined)
       signal?.addEventListener('abort', abort, { once: true })
       try {
         const result = await handle.result()
         signal?.throwIfAborted()
-        return text({ exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr })
+        return text({
+          status: result.status,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          pushed: result.pushed,
+          pulled: result.pulled,
+          skipped: result.skipped,
+          sync: result.sync,
+        })
       } finally {
         signal?.removeEventListener('abort', abort)
       }
     },
   }
 
-  return [readTool, writeTool, editTool, listTool, findTool, grepTool, execTool]
+  const javascriptTool: AgentHarnessTool<undefined, typeof javascriptSchema> = {
+    name: 'javascript',
+    label: 'Run JavaScript',
+    description: 'Run an ECMAScript module in Computer\'s isolated Worker JavaScript backend. Supports structured input/results, durable imports, node:fs/promises, ws:git, and ws:artifacts.',
+    parameters: javascriptSchema,
+    execute: async (_id, { source, input, cwd }, signal) => {
+      signal?.throwIfAborted()
+      using handle = await workspace.runtime.exec(source, {
+        backend: 'javascript',
+        cwd: cwd ?? '/',
+        encoding: 'utf8',
+        input: input as WorkspaceRuntimeValue | undefined,
+      })
+      const abort = () => void handle.kill('SIGTERM').catch(() => undefined)
+      signal?.addEventListener('abort', abort, { once: true })
+      try {
+        const result = await handle.result()
+        signal?.throwIfAborted()
+        return text({
+          status: result.status,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          value: result.value,
+          pushed: result.pushed,
+          pulled: result.pulled,
+          skipped: result.skipped,
+          sync: result.sync,
+        })
+      } finally {
+        signal?.removeEventListener('abort', abort)
+      }
+    },
+  }
+
+  const publishTool: AgentHarnessTool<undefined, typeof publishSchema> = {
+    name: 'publish',
+    label: 'Publish file',
+    description: 'Publish a workspace file with Computer Assets and return an expiring URL.',
+    parameters: publishSchema,
+    executionMode: 'sequential',
+    execute: async (_id, { path, expiresAfterMs }, signal) => {
+      signal?.throwIfAborted()
+      if (!workspace.assets) throw new Error('Computer Assets is not configured.')
+      const url = await workspace.assets.share(path, { expiresAfter: expiresAfterMs ?? 3_600_000 })
+      signal?.throwIfAborted()
+      return text({ path, url })
+    },
+  }
+
+  const artifactsTool: AgentHarnessTool<undefined, typeof artifactsSchema> = {
+    name: 'artifacts',
+    label: 'Manage artifacts',
+    description: 'Manage session-scoped Cloudflare Artifact repositories through Computer\'s native CLI.',
+    parameters: artifactsSchema,
+    executionMode: 'sequential',
+    execute: async (_id, { argv }, signal) => {
+      signal?.throwIfAborted()
+      const result = await workspace.artifacts.cli({ argv })
+      signal?.throwIfAborted()
+      return text(result)
+    },
+  }
+
+  return [readTool, writeTool, editTool, listTool, findTool, grepTool, execTool, javascriptTool, publishTool, artifactsTool]
+}
+
+function containerPath(path: string): string {
+  if (!path.startsWith('/')) throw new Error('Container cwd must be an absolute durable workspace path.')
+  const parts: string[] = []
+  for (const part of path.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') throw new Error("Container cwd cannot contain '..'.")
+    parts.push(part)
+  }
+  const normalized = `/${parts.join('/')}`
+  if (normalized === '/workspace' || normalized.startsWith('/workspace/')) return normalized
+  return normalized === '/' ? '/workspace' : `/workspace${normalized}`
 }
 
 export function createInitializeAppTool(initialize: () => Promise<void>): AgentHarnessTool<undefined> {

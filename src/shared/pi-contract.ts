@@ -7,7 +7,8 @@ export type PiStreamEvent =
   | { type: 'text_start' | 'text_end' | 'thinking_start' | 'thinking_end' | 'done' }
   | { type: 'text_delta' | 'thinking_delta'; delta: string }
   | { type: 'tool_execution_start'; callId: string; name: string; args: unknown }
-  | { type: 'tool_execution_end'; callId: string; name: string; isError: boolean }
+  | { type: 'tool_execution_update'; callId: string; name: string; result: unknown }
+  | { type: 'tool_execution_end'; callId: string; name: string; isError: boolean; result?: unknown }
   | { type: 'error'; error: string }
 
 export type WorkspaceFile = {

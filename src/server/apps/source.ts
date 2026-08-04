@@ -30,6 +30,7 @@ export async function createSourceSnapshot(
     for (let offset = 0; ; offset += 200) {
       const entries = await workspace.readDir(directory, { limit: 200, offset })
       for (const entry of entries) {
+        if (isMountedPath(entry.path)) continue
         if (entry.type === 'directory' && EXCLUDED_DIRECTORIES.has(entry.name)) continue
 
         const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name
@@ -52,6 +53,13 @@ export async function createSourceSnapshot(
       }
       if (entries.length < 200) break
     }
+  }
+
+  function isMountedPath(path: string): boolean {
+    for (const mount of workspace.mounts().keys()) {
+      if (path === mount || path.startsWith(`${mount}/`)) return true
+    }
+    return false
   }
 
   await visit(root, '')

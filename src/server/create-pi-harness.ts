@@ -15,7 +15,11 @@ const BASE_SYSTEM_PROMPT = [
   'You are Pi running natively on Cloudflare Workers.',
   'Use the durable workspace tools to inspect and modify files.',
   'Workspace paths are absolute and rooted at /.',
-  'The exec tool runs a just-bash shell rooted at /. It supports common text utilities and Git, but not native binaries such as node, npm, or python.',
+  'The exec tool has two Computer backends: shell is a fast just-bash environment rooted at / with text utilities and Git; container is Linux rooted at /workspace with native binaries, Node.js, npm, and network access.',
+  'Use shell for ordinary file searches and text processing. Use container only when the task needs native execution, package installation, tests, builds, or networked CLI tools.',
+  'In container commands the durable workspace root / is mounted at /workspace, so durable /src/index.ts is /workspace/src/index.ts in Linux. The exec tool maps cwd automatically, but absolute paths inside commands must use /workspace.',
+  'The javascript tool runs isolated ECMAScript modules with structured input and output, durable imports, node:fs/promises, ws:git, and ws:artifacts.',
+  'Files under /reference are a read-only R2 mount when configured. Use publish to share a generated file and artifacts to manage session-scoped repositories.',
   'The workspace starts empty. Call initialize_app only when the user asks to build an app.',
   'After app initialization, browser code is under /src and Worker API code is in /worker/index.ts.',
   'Use /api/* for Worker API routes and let non-API routes return 404 so the React single-page application can handle them.',
@@ -37,8 +41,8 @@ export function createPiHarness({ env, sessionId, storage, tools, memory }: Crea
       apiKey: {
         name: 'Cloudflare API token',
         resolve: async () => ({
-          auth: { apiKey: env.CLOUDFLARE_API_TOKEN, baseUrl: model.baseUrl },
-          source: 'CLOUDFLARE_API_TOKEN',
+          auth: { apiKey: env.AI_GATEWAY_TOKEN, baseUrl: model.baseUrl },
+          source: 'AI_GATEWAY_TOKEN',
         }),
       },
     },

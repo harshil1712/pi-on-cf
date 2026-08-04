@@ -90,11 +90,12 @@ describe('reduceStreamEvent', () => {
       callId: 'call-1',
       name: 'write',
       isError: false,
+      result: { content: 'Wrote /hello.ts' },
     })
 
     expect(completed.entries).toMatchObject([
       { id: 'reasoning-1', type: 'reasoning', status: 'running' },
-      { id: 'tool-call-1', type: 'tool', status: 'complete' },
+      { id: 'tool-call-1', type: 'tool', status: 'complete', result: { content: 'Wrote /hello.ts' } },
     ])
   })
 })

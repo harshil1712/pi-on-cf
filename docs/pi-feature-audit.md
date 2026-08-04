@@ -472,7 +472,7 @@ processes. Those capabilities require the Container backend.
 
 Source: the installed `node_modules/@cloudflare/computer/README.md`.
 
-The current project uses `Workspace`, the Worker backend, and the Git interface.
+The current project uses `Workspace`, Worker Shell, Worker JavaScript, the Container backend, Git, R2 mounts, Assets, Artifacts, observability, and durable synchronization retries.
 The package is explicitly preview-only, with unstable APIs, and is not suitable
 for production use.
 

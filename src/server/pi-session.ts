@@ -1,5 +1,19 @@
-import { type DurableObjectStorageLike, Workspace, type WorkspaceStub } from '@cloudflare/computer'
-import { WorkerBackend } from '@cloudflare/computer/backends/worker'
+import {
+  R2Bucket as mountR2Bucket,
+  type DurableObjectStorageLike,
+  type SyncRetryIntent,
+  type SyncRetryScheduler,
+  Workspace,
+  type WorkspaceOptions,
+  type WorkspaceStub,
+} from '@cloudflare/computer'
+import { createAssets } from '@cloudflare/computer/assets'
+import { CloudflareContainerBackend, withWorkspaceContainer } from '@cloudflare/computer/backends/container'
+import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-javascript'
+import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
+import { createGitClient } from '@cloudflare/computer/git'
+import { createCloudflareObserver } from '@cloudflare/computer/observe/cloudflare'
+import { tracing } from 'cloudflare:workers'
 import {
   DEFAULT_COMPACTION_SETTINGS,
   Session,
@@ -72,25 +86,101 @@ type MemoryRegistry = {
   applyIndexEvents(sessionId: string, events: SessionIndexEvent[]): Promise<void>
 }
 
-export class PiSession extends Agent<Env> {
+type ComputerEnv = Env & {
+  COMPUTER_R2?: R2Bucket
+  COMPUTER_R2_BUCKET?: string
+  R2_ACCESS_KEY_ID?: string
+  R2_SECRET_ACCESS_KEY?: string
+}
+
+const SYNC_RETRY_PREFIX = 'computer:sync-retry:'
+
+class DurableSyncRetryScheduler implements SyncRetryScheduler {
+  constructor(private readonly storage: DurableObjectStorage) {}
+
+  get(backend: string): Promise<SyncRetryIntent | undefined> {
+    return this.storage.get<SyncRetryIntent>(`${SYNC_RETRY_PREFIX}${backend}`)
+  }
+
+  async schedule(intent: SyncRetryIntent): Promise<void> {
+    await this.storage.put(`${SYNC_RETRY_PREFIX}${intent.backend}`, intent)
+    const alarm = await this.storage.getAlarm()
+    if (alarm === null || intent.notBefore < alarm) await this.storage.setAlarm(intent.notBefore)
+  }
+
+  async clear(backend: string): Promise<void> {
+    await this.storage.delete(`${SYNC_RETRY_PREFIX}${backend}`)
+  }
+}
+
+class PiAgentBase extends Agent<Env> {}
+const PiSessionBase = withWorkspaceContainer(PiAgentBase)
+
+export class PiSession extends PiSessionBase {
   private active = false
   private harness?: PiHarness
   private memoryExtraction?: Promise<void>
   private builtApp?: BuiltApp
   private readonly sessionStorage = new PiSessionStorage(this.ctx.storage)
   private readonly session = new Session(this.sessionStorage)
+  private readonly containerBackend = new CloudflareContainerBackend({
+    id: 'container',
+    container: () => this,
+    workspace: { binding: 'PiSession', id: this.ctx.id.toString() },
+  })
+  private readonly retryScheduler = new DurableSyncRetryScheduler(this.ctx.storage)
   private readonly workspace = new Workspace({
     storage: this.ctx.storage as unknown as DurableObjectStorageLike,
-    backends: [new WorkerBackend({
-      id: 'shell',
-      loader: this.env.APP_LOADER,
-      workspace: { binding: 'PiSession', id: this.ctx.id.toString() },
-      ctx: this.ctx,
-    })],
+    sessionId: this.ctx.id.toString(),
+    waitUntil: this.ctx.waitUntil.bind(this.ctx),
+    backends: [
+      new WorkerShellBackend({
+        id: 'shell',
+        loader: this.env.APP_LOADER,
+        workspace: { binding: 'PiSession', id: this.ctx.id.toString() },
+        ctx: this.ctx,
+      }),
+      new WorkerJavaScriptBackend({
+        id: 'javascript',
+        loader: this.env.APP_LOADER,
+        root: '/',
+        allowGitNetwork: true,
+        allowArtifactNetwork: true,
+      }),
+      this.containerBackend,
+    ],
+    git: createGitClient(),
+    defaultGitIdentity: { name: 'Pi', email: 'pi@cloudflare.invalid' },
+    artifacts: { binding: this.env.APP_ARTIFACTS },
+    mounts: computerMounts(this.env as ComputerEnv),
+    assets: computerAssets(this.env as ComputerEnv),
+    observer: createCloudflareObserver({ tracing }),
+    retryScheduler: this.retryScheduler,
     useThink: true,
   }) as ComputerWorkspace
 
+  override fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname === '/ws') return this.containerBackend.handleFetch(request)
+    return super.fetch(request)
+  }
+
+  override async alarm(): Promise<void> {
+    await super.alarm()
+    const intent = await this.retryScheduler.get('container')
+    if (!intent) return
+    if (intent.notBefore > Date.now()) {
+      const alarm = await this.ctx.storage.getAlarm()
+      if (alarm === null || intent.notBefore < alarm) await this.ctx.storage.setAlarm(intent.notBefore)
+      return
+    }
+    const outcome = await this.workspace.retryPendingSync('container')
+    if (outcome.status === 'pending' || outcome.status === 'exhausted') {
+      console.error('Computer container synchronization did not complete', outcome)
+    }
+  }
+
   async onStart(): Promise<void> {
+    if (this.ctx.container) await this.ctx.container.setInactivityTimeout(5 * 60_000)
     if (!this.sessionStorage.getSetting<boolean>(COMPUTER_WORKSPACE_MIGRATION_SETTING)) {
       await migrateLegacyShellWorkspace(
         this.ctx.storage as unknown as DurableObjectStorageLike,
@@ -307,8 +397,8 @@ export class PiSession extends Agent<Env> {
 
   @callable({ streaming: true })
   async prompt(stream: StreamingResponse, prompt: string): Promise<void> {
-    if (!this.env.CLOUDFLARE_ACCOUNT_ID || !this.env.CLOUDFLARE_API_TOKEN) {
-      throw new Error('CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be configured.')
+    if (!this.env.CLOUDFLARE_ACCOUNT_ID || !this.env.AI_GATEWAY_TOKEN) {
+      throw new Error('CLOUDFLARE_ACCOUNT_ID and AI_GATEWAY_TOKEN must be configured.')
     }
     prompt = validPrompt(prompt)
     if (this.active) throw new Error('Pi is already running in this workspace.')
@@ -367,6 +457,7 @@ export class PiSession extends Agent<Env> {
       this.sessionStorage.setSetting(MEMORY_EXTRACTION_CURSOR, this.sessionStorage.getEntriesWithSeq().at(-1)?.seq ?? 0)
       for (const file of snapshot.files) {
         validatePath(file.path)
+        if (this.isMountedPath(file.path)) continue
         const parent = file.path.slice(0, file.path.lastIndexOf('/')) || '/'
         if (parent !== '/') await this.workspace.mkdir(parent, { recursive: true })
         if (file.encoding === 'base64') await this.workspace.fs.writeFile(file.path, decodeBase64(file.content))
@@ -392,12 +483,14 @@ export class PiSession extends Agent<Env> {
       await Promise.all([
         new WorkersClient({
           accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-          token: this.env.WORKERS_DEPLOY_API_TOKEN,
+          token: deploymentToken(this.env),
         }).deleteWorker(deployment.workerName),
-        this.env.APP_ARTIFACTS.delete(`${this.env.APP_REPOSITORY_PREFIX || 'pi-app'}-${this.sessionStorage.getMetadataSync().id}`),
+        this.workspace.artifacts.delete('app'),
+        this.env.APP_ARTIFACTS.delete(`pi-app-${this.sessionStorage.getMetadataSync().id}`),
       ])
     }
     for (const entry of await this.workspace.readDir('/')) {
+      if (this.isMountedPath(entry.path)) continue
       await this.workspace.rm(entry.path, { recursive: true, force: true })
     }
     await this.destroy()
@@ -477,6 +570,7 @@ export class PiSession extends Agent<Env> {
     const files = await this.listAllWorkspaceFiles()
     const contents: Array<{ path: string; content: string; encoding: 'base64' }> = []
     for (const { path } of files) {
+      if (this.isMountedPath(path)) continue
       const content = await this.workspace.readFileBytes(path)
       if (content !== null) contents.push({ path, content: encodeBase64(content), encoding: 'base64' })
     }
@@ -544,6 +638,13 @@ export class PiSession extends Agent<Env> {
     return Promise.all(files.map(async (file) => await this.workspace.stat(file.path) ?? file))
   }
 
+  private isMountedPath(path: string): boolean {
+    for (const mount of this.workspace.mounts().keys()) {
+      if (path === mount || path.startsWith(`${mount}/`)) return true
+    }
+    return false
+  }
+
   private async withExclusiveOperation<T>(operation: () => Promise<T>): Promise<T> {
     if (this.active) throw new Error('Pi is currently running.')
     this.active = true
@@ -581,7 +682,7 @@ export class PiSession extends Agent<Env> {
   }
 
   private async extractNextMemoryBatch(): Promise<void> {
-    if (!this.env.CLOUDFLARE_ACCOUNT_ID || !this.env.CLOUDFLARE_API_TOKEN) return
+    if (!this.env.CLOUDFLARE_ACCOUNT_ID || !this.env.AI_GATEWAY_TOKEN) return
     const cursor = this.sessionStorage.getSetting<number>(MEMORY_EXTRACTION_CURSOR) ?? 0
     const pending = this.sessionStorage.getEntriesWithSeq().filter(({ seq }) => seq > cursor)
     if (pending.length === 0) return
@@ -621,6 +722,35 @@ export class PiSession extends Agent<Env> {
     const latestCursor = this.sessionStorage.getSetting<number>(MEMORY_EXTRACTION_CURSOR) ?? 0
     this.sessionStorage.setSetting(MEMORY_EXTRACTION_CURSOR, Math.max(latestCursor, throughRevision))
   }
+}
+
+function computerMounts(env: ComputerEnv): WorkspaceOptions['mounts'] {
+  if (!env.COMPUTER_R2) return undefined
+  return {
+    '/reference': mountR2Bucket(env.COMPUTER_R2, { prefix: 'reference/', mode: 'read-only' }),
+  }
+}
+
+function computerAssets(env: ComputerEnv): WorkspaceOptions['assets'] {
+  if (!env.COMPUTER_R2 || !env.COMPUTER_R2_BUCKET || !env.CLOUDFLARE_ACCOUNT_ID || !env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY) {
+    return undefined
+  }
+  return (workspace) => createAssets({
+    ws: workspace,
+    bucket: env.COMPUTER_R2!,
+    s3: {
+      bucket: env.COMPUTER_R2_BUCKET!,
+      accountId: env.CLOUDFLARE_ACCOUNT_ID,
+      accessKeyId: env.R2_ACCESS_KEY_ID,
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    },
+  })
+}
+
+function deploymentToken(env: Env): string {
+  const token = (env as Env & { WORKERS_DEPLOY_API_TOKEN?: string }).WORKERS_DEPLOY_API_TOKEN
+  if (!token) throw new Error('WORKERS_DEPLOY_API_TOKEN must be configured.')
+  return token
 }
 
 function validPrompt(prompt: string): string {

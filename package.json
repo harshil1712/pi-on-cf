@@ -19,7 +19,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "@cloudflare/computer": "0.1.0-alpha.1",
+    "@cloudflare/computer": "0.1.1",
     "@cloudflare/kumo": "^2.8.0",
     "@cloudflare/vite-plugin": "^1.26.0",
     "@cloudflare/worker-bundler": "0.2.2",

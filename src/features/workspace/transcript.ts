@@ -17,7 +17,7 @@ export type TranscriptEntry =
   | { id: string; type: 'message'; role: 'user' | 'assistant'; text: string }
   | { id: string; type: 'reasoning'; text: string; status: 'running' | 'complete' }
   | { id: string; type: 'summary'; kind: 'compaction' | 'branch'; text: string; status: 'complete' }
-  | { id: string; type: 'tool'; callId: string; name: string; args: unknown; status: 'running' | 'complete' | 'error' }
+  | { id: string; type: 'tool'; callId: string; name: string; args: unknown; result?: unknown; status: 'running' | 'complete' | 'error' }
 
 export type TranscriptState = {
   entries: TranscriptEntry[]
@@ -160,8 +160,15 @@ export function reduceStreamEvent(
       ...state,
       entries: state.entries.map((entry) =>
         entry.type === 'tool' && entry.callId === event.callId
-          ? { ...entry, status: event.isError ? 'error' : 'complete' }
+          ? { ...entry, result: event.result, status: event.isError ? 'error' : 'complete' }
           : entry),
+    }
+  }
+  if (event.type === 'tool_execution_update') {
+    return {
+      ...state,
+      entries: state.entries.map((entry) =>
+        entry.type === 'tool' && entry.callId === event.callId ? { ...entry, result: event.result } : entry),
     }
   }
   if (event.type === 'done') {

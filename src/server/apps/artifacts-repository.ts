@@ -1,21 +1,16 @@
 import type { GitClient } from '@cloudflare/computer/git'
+import type { ArtifactClient } from '@cloudflare/computer/artifacts'
 import type { ComputerWorkspace } from '../computer-workspace'
 import type { AppSourceSnapshot } from './types'
 
 export class AppArtifactsRepository {
-  private readonly remote: string
-
   constructor(
-    private readonly artifacts: Artifacts,
+    private readonly artifacts: ArtifactClient,
     private readonly repositoryName: string,
-    namespace: string,
-    accountId: string,
     private readonly workspace: ComputerWorkspace,
     private readonly templateUrl: string,
     private readonly templateCommit: string,
-  ) {
-    this.remote = `https://${accountId}.artifacts.cloudflare.net/git/${encodeURIComponent(namespace)}/${encodeURIComponent(repositoryName)}.git`
-  }
+  ) {}
 
   async publish(source: AppSourceSnapshot): Promise<string> {
     const paths = new Set<string>()
@@ -26,9 +21,10 @@ export class AppArtifactsRepository {
     }
 
     const repository = await this.getOrCreateRepository()
-    const token = (await repository.repo.createToken('write', 300)).plaintext
+    const token = (await this.artifacts.createToken(this.repositoryName, 'write', 300)).plaintext
     if (typeof token !== 'string') throw new Error('Artifacts returned an invalid repository token.')
     const password = token
+    const remote = repository.repo.remote
     const repositoryDir = `/app-artifacts-${crypto.randomUUID()}`
     const git = this.workspace.git
     const onAuth = () => ({ username: 'x', password })
@@ -39,7 +35,7 @@ export class AppArtifactsRepository {
       if (!repository.created) {
         try {
           await git.clone({
-            url: this.remote,
+            url: remote,
             dir: repositoryDir,
             ref: 'main',
             depth: 1,
@@ -48,10 +44,10 @@ export class AppArtifactsRepository {
           })
         } catch (error) {
           if (!isEmptyRepositoryError(error)) throw error
-          await this.initializeFromTemplate(git, repositoryDir)
+          await this.initializeFromTemplate(git, repositoryDir, remote)
         }
       } else {
-        await this.initializeFromTemplate(git, repositoryDir)
+        await this.initializeFromTemplate(git, repositoryDir, remote)
       }
 
       const entries = []
@@ -93,12 +89,12 @@ export class AppArtifactsRepository {
     } finally {
       await Promise.all([
         this.workspace.rm(repositoryDir, { recursive: true, force: true }),
-        repository.repo.revokeToken(token).catch((error) => console.warn('Could not revoke Artifacts token', error)),
+        this.artifacts.revokeToken(this.repositoryName, token).catch((error) => console.warn('Could not revoke Artifacts token', error)),
       ])
     }
   }
 
-  private async initializeFromTemplate(git: GitClient, repositoryDir: string): Promise<void> {
+  private async initializeFromTemplate(git: GitClient, repositoryDir: string, remote: string): Promise<void> {
     validateTemplate(this.templateUrl, this.templateCommit)
     await this.workspace.rm(repositoryDir, { recursive: true, force: true })
     await this.workspace.mkdir(repositoryDir, { recursive: true })
@@ -115,10 +111,10 @@ export class AppArtifactsRepository {
     await git.branch({ dir: repositoryDir, name: 'main' })
     await git.checkout({ dir: repositoryDir, ref: 'main' })
     await git.remoteRemove({ dir: repositoryDir, name: 'origin' })
-    await git.remoteAdd({ dir: repositoryDir, name: 'origin', url: this.remote })
+    await git.remoteAdd({ dir: repositoryDir, name: 'origin', url: remote })
   }
 
-  private async getOrCreateRepository(): Promise<{ repo: ArtifactsRepo; created: boolean }> {
+  private async getOrCreateRepository(): Promise<{ repo: Awaited<ReturnType<ArtifactClient['get']>>; created: boolean }> {
     try {
       return { repo: await this.artifacts.get(this.repositoryName), created: false }
     } catch (error) {
@@ -163,7 +159,7 @@ function isEmptyRepositoryError(error: unknown): boolean {
     (error.name === 'NotFoundError' && /\b(main|HEAD)\b/i.test(error.message))
 }
 
-function isArtifactsError(error: unknown, code: ArtifactsErrorCode): error is ArtifactsError {
+function isArtifactsError(error: unknown, code: 'NOT_FOUND' | 'ALREADY_EXISTS'): boolean {
   if (typeof error !== 'object' || error === null) return false
   if ('code' in error && (error as { code?: unknown }).code === code) return true
   const errorMessage = (error as { message?: unknown }).message

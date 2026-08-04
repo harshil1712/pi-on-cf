@@ -44,7 +44,7 @@ export function createPiAgent({ env, messages, sessionId, tools }: CreatePiAgent
     streamFn: (activeModel, context, options) =>
       streamSimple(activeModel as Model<'openai-completions'>, context, {
         ...options,
-        apiKey: env.CLOUDFLARE_API_TOKEN,
+        apiKey: env.AI_GATEWAY_TOKEN,
         headers: {
           ...activeModel.headers,
           'cf-aig-metadata': JSON.stringify({ sessionId }),

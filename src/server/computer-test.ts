@@ -1,5 +1,7 @@
 import { type DurableObjectStorageLike, Workspace, type WorkspaceStub } from '@cloudflare/computer'
-import { WorkerBackend } from '@cloudflare/computer/backends/worker'
+import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
+import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-javascript'
+import { createGitClient } from '@cloudflare/computer/git'
 import { DurableObject } from 'cloudflare:workers'
 import type { ComputerWorkspace } from './computer-workspace'
 import { TemplateRepository } from './apps/template-repository'
@@ -8,12 +10,17 @@ import { migrateLegacyShellWorkspace } from './legacy-workspace-migration'
 export class ComputerTest extends DurableObject<Env> {
   private readonly workspace = new Workspace({
     storage: this.ctx.storage as unknown as DurableObjectStorageLike,
-    backends: [new WorkerBackend({
-      id: 'shell',
-      loader: this.env.APP_LOADER,
-      workspace: { binding: 'ComputerTest', id: this.ctx.id.toString() },
-      ctx: this.ctx,
-    })],
+    waitUntil: this.ctx.waitUntil.bind(this.ctx),
+    backends: [
+      new WorkerShellBackend({
+        id: 'shell',
+        loader: this.env.APP_LOADER,
+        workspace: { binding: 'ComputerTest', id: this.ctx.id.toString() },
+        ctx: this.ctx,
+      }),
+      new WorkerJavaScriptBackend({ id: 'javascript', loader: this.env.APP_LOADER, root: '/' }),
+    ],
+    git: createGitClient(),
     useThink: true,
   }) as ComputerWorkspace
 
@@ -24,7 +31,7 @@ export class ComputerTest extends DurableObject<Env> {
 
   async exerciseShell(): Promise<{ exitCode: number; stdout: string; stderr: string; output: string }> {
     await this.workspace.fs.writeFile('/input.txt', 'cloudflare computer\n')
-    const handle = await this.workspace.shell.exec(
+    using handle = await this.workspace.runtime.exec(
       "cat /input.txt | tr '[:lower:]' '[:upper:]' > /output.txt && cat /output.txt",
       { cwd: '/', encoding: 'utf8', backend: 'shell' },
     )
@@ -38,7 +45,7 @@ export class ComputerTest extends DurableObject<Env> {
   }
 
   async exerciseGit(): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-    const handle = await this.workspace.shell.exec([
+    using handle = await this.workspace.runtime.exec([
       'mkdir -p /repo',
       'cd /repo',
       'git init',
@@ -52,6 +59,25 @@ export class ComputerTest extends DurableObject<Env> {
     ].join(' && '), { cwd: '/', encoding: 'utf8', backend: 'shell' })
     const result = await handle.result()
     return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr }
+  }
+
+  async exerciseJavaScript(): Promise<{ exitCode: number; stdout: string; value: unknown; file: string }> {
+    using handle = await this.workspace.runtime.exec(`
+      import { writeFile } from 'node:fs/promises'
+      export default async function (input) {
+        const value = input.number * 2
+        await writeFile('/javascript.txt', String(value))
+        console.log('computed', value)
+        return { value }
+      }
+    `, { backend: 'javascript', encoding: 'utf8', input: { number: 21 } })
+    const result = await handle.result()
+    return {
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      value: result.value,
+      file: await this.workspace.fs.readFile('/javascript.txt', 'utf8'),
+    }
   }
 
   async installTemplate(repository: string, commit: string): Promise<{ commit: string; fileCount: number; packageJson: string | null }> {

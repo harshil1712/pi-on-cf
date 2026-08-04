@@ -94,7 +94,7 @@ Registry indexing uses a durable outbox. Appending a searchable message and its 
 Provider configuration comes from:
 
 - `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
+- `AI_GATEWAY_TOKEN`
 - `AI_GATEWAY_ID`
 - `AI_MODEL`
 - `AI_MEMORY_MODEL`
@@ -116,7 +116,7 @@ Relevant source:
 
 ## Workspace and Tools
 
-Each session has an isolated `@cloudflare/computer` workspace. The model can use:
+Each session has an isolated `@cloudflare/computer` workspace. It registers Worker Shell, Worker JavaScript, and Container backends over the same durable files. The model can use:
 
 - `read`
 - `write`
@@ -125,6 +125,9 @@ Each session has an isolated `@cloudflare/computer` workspace. The model can use
 - `find`
 - `grep`
 - `exec`
+- `javascript`
+- `publish`
+- `artifacts`
 - `session_search`
 - `memory`
 
@@ -132,7 +135,7 @@ On first activation after upgrading from `@cloudflare/shell`, the session copies
 
 The browser can list, preview, and download text files. The model can modify the entire session workspace without an approval step.
 
-The `exec` tool runs Computer's just-bash Worker backend with common text utilities and Git. It does not provide native process execution, package installation, preview servers, or a general network-fetch tool.
+The `exec` tool selects Computer's fast just-bash Worker backend or its Linux Container backend. The `javascript` tool runs structured ECMAScript modules in isolated Dynamic Workers. Computer also supplies Git, session-scoped Artifacts, an optional read-only R2 mount at `/reference`, expiring file publication through Assets, tracing, and durable container-sync retries.
 
 Relevant source:
 

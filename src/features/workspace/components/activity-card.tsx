@@ -7,7 +7,7 @@ import type { TranscriptEntry } from '../transcript'
 function toolArgumentSummary(args: unknown) {
   if (!args || typeof args !== 'object') return ''
   const values = args as Record<string, unknown>
-  for (const key of ['path', 'pattern', 'query', 'search']) {
+  for (const key of ['path', 'command', 'source', 'pattern', 'query', 'search']) {
     if (typeof values[key] === 'string') return values[key]
   }
   return ''
@@ -54,6 +54,12 @@ export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type
           <>
             <span>INPUT</span>
             <pre>{JSON.stringify(entry.args ?? {}, null, 2)}</pre>
+            {entry.result !== undefined && (
+              <>
+                <span>OUTPUT</span>
+                <pre>{typeof entry.result === 'string' ? entry.result : JSON.stringify(entry.result, null, 2)}</pre>
+              </>
+            )}
           </>
         )}
       </Collapsible.Panel>
