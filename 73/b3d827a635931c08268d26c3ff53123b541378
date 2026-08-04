@@ -1,0 +1,29 @@
+package-lock.json
+  s_0160ea20fc004c::t_c0348d3f926766 10,1818-1820,1823,7267-7278
+worker-configuration.d.ts
+  s_95c40f6ea8ddbc::t_aaf2f601311004 2-3,5,14,16-18,35,463,561-563,567-569,578,623-625,1934,2172-2181,3248-3250,3272,3275-3280,3395-3396,3424,3429-3432
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "73b3d827a635931c08268d26c3ff53123b541378",
+  "prompts": {},
+  "sessions": {
+    "s_0160ea20fc004c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_03806d744ffeVcbpgYkqnoZiVk",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    },
+    "s_95c40f6ea8ddbc": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_035eaa9c0ffeau4JbTx4M1iRj1",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
