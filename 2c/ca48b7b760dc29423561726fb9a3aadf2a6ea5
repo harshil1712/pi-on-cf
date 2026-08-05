@@ -1,0 +1,19 @@
+src/server/workspace-tools.ts
+  s_3187943b01a34d::t_41806f61c3e5bb 6,32,41,50,67,82,96,113-114,126,139,156,158,190,193,227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2cca48b7b760dc29423561726fb9a3aadf2a6ea5",
+  "prompts": {},
+  "sessions": {
+    "s_3187943b01a34d": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_02e98d07bffeOUM5tCwu68Ikw6",
+        "model": "@cf/zai-org/glm-5.2"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
