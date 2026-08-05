@@ -1,5 +1,6 @@
 import type { ComputerWorkspace } from '../computer-workspace'
 import type { SourceFile, SourceSnapshot } from './types'
+import { WORKSPACE_ROOT } from '../workspace-root'
 
 export const MAX_SOURCE_FILES = 1_000
 export const MAX_SOURCE_FILE_BYTES = 5 * 1024 * 1024
@@ -19,7 +20,7 @@ export async function createSourceSnapshot(
   workspace: ComputerWorkspace,
   options: SourceSnapshotOptions = {},
 ): Promise<SourceSnapshot> {
-  const root = normalizeAbsolutePath(options.root ?? '/')
+  const root = normalizeAbsolutePath(options.root ?? WORKSPACE_ROOT)
   const maxFiles = options.maxFiles ?? MAX_SOURCE_FILES
   const maxFileBytes = options.maxFileBytes ?? MAX_SOURCE_FILE_BYTES
   const maxTotalBytes = options.maxTotalBytes ?? MAX_SOURCE_BYTES

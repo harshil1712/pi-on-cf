@@ -53,7 +53,7 @@ describe('@cloudflare/computer integration', () => {
       text: 'export default 42',
       size: 17,
       bytes: [0, 255, 128],
-      link: '/src/index.ts',
+      link: '/workspace/src/index.ts',
     })
   })
 })

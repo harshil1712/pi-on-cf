@@ -6,6 +6,7 @@ import { DurableObject } from 'cloudflare:workers'
 import type { ComputerWorkspace } from './computer-workspace'
 import { TemplateRepository } from './apps/template-repository'
 import { migrateLegacyShellWorkspace } from './legacy-workspace-migration'
+import { WORKSPACE_ROOT } from './workspace-root'
 
 export class ComputerTest extends DurableObject<Env> {
   private readonly workspace = new Workspace({
@@ -18,7 +19,7 @@ export class ComputerTest extends DurableObject<Env> {
         workspace: { binding: 'ComputerTest', id: this.ctx.id.toString() },
         ctx: this.ctx,
       }),
-      new WorkerJavaScriptBackend({ id: 'javascript', loader: this.env.APP_LOADER, root: '/' }),
+      new WorkerJavaScriptBackend({ id: 'javascript', loader: this.env.APP_LOADER, root: WORKSPACE_ROOT }),
     ],
     git: createGitClient(),
     useThink: true,
@@ -30,24 +31,25 @@ export class ComputerTest extends DurableObject<Env> {
   }
 
   async exerciseShell(): Promise<{ exitCode: number; stdout: string; stderr: string; output: string }> {
-    await this.workspace.fs.writeFile('/input.txt', 'cloudflare computer\n')
+    await this.workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
+    await this.workspace.fs.writeFile(`${WORKSPACE_ROOT}/input.txt`, 'cloudflare computer\n')
     using handle = await this.workspace.runtime.exec(
-      "cat /input.txt | tr '[:lower:]' '[:upper:]' > /output.txt && cat /output.txt",
-      { cwd: '/', encoding: 'utf8', backend: 'shell' },
+      "cat input.txt | tr '[:lower:]' '[:upper:]' > output.txt && cat output.txt",
+      { cwd: WORKSPACE_ROOT, encoding: 'utf8', backend: 'shell' },
     )
     const result = await handle.result()
     return {
       exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.stderr,
-      output: await this.workspace.fs.readFile('/output.txt', 'utf8'),
+      output: await this.workspace.fs.readFile(`${WORKSPACE_ROOT}/output.txt`, 'utf8'),
     }
   }
 
   async exerciseGit(): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     using handle = await this.workspace.runtime.exec([
-      'mkdir -p /repo',
-      'cd /repo',
+      `mkdir -p ${WORKSPACE_ROOT}/repo`,
+      `cd ${WORKSPACE_ROOT}/repo`,
       'git init',
       'git config user.name Computer-Test',
       'git config user.email computer-test@example.invalid',
@@ -56,17 +58,18 @@ export class ComputerTest extends DurableObject<Env> {
       "git commit -m 'initial commit'",
       'git status --porcelain=v1',
       'git log --oneline -1',
-    ].join(' && '), { cwd: '/', encoding: 'utf8', backend: 'shell' })
+    ].join(' && '), { cwd: WORKSPACE_ROOT, encoding: 'utf8', backend: 'shell' })
     const result = await handle.result()
     return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr }
   }
 
   async exerciseJavaScript(): Promise<{ exitCode: number; stdout: string; value: unknown; file: string }> {
+    await this.workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
     using handle = await this.workspace.runtime.exec(`
       import { writeFile } from 'node:fs/promises'
       export default async function (input) {
         const value = input.number * 2
-        await writeFile('/javascript.txt', String(value))
+        await writeFile('${WORKSPACE_ROOT}/javascript.txt', String(value))
         console.log('computed', value)
         return { value }
       }
@@ -76,7 +79,7 @@ export class ComputerTest extends DurableObject<Env> {
       exitCode: result.exitCode,
       stdout: result.stdout,
       value: result.value,
-      file: await this.workspace.fs.readFile('/javascript.txt', 'utf8'),
+      file: await this.workspace.fs.readFile(`${WORKSPACE_ROOT}/javascript.txt`, 'utf8'),
     }
   }
 
@@ -85,7 +88,7 @@ export class ComputerTest extends DurableObject<Env> {
     return {
       commit: result.commit,
       fileCount: result.fileCount,
-      packageJson: await this.workspace.readFile('/package.json'),
+      packageJson: await this.workspace.readFile(`${WORKSPACE_ROOT}/package.json`),
     }
   }
 
@@ -119,13 +122,13 @@ export class ComputerTest extends DurableObject<Env> {
       this.ctx.storage as unknown as DurableObjectStorageLike,
       this.workspace,
     )
-    const stat = await this.workspace.stat('/src/index.ts')
+    const stat = await this.workspace.stat(`${WORKSPACE_ROOT}/src/index.ts`)
     return {
       migrated,
-      text: await this.workspace.fs.readFile('/src/index.ts', 'utf8'),
+      text: await this.workspace.fs.readFile(`${WORKSPACE_ROOT}/src/index.ts`, 'utf8'),
       size: stat?.size ?? -1,
-      bytes: Array.from(await this.workspace.readFileBytes('/data.bin') ?? []),
-      link: await this.workspace.fs.readlink('/entry.ts'),
+      bytes: Array.from(await this.workspace.readFileBytes(`${WORKSPACE_ROOT}/data.bin`) ?? []),
+      link: await this.workspace.fs.readlink(`${WORKSPACE_ROOT}/entry.ts`),
     }
   }
 }

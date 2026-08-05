@@ -116,7 +116,7 @@ Relevant source:
 
 ## Workspace and Tools
 
-Each session has an isolated `@cloudflare/computer` workspace. It registers Worker Shell, Worker JavaScript, and Container backends over the same durable files. The model can use:
+Each session has an isolated `@cloudflare/computer` workspace rooted at `/workspace`. It registers Worker Shell, Worker JavaScript, and Container backends over the same durable files and paths. The model can use:
 
 - `read`
 - `write`
@@ -135,7 +135,7 @@ On first activation after upgrading from `@cloudflare/shell`, the session copies
 
 The browser can list, preview, and download text files. The model can modify the entire session workspace without an approval step.
 
-The `exec` tool selects Computer's fast just-bash Worker backend or its Linux Container backend. The `javascript` tool runs structured ECMAScript modules in isolated Dynamic Workers. Computer also supplies Git, session-scoped Artifacts, an optional read-only R2 mount at `/reference`, expiring file publication through Assets, tracing, and durable container-sync retries.
+The `exec` tool selects Computer's fast just-bash Worker backend or its Linux Container backend. The `javascript` tool runs structured ECMAScript modules in isolated Dynamic Workers. Computer also supplies Git, session-scoped Artifacts, an optional read-only R2 mount at `/workspace/reference`, expiring file publication through Assets, tracing, and durable container-sync retries.
 
 Relevant source:
 

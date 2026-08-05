@@ -3,6 +3,7 @@ import type { WorkspaceRuntimeValue } from '@cloudflare/computer'
 import { Type } from 'typebox'
 import type { SessionSearchResult } from '../shared/pi-contract'
 import type { ComputerWorkspace } from './computer-workspace'
+import { requireWorkspacePath, WORKSPACE_ROOT } from './workspace-root'
 
 type RegistrySearch = {
   searchSessions(input: { query: string; limit?: number }): Promise<SessionSearchResult[]>
@@ -28,7 +29,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     replacement: Type.String({ description: 'Replacement text' }),
   })
   const listSchema = Type.Object({
-    path: Type.Optional(Type.String({ description: 'Directory path, defaults to /' })),
+    path: Type.Optional(Type.String({ description: `Directory path, defaults to ${WORKSPACE_ROOT}` })),
   })
   const findSchema = Type.Object({ pattern: Type.String({ description: 'Glob pattern, such as **/*.ts' }) })
   const grepSchema = Type.Object({
@@ -37,7 +38,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
   })
   const execSchema = Type.Object({
     command: Type.String({ description: 'Shell command to run in the workspace' }),
-    cwd: Type.Optional(Type.String({ description: 'Durable workspace directory. Container execution maps / to /workspace.' })),
+    cwd: Type.Optional(Type.String({ description: `Workspace directory, defaults to ${WORKSPACE_ROOT}` })),
     backend: Type.Optional(Type.Union([
       Type.Literal('shell'),
       Type.Literal('container'),
@@ -46,7 +47,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
   const javascriptSchema = Type.Object({
     source: Type.String({ description: 'ECMAScript module with a default export or default function' }),
     input: Type.Optional(Type.Unknown({ description: 'JSON-compatible input passed to the default function' })),
-    cwd: Type.Optional(Type.String({ description: 'Module working directory, defaults to /' })),
+    cwd: Type.Optional(Type.String({ description: `Module working directory, defaults to ${WORKSPACE_ROOT}` })),
   })
   const publishSchema = Type.Object({
     path: Type.String({ description: 'Absolute path of the workspace file to share' }),
@@ -63,6 +64,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     parameters: readSchema,
     execute: async (_id, { path }, signal) => {
       signal?.throwIfAborted()
+      requireWorkspacePath(path)
       const content = await workspace.readFile(path)
       signal?.throwIfAborted()
       if (content === null) throw new Error(`File not found: ${path}`)
@@ -77,6 +79,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     executionMode: 'sequential',
     execute: async (_id, { path, content }, signal) => {
       signal?.throwIfAborted()
+      requireWorkspacePath(path)
       await workspace.writeFile(path, content)
       signal?.throwIfAborted()
       return text(`Wrote ${path}`)
@@ -90,6 +93,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     executionMode: 'sequential',
     execute: async (_id, { path, search, replacement }, signal) => {
       signal?.throwIfAborted()
+      requireWorkspacePath(path)
       const content = await workspace.readFile(path)
       if (content === null) throw new Error(`File not found: ${path}`)
       const occurrences = content.split(search).length - 1
@@ -106,7 +110,8 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     parameters: listSchema,
     execute: async (_id, { path }, signal) => {
       signal?.throwIfAborted()
-      const result = await workspace.readDir(path ?? '/')
+      const directory = requireWorkspacePath(path ?? WORKSPACE_ROOT)
+      const result = await workspace.readDir(directory)
       signal?.throwIfAborted()
       return text(result)
     },
@@ -118,6 +123,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     parameters: findSchema,
     execute: async (_id, { pattern }, signal) => {
       signal?.throwIfAborted()
+      if (pattern.startsWith('/')) requireWorkspacePath(pattern)
       const result = await workspace.glob(pattern)
       signal?.throwIfAborted()
       return text(result)
@@ -130,6 +136,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     parameters: grepSchema,
     execute: async (_id, { pattern, query }, signal) => {
       signal?.throwIfAborted()
+      if (pattern.startsWith('/')) requireWorkspacePath(pattern)
       const files = (await workspace.glob(pattern)).filter((entry) => entry.type === 'file')
       const result = (await Promise.all(files.map((file) => workspace.fs.grep(query, file.path)))).flat()
       signal?.throwIfAborted()
@@ -146,8 +153,9 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     execute: async (_id, { command, cwd, backend }, signal) => {
       signal?.throwIfAborted()
       const selectedBackend = backend ?? 'shell'
+      const directory = requireWorkspacePath(cwd ?? WORKSPACE_ROOT)
       using handle = await workspace.runtime.exec(command, {
-        cwd: selectedBackend === 'container' ? containerPath(cwd ?? '/') : (cwd ?? '/'),
+        cwd: directory,
         encoding: 'utf8',
         backend: selectedBackend,
       })
@@ -179,9 +187,10 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     parameters: javascriptSchema,
     execute: async (_id, { source, input, cwd }, signal) => {
       signal?.throwIfAborted()
+      const directory = requireWorkspacePath(cwd ?? WORKSPACE_ROOT)
       using handle = await workspace.runtime.exec(source, {
         backend: 'javascript',
-        cwd: cwd ?? '/',
+        cwd: directory,
         encoding: 'utf8',
         input: input as WorkspaceRuntimeValue | undefined,
       })
@@ -215,6 +224,7 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
     executionMode: 'sequential',
     execute: async (_id, { path, expiresAfterMs }, signal) => {
       signal?.throwIfAborted()
+      requireWorkspacePath(path)
       if (!workspace.assets) throw new Error('Computer Assets is not configured.')
       const url = await workspace.assets.share(path, { expiresAfter: expiresAfterMs ?? 3_600_000 })
       signal?.throwIfAborted()
@@ -237,19 +247,6 @@ export function createWorkspaceTools(workspace: ComputerWorkspace) {
   }
 
   return [readTool, writeTool, editTool, listTool, findTool, grepTool, execTool, javascriptTool, publishTool, artifactsTool]
-}
-
-function containerPath(path: string): string {
-  if (!path.startsWith('/')) throw new Error('Container cwd must be an absolute durable workspace path.')
-  const parts: string[] = []
-  for (const part of path.split('/')) {
-    if (!part || part === '.') continue
-    if (part === '..') throw new Error("Container cwd cannot contain '..'.")
-    parts.push(part)
-  }
-  const normalized = `/${parts.join('/')}`
-  if (normalized === '/workspace' || normalized.startsWith('/workspace/')) return normalized
-  return normalized === '/' ? '/workspace' : `/workspace${normalized}`
 }
 
 export function createInitializeAppTool(initialize: () => Promise<void>): AgentHarnessTool<undefined> {

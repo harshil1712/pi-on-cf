@@ -58,6 +58,7 @@ import type { BuiltApp, TemplateSourceSummary } from './apps/types'
 import { WorkersClient } from './apps/workers-client'
 import type { ComputerWorkspace } from './computer-workspace'
 import { migrateLegacyShellWorkspace } from './legacy-workspace-migration'
+import { WORKSPACE_ROOT, workspacePath } from './workspace-root'
 
 type InitializeMetadata = Pick<SessionSummary, 'id' | 'createdAt' | 'updatedAt' | 'lineage'> & { name?: string }
 type SessionExport = {
@@ -143,7 +144,7 @@ export class PiSession extends PiSessionBase {
       new WorkerJavaScriptBackend({
         id: 'javascript',
         loader: this.env.APP_LOADER,
-        root: '/',
+        root: WORKSPACE_ROOT,
         allowGitNetwork: true,
         allowArtifactNetwork: true,
       }),
@@ -199,6 +200,7 @@ export class PiSession extends PiSessionBase {
   }
 
   async initialize(metadata: InitializeMetadata): Promise<SessionOverview> {
+    await this.workspace.mkdir(WORKSPACE_ROOT, { recursive: true })
     const created = this.sessionStorage.initialize({
       id: metadata.id,
       createdAt: metadata.createdAt,
@@ -342,7 +344,7 @@ export class PiSession extends PiSessionBase {
 
   @callable()
   async readWorkspaceFile(path: string): Promise<WorkspaceFileContent> {
-    validatePath(path)
+    path = workspacePath(path)
     const [content, stat] = await Promise.all([this.workspace.readFile(path), this.workspace.stat(path)])
     if (content === null || !stat || stat.type !== 'file') throw new Error(`File not found: ${path}`)
     return { path, content, size: stat.size, mtime: new Date(stat.updatedAt).toISOString() }
@@ -456,12 +458,12 @@ export class PiSession extends PiSessionBase {
       this.sessionStorage.setSetting('compaction', snapshot.compaction)
       this.sessionStorage.setSetting(MEMORY_EXTRACTION_CURSOR, this.sessionStorage.getEntriesWithSeq().at(-1)?.seq ?? 0)
       for (const file of snapshot.files) {
-        validatePath(file.path)
-        if (this.isMountedPath(file.path)) continue
-        const parent = file.path.slice(0, file.path.lastIndexOf('/')) || '/'
+        const path = workspacePath(file.path)
+        if (this.isMountedPath(path)) continue
+        const parent = path.slice(0, path.lastIndexOf('/')) || '/'
         if (parent !== '/') await this.workspace.mkdir(parent, { recursive: true })
-        if (file.encoding === 'base64') await this.workspace.fs.writeFile(file.path, decodeBase64(file.content))
-        else await this.workspace.writeFile(file.path, file.content)
+        if (file.encoding === 'base64') await this.workspace.fs.writeFile(path, decodeBase64(file.content))
+        else await this.workspace.writeFile(path, file.content)
       }
       if (snapshot.appTemplate) this.sessionStorage.setSetting(APP_TEMPLATE_SETTING, snapshot.appTemplate)
       if (metadata?.name) await this.session.appendSessionName(metadata.name)
@@ -623,7 +625,8 @@ export class PiSession extends PiSessionBase {
 
   private async listAllWorkspaceFiles() {
     const files: Awaited<ReturnType<typeof this.workspace.readDir>> = []
-    const directories = ['/']
+    if (!await this.workspace.stat(WORKSPACE_ROOT)) return files
+    const directories = [WORKSPACE_ROOT]
     while (directories.length > 0) {
       const directory = directories.pop()!
       for (let offset = 0; ; offset += WORKSPACE_PAGE_SIZE) {
@@ -727,7 +730,7 @@ export class PiSession extends PiSessionBase {
 function computerMounts(env: ComputerEnv): WorkspaceOptions['mounts'] {
   if (!env.COMPUTER_R2) return undefined
   return {
-    '/reference': mountR2Bucket(env.COMPUTER_R2, { prefix: 'reference/', mode: 'read-only' }),
+    [`${WORKSPACE_ROOT}/reference`]: mountR2Bucket(env.COMPUTER_R2, { prefix: 'reference/', mode: 'read-only' }),
   }
 }
 
@@ -758,10 +761,6 @@ function validPrompt(prompt: string): string {
   if (!prompt) throw new Error('A prompt is required.')
   if (prompt.length > 20_000) throw new Error('Prompt exceeds 20,000 characters.')
   return prompt
-}
-
-function validatePath(path: string): void {
-  if (!path.startsWith('/') || path.includes('\0')) throw new Error('File path must be absolute.')
 }
 
 function storedEntry(seq: number, entry: SessionTreeEntry): StoredSessionEntry {

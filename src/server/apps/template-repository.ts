@@ -1,5 +1,6 @@
 import type { ComputerWorkspace } from '../computer-workspace'
 import type { TemplateSourceSummary } from './types'
+import { WORKSPACE_ROOT } from '../workspace-root'
 
 export type TemplateSource = {
   repository: string
@@ -9,14 +10,14 @@ export type TemplateSource = {
 export class TemplateRepository {
   constructor(private readonly workspace: ComputerWorkspace) {}
 
-  async install(source: TemplateSource, destination = '/'): Promise<TemplateSourceSummary> {
+  async install(source: TemplateSource, destination = WORKSPACE_ROOT): Promise<TemplateSourceSummary> {
     validateRepository(source.repository)
     if (!/^[0-9a-f]{40}$/i.test(source.commit)) {
       throw new Error('Template commit must be a full 40-character SHA-1 commit ID.')
     }
 
     const target = normalizeAbsolutePath(destination)
-    const temporaryDirectory = `/.template-repository-${crypto.randomUUID()}`
+    const temporaryDirectory = `${WORKSPACE_ROOT}/.template-repository-${crypto.randomUUID()}`
     await this.workspace.mkdir(temporaryDirectory, { recursive: true })
     const git = this.workspace.git
 

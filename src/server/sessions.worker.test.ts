@@ -71,7 +71,7 @@ describe('durable sessions', () => {
 
     expect(branch.entries.filter(({ type }) => type === 'message').map(({ id }) => id)).toEqual(['user-1', 'assistant-1'])
     expect((await session(forked.id).readWorkspaceFile('/notes.txt')).content).toBe('current workspace')
-    expect(await session(forked.id).listFiles()).toContainEqual(expect.objectContaining({ path: '/notes.txt', size: 17 }))
+    expect(await session(forked.id).listFiles()).toContainEqual(expect.objectContaining({ path: '/workspace/notes.txt', size: 17 }))
     expect((await session(forked.id).getOverview()).lineage).toEqual({
       type: 'fork',
       parentSessionId: source.id,
@@ -89,7 +89,7 @@ describe('durable sessions', () => {
     })
 
     expect((await session(source.id).exportClone()).files).toContainEqual({
-      path: '/asset.bin',
+      path: '/workspace/asset.bin',
       content: 'AP+AQA==',
       encoding: 'base64',
     })

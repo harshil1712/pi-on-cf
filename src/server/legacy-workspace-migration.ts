@@ -1,5 +1,6 @@
 import type { DurableObjectStorageLike } from '@cloudflare/computer'
 import type { ComputerWorkspace } from './computer-workspace'
+import { workspacePath } from './workspace-root'
 
 type LegacyWorkspaceRow = {
   path: string
@@ -29,19 +30,19 @@ export async function migrateLegacyShellWorkspace(
 
   await workspace.ready()
   for (const row of rows.filter((entry) => entry.type === 'directory')) {
-    await workspace.fs.mkdir(row.path, { recursive: true })
+    await workspace.fs.mkdir(workspacePath(row.path), { recursive: true })
   }
   for (const row of rows.filter((entry) => entry.type === 'file')) {
     if (row.storage_backend !== 'inline') {
       throw new Error(`Cannot migrate legacy R2 workspace file: ${row.path}`)
     }
     const content = row.content ?? ''
-    await workspace.fs.writeFile(row.path, row.content_encoding === 'base64' ? decodeBase64(content) : content)
+    await workspace.fs.writeFile(workspacePath(row.path), row.content_encoding === 'base64' ? decodeBase64(content) : content)
   }
   for (const row of rows.filter((entry) => entry.type === 'symlink')) {
     if (!row.target) throw new Error(`Legacy workspace symlink has no target: ${row.path}`)
-    await workspace.fs.rm(row.path, { force: true })
-    await workspace.fs.symlink(row.target, row.path)
+    await workspace.fs.rm(workspacePath(row.path), { force: true })
+    await workspace.fs.symlink(workspacePath(row.target), workspacePath(row.path))
   }
   return rows.length
 }
