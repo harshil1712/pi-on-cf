@@ -90,6 +90,7 @@ describe('WorkspaceApp', () => {
     mocks.sessionAgent.stub.listFiles.mockResolvedValue([])
     mocks.sessionAgent.stub.readWorkspaceFile.mockResolvedValue(fileContent('/workspace/default.ts', ''))
     mocks.sessionAgent.stub.submit.mockResolvedValue({ operationId: 'op-1', accepted: true })
+    mocks.sessionAgent.stub.steer.mockResolvedValue({ operationId: 'op-2', accepted: true })
     mocks.registryAgent.stub.getSession.mockResolvedValue(summary())
     mocks.registryAgent.stub.renameSession.mockResolvedValue(summary({ name: 'Renamed' }))
   })
@@ -126,12 +127,22 @@ describe('WorkspaceApp', () => {
 
     expect(screen.getByText('Do work', { selector: '.message-body' })).toBeTruthy()
     expect(screen.getByText('Working')).toBeTruthy()
-    expect(input.disabled).toBe(true)
+
+    // While pi runs, a prompt steers it instead of starting a new run.
+    expect(input.disabled).toBe(false)
+    fireEvent.change(input, { target: { value: 'Use pnpm' } })
+    fireEvent.submit(screen.getByRole('button', { name: /steer/i }).closest('form')!)
+    await waitFor(() => expect(mocks.sessionAgent.stub.steer).toHaveBeenCalledWith('Use pnpm'))
+    expect(mocks.sessionAgent.stub.submit).toHaveBeenCalledTimes(1)
+    await deliver({ type: 'inbox_update', items: [{ id: 3, mode: 'steer' }] } as unknown as AgentEvent)
+    expect(screen.getByText(/1 QUEUED/)).toBeTruthy()
+
     fireEvent.click(screen.getByRole('button', { name: /abort/i }))
     await waitFor(() => expect(mocks.sessionAgent.stub.abort).toHaveBeenCalled())
 
-    await deliver({ type: 'run_end', inputs: [] })
-    expect(input.disabled).toBe(false)
+    await deliver({ type: 'run_end', inputs: [] }, { type: 'inbox_update', items: [] } as unknown as AgentEvent)
+    expect(screen.queryByRole('button', { name: /abort/i })).toBeNull()
+    expect(screen.queryByText(/QUEUED/)).toBeNull()
   })
 
   it('batches pi events into one animation-frame update', async () => {

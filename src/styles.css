@@ -113,6 +113,9 @@ h1 { margin: 0; font: 600 clamp(28px, 4vw, 52px)/0.95 'Oswald', sans-serif; lett
 .prompt-form .execute-button:hover:not(:disabled) { background: var(--orange); }
 .prompt-form .execute-button:disabled { background: #d6d3c8; color: #77756e !important; cursor: not-allowed; }
 .execute-arrow { font-size: 22px; }
+.prompt-actions { display: flex; flex-direction: column; }
+.prompt-actions .execute-button { flex: 1; }
+.prompt-form .abort-button { flex: 0 0 auto; border-top: 2px solid var(--ink); background: var(--paper); padding-block: 10px; }
 
 .mobile-switcher { display: none; }
 .right-panel { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); border-left: 2px solid var(--ink); }

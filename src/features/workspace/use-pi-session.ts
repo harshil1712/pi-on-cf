@@ -176,14 +176,16 @@ export function usePiSession(sessionId: string) {
   async function submit(event: FormEvent) {
     event.preventDefault()
     const prompt = input.trim()
-    if (!prompt || isRunning || !isReady) return
+    if (!prompt || isSubmitting || !isReady) return
     setInput('')
     setError('')
     setIsSubmitting(true)
     shouldAutoScrollRef.current = true
     try {
-      // Durable once this resolves; the answer streams in as pi events.
-      await agent.stub.submit(prompt)
+      // Durable once this resolves; the answer streams in as pi events. While
+      // pi is running, the prompt steers it: pi places it after the current
+      // tool round.
+      await (view.running ? agent.stub.steer(prompt) : agent.stub.submit(prompt))
     } catch (caught) {
       setInput(prompt)
       setError(caught instanceof Error ? caught.message : String(caught))

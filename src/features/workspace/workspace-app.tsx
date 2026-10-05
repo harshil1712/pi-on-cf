@@ -27,7 +27,7 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
             <h1><button onClick={() => void session.rename()} disabled={!session.summary} title="Rename session">{name}</button></h1>
           </div>
         </div>
-        <div className="runtime-status"><span className="status-light" />{session.isRunning ? 'PI RUNNING' : 'WORKER ONLINE'}</div>
+        <div className="runtime-status"><span className="status-light" />{session.isRunning ? 'PI RUNNING' : 'WORKER ONLINE'}{session.queued > 0 && ` / ${session.queued} QUEUED`}</div>
       </header>
 
       <section className="workbench">

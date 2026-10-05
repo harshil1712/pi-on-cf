@@ -26,14 +26,17 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
             event.currentTarget.form?.requestSubmit()
           }
         }}
-        placeholder="Ask Pi to inspect, create, or edit a file..."
+        placeholder={isRunning ? 'Steer Pi. It reads this after the current tool round...' : 'Ask Pi to inspect, create, or edit a file...'}
         rows={3}
-        disabled={isRunning || !isReady}
+        disabled={!isReady}
       />
-      <Button className="execute-button" type={isRunning ? 'button' : 'submit'} onClick={isRunning ? onAbort : undefined} disabled={!isRunning && (!isReady || !input.trim())}>
-        {isRunning ? 'ABORT' : isReady ? 'EXECUTE' : 'LOADING'}
-        <span className="execute-arrow">↗</span>
-      </Button>
+      <div className="prompt-actions">
+        <Button className="execute-button" type="submit" disabled={!isReady || !input.trim()}>
+          {isRunning ? 'STEER' : isReady ? 'EXECUTE' : 'LOADING'}
+          <span className="execute-arrow">↗</span>
+        </Button>
+        {isRunning && <Button className="execute-button abort-button" type="button" onClick={onAbort}>ABORT</Button>}
+      </div>
     </form>
   )
 }
