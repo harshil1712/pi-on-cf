@@ -1,12 +1,6 @@
 export const WORKSPACE_ROOT = '/workspace'
 
-export function requireWorkspacePath(path: string): string {
-  if (path.includes('\0') || path.split('/').includes('..') || (path !== WORKSPACE_ROOT && !path.startsWith(`${WORKSPACE_ROOT}/`))) {
-    throw new Error(`Workspace paths must be under ${WORKSPACE_ROOT}.`)
-  }
-  return path
-}
-
+/** Normalize a browser-supplied path to an absolute path inside the workspace. */
 export function workspacePath(path: string): string {
   if (!path.startsWith('/') || path.includes('\0')) throw new Error('Workspace path must be absolute.')
   const parts: string[] = []

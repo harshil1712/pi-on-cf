@@ -1,5 +1,8 @@
 # Pi Feature and Cloudflare Platform Audit
 
+> [!NOTE]
+> Historical research from July 2026, against Pi 0.82 and `pi-agent-core`. The application has since moved to `@earendil-works/pi-durable` hosted by `agents/harness/pi`; see [Architecture](architecture.md) for the current design.
+
 This document records how the current Pi coding agent works, which capabilities
 Pi on Cloudflare currently implements, and which Cloudflare products could
 provide the missing infrastructure. It is a research artifact, not an

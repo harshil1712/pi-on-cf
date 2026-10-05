@@ -1,39 +1,39 @@
-import { type DurableObjectStorageLike, Workspace, type WorkspaceStub } from '@cloudflare/computer'
-import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
+import { type DurableObjectStorageLike, getWorkspace, withWorkspace, type WorkspaceOptions } from '@cloudflare/computer'
 import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-javascript'
+import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient } from '@cloudflare/computer/git'
 import { DurableObject } from 'cloudflare:workers'
-import type { ComputerWorkspace } from './computer-workspace'
-import { TemplateRepository } from './apps/template-repository'
-import { migrateLegacyShellWorkspace } from './legacy-workspace-migration'
+import { createWorkspaceTools } from './workspace-tools'
 import { WORKSPACE_ROOT } from './workspace-root'
 
-export class ComputerTest extends DurableObject<Env> {
-  private readonly workspace = new Workspace({
-    storage: this.ctx.storage as unknown as DurableObjectStorageLike,
-    waitUntil: this.ctx.waitUntil.bind(this.ctx),
+type ToolOutcome = { isError: boolean; text: string }
+
+class ComputerTestHost extends DurableObject<Env> {}
+
+function workspaceOptions(self: ComputerTestHost): WorkspaceOptions {
+  const { ctx, env } = self as unknown as { ctx: DurableObjectState; env: Env }
+  return {
+    storage: ctx.storage as unknown as DurableObjectStorageLike,
     backends: [
       new WorkerShellBackend({
         id: 'shell',
-        loader: this.env.APP_LOADER,
-        workspace: { binding: 'ComputerTest', id: this.ctx.id.toString() },
-        ctx: this.ctx,
+        loader: env.LOADER,
+        workspace: { binding: 'ComputerTest', id: ctx.id.toString() },
+        ctx,
       }),
-      new WorkerJavaScriptBackend({ id: 'javascript', loader: this.env.APP_LOADER, root: WORKSPACE_ROOT }),
+      new WorkerJavaScriptBackend({ id: 'javascript', loader: env.LOADER, root: WORKSPACE_ROOT }),
     ],
     git: createGitClient(),
-    useThink: true,
-  }) as ComputerWorkspace
-
-  async __getWorkspaceStub(): Promise<WorkspaceStub> {
-    await this.workspace.ready()
-    return this.workspace.stub()
   }
+}
 
+/** A Durable Object with the same Computer backends as PiSession, minus the container. */
+export class ComputerTest extends withWorkspace(ComputerTestHost, workspaceOptions) {
   async exerciseShell(): Promise<{ exitCode: number; stdout: string; stderr: string; output: string }> {
-    await this.workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
-    await this.workspace.fs.writeFile(`${WORKSPACE_ROOT}/input.txt`, 'cloudflare computer\n')
-    using handle = await this.workspace.runtime.exec(
+    const workspace = await getWorkspace(this)
+    await workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
+    await workspace.fs.writeFile(`${WORKSPACE_ROOT}/input.txt`, 'cloudflare computer\n')
+    using handle = await workspace.runtime.exec(
       "cat input.txt | tr '[:lower:]' '[:upper:]' > output.txt && cat output.txt",
       { cwd: WORKSPACE_ROOT, encoding: 'utf8', backend: 'shell' },
     )
@@ -42,12 +42,13 @@ export class ComputerTest extends DurableObject<Env> {
       exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.stderr,
-      output: await this.workspace.fs.readFile(`${WORKSPACE_ROOT}/output.txt`, 'utf8'),
+      output: await workspace.fs.readFile(`${WORKSPACE_ROOT}/output.txt`, 'utf8'),
     }
   }
 
   async exerciseGit(): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-    using handle = await this.workspace.runtime.exec([
+    const workspace = await getWorkspace(this)
+    using handle = await workspace.runtime.exec([
       `mkdir -p ${WORKSPACE_ROOT}/repo`,
       `cd ${WORKSPACE_ROOT}/repo`,
       'git init',
@@ -56,7 +57,6 @@ export class ComputerTest extends DurableObject<Env> {
       "printf 'hello from computer\\n' > README.md",
       'git add README.md',
       "git commit -m 'initial commit'",
-      'git status --porcelain=v1',
       'git log --oneline -1',
     ].join(' && '), { cwd: WORKSPACE_ROOT, encoding: 'utf8', backend: 'shell' })
     const result = await handle.result()
@@ -64,8 +64,9 @@ export class ComputerTest extends DurableObject<Env> {
   }
 
   async exerciseJavaScript(): Promise<{ exitCode: number; stdout: string; value: unknown; file: string }> {
-    await this.workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
-    using handle = await this.workspace.runtime.exec(`
+    const workspace = await getWorkspace(this)
+    await workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
+    using handle = await workspace.runtime.exec(`
       import { writeFile } from 'node:fs/promises'
       export default async function (input) {
         const value = input.number * 2
@@ -79,56 +80,32 @@ export class ComputerTest extends DurableObject<Env> {
       exitCode: result.exitCode,
       stdout: result.stdout,
       value: result.value,
-      file: await this.workspace.fs.readFile(`${WORKSPACE_ROOT}/javascript.txt`, 'utf8'),
+      file: await workspace.fs.readFile(`${WORKSPACE_ROOT}/javascript.txt`, 'utf8'),
     }
   }
 
-  async installTemplate(repository: string, commit: string): Promise<{ commit: string; fileCount: number; packageJson: string | null }> {
-    const result = await new TemplateRepository(this.workspace).install({ repository, commit })
-    return {
-      commit: result.commit,
-      fileCount: result.fileCount,
-      packageJson: await this.workspace.readFile(`${WORKSPACE_ROOT}/package.json`),
-    }
-  }
-
-  async migrateLegacyWorkspace(): Promise<{ migrated: number; text: string; size: number; bytes: number[]; link: string }> {
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE cf_workspace_default (
-        path TEXT PRIMARY KEY,
-        parent_path TEXT NOT NULL,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        storage_backend TEXT NOT NULL DEFAULT 'inline',
-        content_encoding TEXT NOT NULL DEFAULT 'utf8',
-        content TEXT,
-        target TEXT
+  /** Runs Computer's tools through the pi-durable registrations PiSession installs. */
+  async exerciseTools(): Promise<{ names: string[]; replay: Record<string, string>; read: ToolOutcome; exec: ToolOutcome }> {
+    const tools = createWorkspaceTools({
+      workspace: await getWorkspace(this),
+      shell: { defaultBackend: 'shell', backends: { shell: { description: 'Worker shell' } } },
+    })
+    const byName = new Map(tools.map((tool) => [tool.name, tool]))
+    const call = async (name: string, args: unknown): Promise<ToolOutcome> => {
+      const result = await byName.get(name)!.execute(
+        args as never,
+        { callId: `call-${name}` } as never,
+        { abortSignal: new AbortController().signal } as never,
       )
-    `)
-    this.ctx.storage.sql.exec(
-      "INSERT INTO cf_workspace_default(path, parent_path, name, type) VALUES ('/src', '/', 'src', 'directory')",
-    )
-    this.ctx.storage.sql.exec(
-      "INSERT INTO cf_workspace_default(path, parent_path, name, type, content) VALUES ('/src/index.ts', '/src', 'index.ts', 'file', 'export default 42')",
-    )
-    this.ctx.storage.sql.exec(
-      "INSERT INTO cf_workspace_default(path, parent_path, name, type, content_encoding, content) VALUES ('/data.bin', '/', 'data.bin', 'file', 'base64', 'AP+A')",
-    )
-    this.ctx.storage.sql.exec(
-      "INSERT INTO cf_workspace_default(path, parent_path, name, type, target) VALUES ('/entry.ts', '/', 'entry.ts', 'symlink', '/src/index.ts')",
-    )
-
-    const migrated = await migrateLegacyShellWorkspace(
-      this.ctx.storage as unknown as DurableObjectStorageLike,
-      this.workspace,
-    )
-    const stat = await this.workspace.stat(`${WORKSPACE_ROOT}/src/index.ts`)
+      const text = (result.content ?? []).map((part) => part.type === 'text' ? part.text : '').join('')
+      return { isError: result.isError === true, text }
+    }
+    await call('write', { path: `${WORKSPACE_ROOT}/notes.txt`, content: 'hello pi\n' })
     return {
-      migrated,
-      text: await this.workspace.fs.readFile(`${WORKSPACE_ROOT}/src/index.ts`, 'utf8'),
-      size: stat?.size ?? -1,
-      bytes: Array.from(await this.workspace.readFileBytes(`${WORKSPACE_ROOT}/data.bin`) ?? []),
-      link: await this.workspace.fs.readlink(`${WORKSPACE_ROOT}/entry.ts`),
+      names: tools.map((tool) => tool.name).sort(),
+      replay: Object.fromEntries(tools.map((tool) => [tool.name, tool.replay ?? 'unsafe'])),
+      read: await call('read', { path: `${WORKSPACE_ROOT}/notes.txt` }),
+      exec: await call('exec', { command: 'wc -l notes.txt', cwd: WORKSPACE_ROOT }),
     }
   }
 }

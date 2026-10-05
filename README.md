@@ -1,34 +1,32 @@
 # Pi on Cloudflare
 
-A Worker-native experiment using Pi's portable agent loop, Cloudflare Durable Objects, AI Gateway, and a SQLite-backed workspace.
+A Worker-native coding agent: Pi's durable harness running inside Cloudflare Durable Objects, with a Cloudflare Computer workspace per session.
 
 > [!WARNING]
-> This is a single-user prototype with no application-level authentication or authorization. Anyone who can reach a deployment can use its server-side AI credentials and read, change, or delete its sessions and workspace files. Do not expose it to the public Internet without protecting the entire Worker with Cloudflare Access or another authentication layer.
+> This is a single-user prototype with no application-level authentication or authorization. Anyone who can reach a deployment can use its AI binding and read, change, or delete its sessions and workspace files. Do not expose it to the public Internet without protecting the entire Worker with Cloudflare Access or another authentication layer.
 
 ## Architecture
 
-- `@earendil-works/pi-agent-core` runs Pi's model and tool loop.
-- One `PiSession` Durable Object owns each transcript and workspace.
-- `@cloudflare/computer` provides the durable filesystem, Worker Shell, isolated JavaScript, Linux container, Git, R2 mounts, Assets, and Artifacts.
-- AI requests use Cloudflare AI Gateway's OpenAI-compatible REST API.
-- Cloudflare Agents SDK routes callable methods and streamed Pi events over WebSockets at `/api/agents/*`.
-- TanStack Start renders the UI and handles requests that do not match an Agent route.
-- Cloudflare Kumo provides accessible UI primitives while the application keeps its custom visual system.
+- `@earendil-works/pi-durable` runs Pi: the transcript, the steer/follow-up inbox, generation, tool calls, retries, compaction, and crash recovery, all committed to the Durable Object's SQLite.
+- `agents/harness/pi` (`PiHarness`) hosts pi-durable in the `PiSession` Durable Object and wakes it through the Agents SDK Lifecycle after eviction.
+- `agents/models/pi-ai` (`createAI`) gives Pi Workers AI and AI Gateway over the `AI` binding.
+- `@cloudflare/computer` provides the durable workspace at `/workspace`, with Worker Shell, Worker JavaScript, and a Durable Object-scheduled Linux container as `exec` backends. Its `createPiTools` supplies the model's tools.
+- Pi's agent events stream to the browser over the Agents SDK WebSocket: a snapshot on connect, then one batch per commit.
+- A singleton `PiRegistry` Durable Object keeps the session catalog.
+- TanStack Start renders the UI; Cloudflare Kumo provides UI primitives.
 
 The source is organized by runtime boundary:
 
-- `src/shared` contains the browser-safe Agent contract.
-- `src/server` contains the Durable Object, model setup, tools, and event translation.
-- `src/features/workspace` contains transcript state, session orchestration, and the workspace UI.
+- `src/shared` contains the browser-safe contract.
+- `src/server` contains the Durable Objects and the Computer tool adapter.
+- `src/features` contains the session catalog, the transcript reducer, and the workspace UI.
 - `src/routes` contains thin TanStack route entries.
 
-The Computer-backed tools are `read`, `write`, `edit`, `list`, `find`, `grep`, `exec`, `javascript`, `publish`, and `artifacts`. `exec` routes fast text and Git work to Worker Shell or native builds, tests, package managers, and networked commands to the Linux container.
-
-See [Pi on Cloudflare Architecture](docs/architecture.md) for the current system design, and [Pi Feature and Cloudflare Platform Audit](docs/pi-feature-audit.md) for upstream Pi feature and platform research with implementation ideas.
+See [Pi on Cloudflare Architecture](docs/architecture.md) for the system design.
 
 ## Local Development
 
-Create `.env` from `.env.example`, then provide an AI Gateway token, account ID, and R2 S3 credentials for Computer Assets. Local Durable Object state is written to `.wrangler/` and may contain transcripts, learned memory, and workspace files.
+Local development needs Docker for the Computer container and a `wrangler login` for the remote `AI` and Artifacts bindings. Local Durable Object state is written to `.wrangler/` and may contain transcripts and workspace files.
 
 ```bash
 npm ci
@@ -39,26 +37,21 @@ Open `http://localhost:3000`.
 
 ## Configuration
 
-The shared `wrangler.jsonc` intentionally uses the neutral AI Gateway ID `default`. Keep account-specific Gateway IDs out of that file. `wrangler.local.jsonc` is not a special Wrangler filename; it is an ignored copy that can be selected explicitly. For Vite commands, including this project's development, build, and deploy scripts, set `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc`. For direct Wrangler commands, pass `--config wrangler.local.jsonc`.
+`AI_MODEL` selects the model new sessions start with; `AI_GATEWAY_ID` selects the AI Gateway. Both are non-secret variables in `wrangler.jsonc`. The shared file keeps the neutral gateway ID `default`; keep account-specific configuration in an ignored `wrangler.local.jsonc` and select it with `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite commands or `--config wrangler.local.jsonc` for Wrangler.
 
-`AI_MODEL` and `AI_MEMORY_MODEL` select the primary and memory-extraction models. They are non-secret variables in `wrangler.jsonc`. Provision the `pi-on-cf-computer` R2 bucket before deployment; its `reference/` prefix is mounted read-only at `/reference`, while published files are uploaded through Computer Assets.
+`Dockerfile.computer` pins the `computerd` image; keep its version in step with `@cloudflare/computer`.
+
+`compatibility_date` is the newest date the bundled workerd supports. `package.json` overrides the `miniflare` and `wrangler` that `@cloudflare/vitest-pool-workers` pins, so dev, tests, and deploys share one runtime. Bump the date together with Wrangler, and drop the override once the pool ships a matching Miniflare.
 
 ## Production
 
 Protect the entire Worker with Cloudflare Access or another authentication layer before deploying. The application does not enforce this itself.
 
-Configure the runtime secrets before deploying:
-
 ```bash
-npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
-npx wrangler secret put AI_GATEWAY_TOKEN
-npx wrangler secret put R2_ACCESS_KEY_ID
-npx wrangler secret put R2_SECRET_ACCESS_KEY
-npx wrangler secret put WORKERS_DEPLOY_API_TOKEN
 npm run deploy
 ```
 
-Do not publish the working directory as an archive. Publish from a clean clone or through normal Git operations so ignored `.env`, `.wrangler`, `dist`, and `node_modules` content cannot be included accidentally.
+Do not publish the working directory as an archive. Publish from a clean clone so ignored `.wrangler`, `dist`, and `node_modules` content cannot be included accidentally.
 
 ## Verification
 

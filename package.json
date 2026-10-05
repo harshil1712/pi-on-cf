@@ -19,13 +19,11 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "@cloudflare/computer": "0.1.1",
-    "@cloudflare/kumo": "^2.8.0",
-    "@cloudflare/vite-plugin": "^1.26.0",
-    "@cloudflare/worker-bundler": "0.2.2",
-    "@earendil-works/pi-agent-core": "^0.82.1",
-    "@earendil-works/pi-ai": "^0.82.1",
-    "@noble/hashes": "2.2.0",
+    "@cloudflare/computer": "^0.4.0",
+    "@cloudflare/kumo": "^2.14.0",
+    "@cloudflare/vite-plugin": "^1.62.5",
+    "@earendil-works/pi-ai": "^1.0.2",
+    "@earendil-works/pi-durable": "^1.0.2",
     "@phosphor-icons/react": "^2.1.10",
     "@platformatic/vfs": "^0.4.0",
     "@streamdown/code": "^1.1.1",
@@ -36,18 +34,16 @@
     "@tanstack/react-router-ssr-query": "latest",
     "@tanstack/react-start": "latest",
     "@tanstack/router-plugin": "^1.132.0",
-    "agents": "^0.20.0",
-    "isomorphic-git": "^1.40.0",
+    "agents": "^0.26.0",
     "lucide-react": "^0.545.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "streamdown": "^2.5.0",
-    "tailwindcss": "^4.1.18",
-    "typebox": "^1.1.38"
+    "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
     "@babel/plugin-proposal-decorators": "^8.0.2",
-    "@cloudflare/vitest-pool-workers": "^0.18.8",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/router-cli": "^1.132.0",
@@ -63,12 +59,28 @@
     "typescript": "^6.0.2",
     "vite": "^8.0.0",
     "vitest": "^4.1.5",
-    "wrangler": "^4.114.0"
+    "wrangler": "^4.147.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
       "lightningcss"
     ]
+  },
+  "allowScripts": {
+    "workerd": true,
+    "esbuild": true,
+    "@google/genai": false,
+    "@mongodb-js/zstd": false,
+    "core-js-pure": false,
+    "fsevents": false,
+    "node-liblzma": false,
+    "protobufjs": false
+  },
+  "overrides": {
+    "@cloudflare/vitest-pool-workers": {
+      "miniflare": "5.20261001.0-alpha",
+      "wrangler": "$wrangler"
+    }
   }
 }

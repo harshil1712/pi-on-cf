@@ -1,13 +1,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pi-on-cf-test",
-  "compatibility_date": "2026-07-27",
+  "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat", "experimental"],
   "main": "src/server-test-entry.ts",
   "vars": {
     "AI_GATEWAY_ID": "test",
-    "AI_MODEL": "@cf/zai-org/glm-5.2",
-    "AI_MEMORY_MODEL": "@cf/zai-org/glm-5.2"
+    "AI_MODEL": "@cf/zai-org/glm-5.2"
   },
   "durable_objects": {
     "bindings": [
@@ -22,6 +21,6 @@
     { "tag": "v3", "new_sqlite_classes": ["ComputerTest"] }
   ],
   "worker_loaders": [
-    { "binding": "APP_LOADER" }
+    { "binding": "LOADER" }
   ]
 }

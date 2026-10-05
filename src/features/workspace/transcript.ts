@@ -1,184 +1,213 @@
-import type { PiStreamEvent, StoredSessionEntry } from '../../shared/pi-contract'
-
-export function messageText(message: unknown): string {
-  if (!message || typeof message !== 'object') return ''
-  const value = message as { content?: unknown }
-  if (typeof value.content === 'string') return value.content
-  if (!Array.isArray(value.content)) return ''
-  return value.content
-    .filter((part): part is { type: string; text: string } => {
-      return Boolean(part && typeof part === 'object' && 'type' in part && part.type === 'text' && 'text' in part)
-    })
-    .map((part) => part.text)
-    .join('')
-}
+import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
+import type { AgentEvent, EntryRecord, MessageChange } from '@earendil-works/pi-durable'
 
 export type TranscriptEntry =
   | { id: string; type: 'message'; role: 'user' | 'assistant'; text: string }
   | { id: string; type: 'reasoning'; text: string; status: 'running' | 'complete' }
-  | { id: string; type: 'summary'; kind: 'compaction' | 'branch'; text: string; status: 'complete' }
+  | { id: string; type: 'summary'; kind: 'compaction' | 'reset'; text: string; status: 'complete' }
   | { id: string; type: 'tool'; callId: string; name: string; args: unknown; result?: unknown; status: 'running' | 'complete' | 'error' }
 
-export type TranscriptState = {
-  entries: TranscriptEntry[]
-  activeTextId: string
-  activeReasoningId: string
+/** A tool call pi is running now, with its retained output. */
+export type RunningTool = { name: string; output: string }
+
+/**
+ * One session as the browser sees it, folded from pi-durable's agent
+ * events: the committed active transcript plus what is streaming now.
+ */
+export type PiView = {
+  entries: readonly EntryRecord[]
+  live: AssistantMessage | null
+  tools: Readonly<Record<string, RunningTool>>
+  running: boolean
+  queued: number
+  error: string
 }
 
-export function transcriptEntries(stored: StoredSessionEntry[] | unknown[]): TranscriptEntry[] {
-  const messages = stored.map((entry, index) => {
-    if (entry && typeof entry === 'object' && 'id' in entry && 'type' in entry) {
-      const value = entry as StoredSessionEntry
-      return { message: value.message, stableId: value.id, type: value.type, summary: value.summary }
+export const EMPTY_VIEW: PiView = { entries: [], live: null, tools: {}, running: false, queued: 0, error: '' }
+
+export function reducePiEvents(view: PiView, events: readonly AgentEvent[]): PiView {
+  return events.reduce(reducePiEvent, view)
+}
+
+export function reducePiEvent(view: PiView, event: AgentEvent): PiView {
+  switch (event.type) {
+    case 'snapshot':
+      return {
+        entries: event.entries,
+        live: event.generation?.message ?? null,
+        tools: Object.fromEntries(event.tools
+          .filter((slot) => slot.status !== 'done')
+          .map((slot) => [slot.callId, { name: slot.name, output: slot.output ?? '' }])),
+        running: event.run !== undefined,
+        queued: event.inbox.length,
+        error: '',
+      }
+    case 'run_start':
+      return { ...view, running: true, error: '' }
+    case 'run_end':
+      return { ...view, running: false, live: null, tools: {} }
+    case 'message_start':
+      return event.message.role === 'assistant' ? { ...view, live: event.message } : view
+    case 'message_update':
+      return view.live ? { ...view, live: applyChanges(view.live, event.changes) } : view
+    case 'message_end': {
+      const next = append(view, event.entry)
+      return event.entry.model?.[0]?.role === 'assistant' ? { ...next, live: null } : next
     }
-    return { message: entry, stableId: `stored-${index}`, type: 'message', summary: undefined }
-  })
-  const toolResults = new Map<string, boolean>()
-  for (const { message } of messages) {
-    if (!message || typeof message !== 'object') continue
-    const value = message as { role?: string; toolCallId?: unknown; isError?: unknown }
-    if (value.role === 'toolResult' && typeof value.toolCallId === 'string') {
-      toolResults.set(value.toolCallId, value.isError === true)
+    case 'entry_appended':
+      return append(view, event.entry)
+    case 'tool_execution_start':
+      return { ...view, tools: { ...view.tools, [event.toolCallId]: { name: event.toolName, output: '' } } }
+    case 'tool_execution_update': {
+      const tool = view.tools[event.toolCallId]
+      if (!tool || !event.output) return view
+      const output = 'set' in event.output
+        ? event.output.set
+        : tool.output.slice(event.output.trimStart ?? 0) + (event.output.append ?? '')
+      return { ...view, tools: { ...view.tools, [event.toolCallId]: { ...tool, output } } }
+    }
+    case 'tool_execution_end': {
+      const { [event.toolCallId]: _finished, ...tools } = view.tools
+      const next = { ...view, tools }
+      return event.entry ? append(next, event.entry) : next
+    }
+    case 'inbox_update':
+      return { ...view, queued: event.items.length }
+    case 'task_failed':
+      return { ...view, error: event.message }
+    case 'submission':
+      return event.record.status === 'unanswered' && event.record.reason !== 'aborted' && event.record.reason !== 'withdrawn'
+        ? { ...view, error: `Pi could not answer: ${event.record.reason}` }
+        : view
+    default:
+      return view
+  }
+}
+
+/**
+ * Add a committed entry. An entry with a `head` (a reset or a compaction)
+ * starts a new active context at that entry, as pi's snapshot does.
+ */
+function append(view: PiView, entry: EntryRecord): PiView {
+  if (view.entries.some((known) => known.id === entry.id)) return view
+  if (entry.head !== undefined) {
+    const head = entry.head
+    return { ...view, entries: [...view.entries.filter((known) => known.id >= head && known.head === undefined), entry] }
+  }
+  return { ...view, entries: [...view.entries, entry] }
+}
+
+function applyChanges(message: AssistantMessage, changes: readonly MessageChange[]): AssistantMessage {
+  let next = message
+  for (const change of changes) {
+    if (change.type === 'message') {
+      next = change.message
+      continue
+    }
+    const content = [...next.content]
+    const previous = content[change.contentIndex]
+    switch (change.type) {
+      case 'text_start':
+      case 'thinking_start':
+      case 'toolcall_start':
+      case 'block':
+        content[change.contentIndex] = change.block as AssistantMessage['content'][number]
+        break
+      case 'text_delta':
+        content[change.contentIndex] = { type: 'text', text: (previous?.type === 'text' ? previous.text : '') + change.delta }
+        break
+      case 'thinking_delta':
+        content[change.contentIndex] = {
+          ...(previous?.type === 'thinking' ? previous : {}),
+          type: 'thinking',
+          thinking: (previous?.type === 'thinking' ? previous.thinking : '') + change.delta,
+        }
+        break
+      case 'toolcall_delta':
+        // Partial argument JSON; the call renders once its block completes.
+        break
+    }
+    next = { ...next, content }
+  }
+  return next
+}
+
+export function messageText(message: Pick<Message, 'content'> | undefined): string {
+  if (!message) return ''
+  if (typeof message.content === 'string') return message.content
+  return message.content
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join('')
+}
+
+/** The active transcript as display rows, with the streaming message last. */
+export function transcriptEntries(view: PiView): { entries: TranscriptEntry[]; activeTextId: string } {
+  const results = new Map<string, { text: string; isError: boolean }>()
+  for (const entry of view.entries) {
+    const message = entry.model?.[0]
+    if (message?.role === 'toolResult') {
+      results.set(message.toolCallId, { text: messageText(message), isError: message.isError })
     }
   }
 
-  return messages.flatMap(({ message, stableId, type, summary }): TranscriptEntry[] => {
-    if ((type === 'compaction' || type === 'branch_summary') && summary) {
+  const rows: TranscriptEntry[] = []
+  for (const entry of headFirst(view.entries)) {
+    const id = String(entry.id)
+    const message = entry.model?.[0]
+    if (entry.kind === 'pi.compaction') {
+      rows.push({ id, type: 'summary', kind: 'compaction', text: messageText(message), status: 'complete' })
+    } else if (entry.kind === 'pi.reset') {
+      rows.push({ id, type: 'summary', kind: 'reset', text: messageText(message) || 'Context reset.', status: 'complete' })
+    } else if (message?.role === 'user') {
+      const text = messageText(message)
+      if (text) rows.push({ id, type: 'message', role: 'user', text })
+    } else if (message?.role === 'assistant') {
+      rows.push(...assistantRows(message, id, view, results, false))
+    }
+  }
+
+  let activeTextId = ''
+  if (view.live) {
+    const live = assistantRows(view.live, 'live', view, results, true)
+    activeTextId = live.findLast((row) => row.type === 'message')?.id ?? ''
+    rows.push(...live)
+  }
+  return { entries: rows, activeTextId }
+}
+
+function assistantRows(
+  message: AssistantMessage,
+  id: string,
+  view: PiView,
+  results: Map<string, { text: string; isError: boolean }>,
+  streaming: boolean,
+): TranscriptEntry[] {
+  return message.content.flatMap((part, index): TranscriptEntry[] => {
+    const rowId = `${id}-${index}`
+    if (part.type === 'text') return part.text ? [{ id: rowId, type: 'message', role: 'assistant', text: part.text }] : []
+    if (part.type === 'thinking') {
+      return part.thinking ? [{ id: rowId, type: 'reasoning', text: part.thinking, status: streaming ? 'running' : 'complete' }] : []
+    }
+    if (part.type === 'toolCall') {
+      const result = results.get(part.id)
+      const running = view.tools[part.id]
       return [{
-        id: stableId,
-        type: 'summary',
-        kind: type === 'compaction' ? 'compaction' : 'branch',
-        text: summary,
-        status: 'complete',
+        id: `tool-${part.id}`,
+        type: 'tool',
+        callId: part.id,
+        name: part.name,
+        args: part.arguments,
+        result: result?.text ?? (running?.output || undefined),
+        status: result ? (result.isError ? 'error' : 'complete') : view.running ? 'running' : 'error',
       }]
     }
-    if (!message || typeof message !== 'object') return []
-    const value = message as { role?: string; content?: unknown }
-    if (value.role === 'user') {
-      const text = messageText(value)
-      return text ? [{ id: stableId, type: 'message', role: 'user', text }] : []
-    }
-    if (value.role !== 'assistant' || !Array.isArray(value.content)) return []
-
-    return value.content.flatMap((part, partIndex): TranscriptEntry[] => {
-      if (!part || typeof part !== 'object' || !('type' in part)) return []
-      const id = `${stableId}-${partIndex}`
-      if (part.type === 'text' && 'text' in part && typeof part.text === 'string' && part.text) {
-        return [{ id, type: 'message', role: 'assistant', text: part.text }]
-      }
-      if (part.type === 'thinking' && 'thinking' in part && typeof part.thinking === 'string' && part.thinking) {
-        return [{ id, type: 'reasoning', text: part.thinking, status: 'complete' }]
-      }
-      if (part.type === 'toolCall' && 'id' in part && typeof part.id === 'string' && 'name' in part && typeof part.name === 'string') {
-        return [{
-          id,
-          type: 'tool',
-          callId: part.id,
-          name: part.name,
-          args: 'arguments' in part ? part.arguments : {},
-          status: toolResults.get(part.id) ? 'error' : 'complete',
-        }]
-      }
-      return []
-    })
+    return []
   })
 }
 
-export function reduceStreamEvent(
-  state: TranscriptState,
-  event: PiStreamEvent,
-  createId: () => string = () => crypto.randomUUID(),
-): TranscriptState {
-  if (event.type === 'text_start') {
-    const id = createId()
-    return { ...state, activeTextId: id, entries: [...state.entries, { id, type: 'message', role: 'assistant', text: '' }] }
-  }
-  if (event.type === 'text_delta') {
-    if (!state.activeTextId) {
-      const id = createId()
-      return {
-        ...state,
-        activeTextId: id,
-        entries: [...state.entries, { id, type: 'message', role: 'assistant', text: event.delta }],
-      }
-    }
-    return {
-      ...state,
-      entries: state.entries.map((entry) =>
-        entry.type === 'message' && entry.id === state.activeTextId ? { ...entry, text: entry.text + event.delta } : entry),
-    }
-  }
-  if (event.type === 'text_end') return { ...state, activeTextId: '' }
-  if (event.type === 'thinking_start') {
-    const id = createId()
-    return {
-      ...state,
-      activeReasoningId: id,
-      entries: [...state.entries, { id, type: 'reasoning', text: '', status: 'running' }],
-    }
-  }
-  if (event.type === 'thinking_delta') {
-    if (!state.activeReasoningId) {
-      const id = createId()
-      return {
-        ...state,
-        activeReasoningId: id,
-        entries: [...state.entries, { id, type: 'reasoning', text: event.delta, status: 'running' }],
-      }
-    }
-    return {
-      ...state,
-      entries: state.entries.map((entry) =>
-        entry.type === 'reasoning' && entry.id === state.activeReasoningId
-          ? { ...entry, text: entry.text + event.delta }
-          : entry),
-    }
-  }
-  if (event.type === 'thinking_end') {
-    return {
-      ...state,
-      activeReasoningId: '',
-      entries: state.entries.map((entry) =>
-        entry.type === 'reasoning' && entry.id === state.activeReasoningId ? { ...entry, status: 'complete' } : entry),
-    }
-  }
-  if (event.type === 'tool_execution_start') {
-    return {
-      ...state,
-      entries: [...state.entries, {
-        id: `tool-${event.callId}`,
-        type: 'tool',
-        callId: event.callId,
-        name: event.name,
-        args: event.args,
-        status: 'running',
-      }],
-    }
-  }
-  if (event.type === 'tool_execution_end') {
-    return {
-      ...state,
-      entries: state.entries.map((entry) =>
-        entry.type === 'tool' && entry.callId === event.callId
-          ? { ...entry, result: event.result, status: event.isError ? 'error' : 'complete' }
-          : entry),
-    }
-  }
-  if (event.type === 'tool_execution_update') {
-    return {
-      ...state,
-      entries: state.entries.map((entry) =>
-        entry.type === 'tool' && entry.callId === event.callId ? { ...entry, result: event.result } : entry),
-    }
-  }
-  if (event.type === 'done') {
-    return {
-      ...state,
-      activeReasoningId: '',
-      activeTextId: '',
-      entries: state.entries.map((entry) =>
-        entry.type === 'reasoning' && entry.status === 'running' ? { ...entry, status: 'complete' } : entry),
-    }
-  }
-  return state
+/** pi lists a context's head entry (compaction or reset) after the entries it keeps; show it first. */
+function headFirst(entries: readonly EntryRecord[]): readonly EntryRecord[] {
+  const head = entries.findLast((entry) => entry.head !== undefined)
+  return head ? [head, ...entries.filter((entry) => entry !== head)] : entries
 }
+

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Collapsible } from '@cloudflare/kumo/components/collapsible'
 import { Loader } from '@cloudflare/kumo/components/loader'
-import { BrainCircuit, Check, CircleX, GitBranch, Scissors, Wrench } from 'lucide-react'
+import { BrainCircuit, Check, CircleX, RotateCcw, Scissors, Wrench } from 'lucide-react'
 import type { TranscriptEntry } from '../transcript'
 
 function toolArgumentSummary(args: unknown) {
@@ -24,7 +24,7 @@ export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type
   const sessionSummary = entry.type === 'summary'
   const toolSummary = entry.type === 'tool' ? toolArgumentSummary(entry.args) : ''
   const heading = reasoning ? 'REASONING' : sessionSummary
-    ? entry.kind === 'compaction' ? 'COMPACTION SUMMARY' : 'BRANCH SUMMARY'
+    ? entry.kind === 'compaction' ? 'COMPACTION SUMMARY' : 'CONTEXT RESET'
     : entry.name.replaceAll('_', ' ').toUpperCase()
   const description = reasoning ? (entry.status === 'running' ? 'WORKING THROUGH THE TASK' : 'THOUGHT PROCESS')
     : sessionSummary ? 'SESSION CONTEXT CHECKPOINT'
@@ -37,7 +37,7 @@ export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type
       onOpenChange={setOpen}
     >
       <Collapsible.Trigger className="activity-trigger">
-        <span className="activity-icon">{reasoning ? <BrainCircuit size={15} /> : sessionSummary ? entry.kind === 'compaction' ? <Scissors size={14} /> : <GitBranch size={14} /> : <Wrench size={14} />}</span>
+        <span className="activity-icon">{reasoning ? <BrainCircuit size={15} /> : sessionSummary ? entry.kind === 'compaction' ? <Scissors size={14} /> : <RotateCcw size={14} /> : <Wrench size={14} />}</span>
         <span className="activity-heading">
           <strong>{heading}</strong>
           <small>{description}</small>

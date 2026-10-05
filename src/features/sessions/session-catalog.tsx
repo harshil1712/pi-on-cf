@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button } from '@cloudflare/kumo/components/button'
-import { Copy, GitFork, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
 import type { SessionSummary } from '../../shared/pi-contract'
 import { useSessionRegistry } from './use-session-registry'
 
@@ -25,7 +25,6 @@ export function SessionCatalog() {
   const registry = useSessionRegistry()
   const navigate = useNavigate()
   const [name, setName] = useState('')
-  const [query, setQuery] = useState('')
   const [busy, setBusy] = useState('')
   const [mutationError, setMutationError] = useState('')
   const [now, setNow] = useState(() => Date.now())
@@ -40,7 +39,7 @@ export function SessionCatalog() {
     setMutationError('')
     try {
       await operation()
-      await registry.reload(query)
+      await registry.reload()
     } catch (caught) {
       setMutationError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -94,28 +93,7 @@ export function SessionCatalog() {
         </aside>
 
         <div className="catalog-list-area">
-          <search>
-          <form className="catalog-search" onSubmit={(event) => { event.preventDefault(); void registry.reload(query) }}>
-            <Search size={18} aria-hidden="true" />
-            <label className="sr-only" htmlFor="session-search">Search sessions and messages</label>
-            <input id="session-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="SEARCH NAMES + TRANSCRIPTS / re: PATTERN" />
-            <Button type="submit" variant="outline" disabled={registry.loading}>SCAN</Button>
-          </form>
-          </search>
-
           {(registry.error || mutationError) && <Banner className="error-banner" variant="error" role="alert" description={registry.error || mutationError} />}
-
-          {query.trim() && registry.results.length > 0 && (
-            <section className="search-results" aria-labelledby="search-results-title">
-              <h2 id="search-results-title">MESSAGE MATCHES / {registry.results.length}</h2>
-              {registry.results.map(({ session, matches }) => (
-                <article key={session.id}>
-                  <Link to="/sessions/$sessionId" params={{ sessionId: session.id }}>{displayName(session)}</Link>
-                  {matches.slice(0, 3).map((match) => <div className="search-hit" key={match.entryId}><span>{match.role}</span><p>{match.text}</p>{match.role === 'user' && <Button variant="ghost" disabled={Boolean(busy)} onClick={() => void mutate(`fork-${match.entryId}`, async () => { const forked = await registry.agent.stub.forkSession({ sourceSessionId: session.id, entryId: match.entryId, name: `${session.name || 'Untitled'} fork` }); await navigate({ to: '/sessions/$sessionId', params: { sessionId: forked.id } }) })}><GitFork size={13} /> FORK HERE</Button>}</div>)}
-                </article>
-              ))}
-            </section>
-          )}
 
           <section className="session-list" aria-labelledby="session-list-title" aria-busy={registry.loading}>
             <div className="session-list-heading"><h2 id="session-list-title">RECENT SESSIONS</h2><span>UPDATED / DESCENDING</span></div>
@@ -125,11 +103,10 @@ export function SessionCatalog() {
                 <span className="session-number">{String(index + 1).padStart(2, '0')}</span>
                 <Link className="session-main-link" to="/sessions/$sessionId" params={{ sessionId: session.id }}>
                   <strong>{displayName(session)}</strong>
-                  <span>{session.messageCount} MSG / {session.lineage.type.toUpperCase()} / <time dateTime={session.updatedAt}>{relativeTime(session.updatedAt, now)}</time></span>
+                  <span>UPDATED <time dateTime={session.updatedAt}>{relativeTime(session.updatedAt, now)}</time></span>
                 </Link>
                 <div className="session-actions" aria-label={`Actions for ${displayName(session)}`}>
                   <Button shape="square" size="sm" variant="ghost" aria-label="Rename session" title="Rename session" disabled={Boolean(busy)} onClick={() => rename(session)} icon={<Pencil size={15} />} />
-                  <Button shape="square" size="sm" variant="ghost" aria-label="Clone session" title="Clone session" disabled={Boolean(busy)} onClick={() => void mutate(`clone-${session.id}`, async () => { const clone = await registry.agent.stub.cloneSession({ sourceSessionId: session.id, name: `${session.name || 'Untitled'} copy` }); await navigate({ to: '/sessions/$sessionId', params: { sessionId: clone.id } }) })} icon={<Copy size={15} />} />
                   <Button shape="square" size="sm" variant="ghost" aria-label="Delete session" title="Delete session" disabled={Boolean(busy)} onClick={() => { if (window.confirm(`Delete ${displayName(session)}? This cannot be undone.`)) void mutate(`delete-${session.id}`, () => registry.agent.stub.deleteSession(session.id)) }} icon={<Trash2 size={15} />} />
                 </div>
               </article>

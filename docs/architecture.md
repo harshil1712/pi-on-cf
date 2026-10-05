@@ -1,213 +1,95 @@
 # Pi on Cloudflare Architecture
 
-This document describes the current Pi on Cloudflare system design, its implemented capabilities, and its known limitations. It reflects the source tree as of July 29, 2026.
+This document describes the current Pi on Cloudflare system design and its known limitations. It reflects the migration to `@earendil-works/pi-durable` 1.0, `agents` 0.26, and `@cloudflare/computer` 0.4.
 
 ## System Overview
 
 Pi on Cloudflare is a TanStack Start application deployed as a Cloudflare Worker. It combines:
 
-- Pi's `AgentHarness` and `Session` abstractions from `@earendil-works/pi-agent-core`.
-- One `PiSession` Durable Object per session.
-- A singleton `PiRegistry` Durable Object for discovery, search, lineage, and learned memory.
-- A SQLite-backed virtual filesystem and Dynamic Worker shell from `@cloudflare/computer`.
-- Cloudflare AI Gateway through Pi's OpenAI-compatible provider adapter.
-- Agents SDK RPC and streaming between the React client and Durable Objects.
+- Pi's durable harness, `@earendil-works/pi-durable`, hosted by the Agents SDK's `PiHarness` (`agents/harness/pi`).
+- Workers AI and AI Gateway through `agents/models/pi-ai` and the `AI` binding.
+- One `PiSession` Durable Object per session, owning the Pi conversation and a Cloudflare Computer workspace.
+- A singleton `PiRegistry` Durable Object for the session catalog.
 
-The Worker routes `/api/agents/*` requests through the Agents SDK and sends other requests to TanStack Start. The browser provides a session catalog at `/` and a workspace at `/sessions/:sessionId`.
+The Worker routes `/api/agents/*` through the Agents SDK and sends other requests to TanStack Start. The browser has a session catalog at `/` and a workspace at `/sessions/:sessionId`.
 
 Relevant source:
 
 - `src/server.ts`
 - `src/shared/pi-contract.ts`
-- `src/routes/index.tsx`
-- `src/routes/sessions.$sessionId.tsx`
+- `src/server/pi-session.ts`
+- `src/server/pi-registry.ts`
 - `wrangler.jsonc`
 
-## Durable Object Responsibilities
+## PiSession
 
-### PiRegistry
+Each session ID addresses one `PiSession`, an Agents SDK `Agent` composed with two Computer mixins:
 
-The singleton `PiRegistry` owns global application data:
+- `withWorkspaceContainer` makes the object the host of its own Computer container.
+- `withWorkspace` builds the `Workspace` and serves it to Computer's Worker Shell through `__getWorkspaceStub`.
 
-- Session metadata and lifecycle status.
-- Session names, timestamps, message counts, active leaves, and lineage.
-- Full-text and regular-expression transcript search indexes.
-- Idempotent processing of session index events.
-- Deletion tombstones that prevent delayed events from recreating deleted sessions.
-- Global learned memories and memory-extraction records.
+### Pi
 
-It creates UUID-named sessions and coordinates rename, deletion, fork, and clone operations. Search covers non-empty user and assistant text; it does not index reasoning, tool output, compaction summaries, or workspace files.
+`PiHarness` opens pi-durable over the object's SQLite, in tables prefixed `pi_`, and registers with the Agent's Lifecycle. Pi owns everything about a run: the transcript, the inbox of steers and follow-ups, generation and tool tasks, retries, automatic compaction, and crash recovery. While Pi has work, the harness keeps one Lifecycle job per session; if the object is evicted mid-run, that job's alarm restarts it and Pi resumes from its last commit. The application does not override `alarm()`.
 
-Relevant source:
+The session uses Pi's root conversation. The harness factory installs one Pi extension containing:
 
-- `src/server/pi-registry.ts`
-- `src/server/pi-session-storage.ts`
+- a `preamble` system-prompt section describing the workspace;
+- Computer's tools from `createPiTools`, adapted to pi-durable tool registrations in `src/server/workspace-tools.ts`.
 
-### PiSession
+Tool calls in a round run sequentially. Reads, searches, `write`, and `delete` are marked replay-safe; `edit` and `exec` are reported to the model as interrupted if an eviction cuts them off.
 
-Each session ID addresses a separate `PiSession`. It owns:
+The model comes from `createAI({ binding: env.AI })`. New sessions start on `AI_MODEL` at the `medium` thinking level.
 
-- Pi session metadata and append-only tree entries.
-- The active tree leaf.
-- The cached `AgentHarness` and active-turn coordination.
-- Per-session compaction settings.
-- The transcript-index outbox and memory-extraction cursor.
-- An isolated durable workspace.
+### Transport
 
-The transcript and workspace use the Durable Object's SQLite storage. Completed entries and file changes survive object eviction, but in-memory execution state does not.
+Commands are `@callable` methods: `submit`, `steer`, `abort`, `listFiles`, and `readWorkspaceFile`. `submit` resolves once Pi has durably accepted the prompt, before the model runs.
 
-Relevant source:
+Each WebSocket connection gets its own `session.events()` watch. The first frame is a `snapshot`; each later frame is one batch of Pi agent events per commit. The client folds them with the reducer in `src/features/workspace/transcript.ts`. Watches live in memory, so `onStart` re-watches every connection that outlived the previous isolate and sends a fresh snapshot. A reconnecting browser always starts from the current state, including an in-flight answer.
 
-- `src/server/pi-session.ts`
-- `src/server/pi-session-storage.ts`
+### Workspace
 
-## Session Trees and Persistence
+The Computer workspace is rooted at `/workspace` and has three `exec` backends:
 
-`PiSessionStorage` implements Pi's `SessionStorage` contract over Durable Object SQLite. Entries retain their Pi ID, parent ID, type, timestamp, and serialized payload. These links form an append-only tree.
+| Backend | Runtime |
+| --- | --- |
+| `shell` | Worker Shell: just-bash with text utilities and git, in a Dynamic Worker |
+| `javascript` | Worker JavaScript: ES modules with `node:fs/promises`, `ws:git`, and `ws:artifacts` |
+| `container` | `ContainerBackend`: a Durable Object-scheduled Cloudflare Container running `computerd`, with direct egress |
 
-The active branch is the path from the selected leaf to the root. Moving through history appends a leaf entry rather than deleting later history. The UI exposes the tree and supports revising a previous user message.
+The container dials back to the object at `/api` through `WorkspaceProxy`; `PiSession.fetch` hands that upgrade to the backend. The workspace also has git and session Artifacts.
 
-The application supports:
+## PiRegistry
 
-- Creating, naming, listing, searching, and deleting sessions.
-- Navigating branches without deleting history.
-- Forking from a selected user message.
-- Cloning the active branch.
-- Entry labels and parent-session lineage in the server contract.
-- Automatic and manual context compaction.
-- Abort, steering, and follow-up operations in the server contract.
-
-A fork copies the branch before the selected user message. A clone copies the active branch. Both copy the source session's current workspace and compaction settings. Workspace files are current-state copies, not historical snapshots from the selected transcript entry.
-
-Registry indexing uses a durable outbox. Appending a searchable message and its outbox event is atomic; delivery to `PiRegistry` is asynchronous and idempotent.
-
-## Agent and Model Flow
-
-`PiSession` lazily constructs one `AgentHarness` per live Durable Object instance. The harness receives:
-
-- A `Session` backed by `PiSessionStorage`.
-- Workspace, session-search, and memory tools.
-- A system prompt that includes global learned memory.
-- A fixed `medium` thinking level.
-- Cloudflare AI Gateway metadata containing the session ID.
-
-Provider configuration comes from:
-
-- `CLOUDFLARE_ACCOUNT_ID`
-- `AI_GATEWAY_TOKEN`
-- `AI_GATEWAY_ID`
-- `AI_MODEL`
-- `AI_MEMORY_MODEL`
-
-The committed Gateway ID is the neutral `default`. Account-specific configuration must not be committed to `wrangler.jsonc`.
-
-During a prompt, the session validates configuration and prompt size, prevents a second active prompt, compacts context when needed, runs the model/tool loop, streams translated Pi events to the browser, and schedules indexing and memory extraction. The browser reloads the authoritative branch and workspace after completion.
-
-Completed Pi messages are durable. Partial token deltas, the browser's stream position, abort state, and steering/follow-up queues are not durable across a Durable Object restart.
-
-Relevant source:
-
-- `src/server/create-pi-harness.ts`
-- `src/server/pi-session.ts`
-- `src/server/stream-events.ts`
-- `src/features/workspace/use-pi-session.ts`
-
-`src/server/create-pi-agent.ts` is a legacy low-level factory and is not used by the production request path.
-
-## Workspace and Tools
-
-Each session has an isolated `@cloudflare/computer` workspace rooted at `/workspace`. It registers Worker Shell, Worker JavaScript, and Container backends over the same durable files and paths. The model can use:
-
-- `read`
-- `write`
-- `edit`
-- `list`
-- `find`
-- `grep`
-- `exec`
-- `javascript`
-- `publish`
-- `artifacts`
-- `session_search`
-- `memory`
-
-On first activation after upgrading from `@cloudflare/shell`, the session copies its legacy SQLite workspace into Computer's VFS and records the completed migration.
-
-The browser can list, preview, and download text files. The model can modify the entire session workspace without an approval step.
-
-The `exec` tool selects Computer's fast just-bash Worker backend or its Linux Container backend. The `javascript` tool runs structured ECMAScript modules in isolated Dynamic Workers. Computer also supplies Git, session-scoped Artifacts, an optional read-only R2 mount at `/workspace/reference`, expiring file publication through Assets, tracing, and durable container-sync retries.
-
-Relevant source:
-
-- `src/server/workspace-tools.ts`
-- `src/server/memory-tools.ts`
-- `src/features/workspace/components/workspace-browser.tsx`
-
-## Compaction
-
-Before a prompt, Pi estimates active-branch context usage and compares it with the model context window and persisted compaction settings. When required, it appends a native Pi compaction entry containing the summary, retained entry boundary, usage, and retained tail. Original tree entries remain stored.
-
-Manual compaction is available in the UI. The server contract also supports changing reserve and recent-token settings, though the current UI does not expose all settings.
-
-Relevant source:
-
-- `src/server/pi-session.ts`
-- `src/server/manual-compaction.ts`
-
-## Learned Memory
-
-Learned memory is global to the singleton registry and therefore shared by every session. Memories are classified as preferences, facts, instructions, or decisions and may retain source-session and source-entry provenance.
-
-Memory can change in two ways:
-
-- The model-facing memory tool can add, update, or delete memory when instructed by the user.
-- Background extraction processes bounded batches of completed user and assistant messages after turns.
-
-Memory is injected into later system prompts and survives deletion of its source session. The application limits memory size and rejects selected recognizable secret formats, but this is not a complete data-loss-prevention boundary. There is currently no memory-management UI.
-
-Relevant source:
-
-- `src/server/memory-extractor.ts`
-- `src/server/memory-tools.ts`
-- `src/server/pi-registry.ts`
-- `src/server/pi-session.ts`
+The singleton `PiRegistry` stores each session's ID, optional name, and timestamps. It creates, lists, renames, and deletes sessions. Deleting a session aborts its run and calls `destroy()` on its `PiSession`, which drops Pi's tables and the workspace. A `PiSession` touches its registry row when it accepts a prompt.
 
 ## Security Model
 
-The application has no authentication or authorization. Agent routing happens before any identity check, and the registry is a shared singleton.
+The application has no authentication or authorization. Anyone who can reach a deployment can list, read, change, and delete every session and workspace, and run models on the account's AI binding. Session UUIDs are isolation mechanisms, not authorization boundaries. Protect the whole Worker with Cloudflare Access or another authentication layer.
 
-Anyone who can reach a deployment can potentially:
+Local `.wrangler/` state can contain transcripts and workspace files.
 
-- List and search all sessions.
-- Read transcripts and workspace files.
-- Create, rename, fork, clone, or delete sessions.
-- Submit model requests using the server-side Cloudflare token.
-- Influence global learned memory.
+## Known Limitations
 
-Session UUIDs and Durable Object names are isolation mechanisms, not authorization boundaries. This repository is therefore suitable only for local use or a deployment whose entire Worker is protected by Cloudflare Access or another authentication layer.
+From the current SDKs:
 
-Local `.wrangler/` state can contain transcripts, memory, and workspace files. It is ignored by Git and must not be included in manually created source archives.
+- `pi-durable` and `PiHarness` are experimental and beta; their APIs change between releases.
+- Pi's conversations are linear. There is no in-session tree, leaf navigation, labels, or branch summaries; branching in pi-durable means forking a conversation, which this application does not expose yet.
+- Pi's retry and polling timers live in memory. `PiHarness` covers generation backoff, but a custom task's sleep is not durable.
+- A single model stream longer than an alarm's 15-minute wall time is at the platform's mercy.
+- Abort waits for tools to honor their abort signal. In Computer 0.4, killing a Worker Shell `exec` blocks until the command exits, so aborting a long shell command takes as long as the command; container commands stop at once. `abort` therefore returns before Pi settles, and the event stream reports when the session is idle.
+- An Agent method that throws over native RPC is also logged as an uncaught rejection by the Agents SDK's tracing wrapper.
 
-## Current Product Gaps
+Not implemented in this application:
 
-Not currently implemented:
-
-- User or tenant isolation.
-- Application-level authentication and authorization.
-- Resumable streams or recoverable active turns.
-- Durable steering and follow-up queues.
-- Historical workspace snapshots for forks.
-- Semantic or vector search.
-- User-facing import, export, or sharing.
-- Image uploads or multimodal prompts.
-- Model and thinking-level selection.
-- Usage and cost reporting.
-- Native process execution, package installation, or test execution.
-- Memory-management controls.
+- Authentication and per-user isolation.
+- Forks, clones, and session search.
+- Long-term memory.
+- Manual compaction, context reset, model and thinking-level selection.
+- Image input, usage and cost display.
+- Sharing files by link. Computer's `publish` tool needs Assets, which are backed by R2; the application configures neither.
 
 ## Verification
-
-The repository provides separate browser/unit and Workers test suites:
 
 ```bash
 npm run lint
@@ -216,4 +98,4 @@ npm test
 npm run build
 ```
 
-Tests cover session isolation, transcript indexing, forks, deletion tombstones, memory extraction, manual compaction preparation, catalog behavior, workspace orchestration, transcript conversion, and transcript rendering. Live AI Gateway inference, real provider abort behavior, stream recovery, and authentication are not covered.
+The Workers suite runs a real `PiSession` with pi-ai's faux provider: a plain answer, a model tool call that writes through Computer, and the WebSocket snapshot. It also exercises Computer's Worker Shell, git, Worker JavaScript, and the tool adapter. Live Workers AI inference and the container backend are not covered by tests.

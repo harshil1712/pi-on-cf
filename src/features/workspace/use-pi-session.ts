@@ -1,55 +1,76 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
 import { useAgent } from 'agents/react'
+import type { AgentEvent } from '@earendil-works/pi-durable'
 import {
   PI_AGENT_NAME,
   PI_AGENT_PREFIX,
   PI_REGISTRY_INSTANCE,
   PI_REGISTRY_NAME,
-  type AppStatus,
+  type PiEventsMessage,
   type PiRegistryContract,
   type PiSessionContract,
-  type PiStreamEvent,
-  type SessionBranch,
-  type SessionOverview,
+  type SessionSummary,
   type WorkspaceFile,
 } from '../../shared/pi-contract'
-import { reduceStreamEvent, transcriptEntries, type TranscriptState } from './transcript'
+import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from './transcript'
 
-const emptyTranscript: TranscriptState = { entries: [], activeReasoningId: '', activeTextId: '' }
+function isPiEvents(value: unknown): value is PiEventsMessage {
+  return Boolean(value && typeof value === 'object' && (value as { type?: unknown }).type === 'pi:events')
+}
 
 export function usePiSession(sessionId: string) {
-  const [transcript, setTranscript] = useState<TranscriptState>(emptyTranscript)
-  const [overview, setOverview] = useState<SessionOverview | null>(null)
-  const [branch, setBranch] = useState<SessionBranch | null>(null)
+  const [view, setView] = useState<PiView>(EMPTY_VIEW)
+  const [summary, setSummary] = useState<SessionSummary | null>(null)
   const [input, setInput] = useState('')
-  const [isRunning, setIsRunning] = useState(false)
-  const [pendingAction, setPendingAction] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isReady, setIsReady] = useState(false)
   const [error, setError] = useState('')
   const [files, setFiles] = useState<WorkspaceFile[]>([])
-  const [appStatus, setAppStatus] = useState<AppStatus | null>(null)
   const [selectedPath, setSelectedPath] = useState('')
   const [fileContent, setFileContent] = useState('')
   const [fileContentPath, setFileContentPath] = useState('')
   const [filesLoading, setFilesLoading] = useState(true)
   const [filesError, setFilesError] = useState('')
   const [fileError, setFileError] = useState('')
-  const [mobileView, setMobileView] = useState<'chat' | 'files' | 'tree'>('chat')
-  const [desktopPanel, setDesktopPanel] = useState<'files' | 'tree'>('files')
+  const [filesVersion, setFilesVersion] = useState(0)
+  const [mobileView, setMobileView] = useState<'chat' | 'files'>('chat')
   const transcriptRef = useRef<HTMLDivElement>(null)
   const filesRequestRef = useRef(0)
-  const appRequestRef = useRef(0)
-  const sessionRequestRef = useRef(0)
-  const promptRequestRef = useRef(0)
-  const actionRequestRef = useRef(0)
-  const streamEventsRef = useRef<PiStreamEvent[]>([])
-  const streamFrameRef = useRef<number | null>(null)
+  const pendingEventsRef = useRef<AgentEvent[]>([])
+  const frameRef = useRef<number | null>(null)
   const shouldAutoScrollRef = useRef(true)
+
+  const flushEvents = useCallback(() => {
+    frameRef.current = null
+    const events = pendingEventsRef.current.splice(0)
+    if (events.length === 0) return
+    setView((current) => reducePiEvents(current, events))
+    setIsReady(true)
+    // A finished tool or run may have changed the workspace.
+    if (events.some((event) => event.type === 'tool_execution_end' || event.type === 'run_end')) {
+      setFilesVersion((version) => version + 1)
+    }
+  }, [])
+
   const agent = useAgent<PiSessionContract, unknown>({
     agent: PI_AGENT_NAME,
     name: sessionId,
     prefix: PI_AGENT_PREFIX,
+    onMessage: (message) => {
+      if (typeof message.data !== 'string') return
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(message.data)
+      } catch {
+        return
+      }
+      if (!isPiEvents(parsed)) return
+      // A snapshot replaces everything before it, so drop queued deltas.
+      if (parsed.events[0]?.type === 'snapshot') pendingEventsRef.current = []
+      pendingEventsRef.current.push(...parsed.events)
+      frameRef.current ??= requestAnimationFrame(flushEvents)
+    },
     onConnectionError: (connectionError) => setError(connectionError.message),
   })
   const registry = useAgent<PiRegistryContract, unknown>({
@@ -58,26 +79,12 @@ export function usePiSession(sessionId: string) {
     prefix: PI_AGENT_PREFIX,
   })
 
-  const refreshSession = useCallback(async () => {
-    const request = ++sessionRequestRef.current
-    try {
-      const [nextOverview, nextBranch] = await Promise.all([agent.stub.getOverview(), agent.stub.getBranch()])
-      if (request !== sessionRequestRef.current) return
-      setOverview(nextOverview)
-      setBranch(nextBranch)
-      setTranscript({ ...emptyTranscript, entries: transcriptEntries(nextBranch.entries) })
-      setIsReady(true)
-    } catch (caught) {
-      if (request === sessionRequestRef.current) setError(caught instanceof Error ? caught.message : String(caught))
-    }
-  }, [agent.stub])
-
   const refreshFiles = useCallback(async () => {
     const request = ++filesRequestRef.current
     setFilesLoading(true)
     setFilesError('')
     try {
-      const nextFiles = (await agent.stub.listFiles()).sort((a, b) => a.path.localeCompare(b.path))
+      const nextFiles = await agent.stub.listFiles()
       if (request !== filesRequestRef.current) return
       setFiles(nextFiles)
       setSelectedPath((current) => nextFiles.some((file) => file.path === current) ? current : (nextFiles[0]?.path ?? ''))
@@ -88,70 +95,26 @@ export function usePiSession(sessionId: string) {
     }
   }, [agent.stub])
 
-  const refreshApp = useCallback(async () => {
-    const request = ++appRequestRef.current
-    try {
-      const status = await agent.stub.getAppStatus()
-      if (request === appRequestRef.current) setAppStatus(status)
-    } catch (caught) {
-      if (request === appRequestRef.current) setError(caught instanceof Error ? caught.message : String(caught))
-    }
-  }, [agent.stub])
-
-  function flushStreamEvents() {
-    if (streamFrameRef.current !== null) {
-      cancelAnimationFrame(streamFrameRef.current)
-      streamFrameRef.current = null
-    }
-    const events = streamEventsRef.current.splice(0)
-    if (events.length > 0) {
-      setTranscript((current) => events.reduce((next, event) => reduceStreamEvent(next, event), current))
-    }
-  }
-
-  function enqueueStreamEvent(event: PiStreamEvent) {
-    streamEventsRef.current.push(event)
-    if (streamFrameRef.current !== null) return
-    streamFrameRef.current = requestAnimationFrame(() => {
-      streamFrameRef.current = null
-      const events = streamEventsRef.current.splice(0)
-      setTranscript((current) => events.reduce((next, update) => reduceStreamEvent(next, update), current))
-    })
-  }
+  useEffect(() => {
+    void refreshFiles()
+  }, [refreshFiles, filesVersion])
 
   useEffect(() => {
-    shouldAutoScrollRef.current = true
-    setInput('')
-    setIsRunning(false)
-    setPendingAction('')
-    setIsReady(false)
-    setOverview(null)
-    setBranch(null)
-    setTranscript(emptyTranscript)
-    setError('')
-    setFiles([])
-    setAppStatus(null)
-    setSelectedPath('')
-    setFileContent('')
-    setFileContentPath('')
-    setFilesError('')
-    setFileError('')
-    setMobileView('chat')
-    setDesktopPanel('files')
-    void refreshSession()
-    void refreshFiles()
-    void refreshApp()
-    return () => {
-      sessionRequestRef.current += 1
-      filesRequestRef.current += 1
-      appRequestRef.current += 1
-      promptRequestRef.current += 1
-      actionRequestRef.current += 1
-      if (streamFrameRef.current !== null) cancelAnimationFrame(streamFrameRef.current)
-      streamFrameRef.current = null
-      streamEventsRef.current = []
-    }
-  }, [refreshApp, refreshFiles, refreshSession, sessionId])
+    let ignore = false
+    registry.stub.getSession(sessionId).then((session) => {
+      if (!ignore) setSummary(session)
+    }).catch((caught) => {
+      if (!ignore) setError(caught instanceof Error ? caught.message : String(caught))
+    })
+    return () => { ignore = true }
+  }, [registry.stub, sessionId])
+
+  useEffect(() => () => {
+    filesRequestRef.current += 1
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+    frameRef.current = null
+    pendingEventsRef.current = []
+  }, [])
 
   const selectedFileMtime = files.find((file) => file.path === selectedPath)?.mtime
   useEffect(() => {
@@ -176,6 +139,9 @@ export function usePiSession(sessionId: string) {
     return () => { ignore = true }
   }, [agent.stub, selectedFileMtime, selectedPath])
 
+  const transcript = useMemo(() => transcriptEntries(view), [view])
+  const isRunning = view.running || isSubmitting
+
   useEffect(() => {
     if (!shouldAutoScrollRef.current) return
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: isRunning ? 'auto' : 'smooth' })
@@ -184,48 +150,29 @@ export function usePiSession(sessionId: string) {
   async function submit(event: FormEvent) {
     event.preventDefault()
     const prompt = input.trim()
-    if (!prompt || isRunning || pendingAction || !isReady) return
-    const request = ++promptRequestRef.current
+    if (!prompt || isRunning || !isReady) return
     setInput('')
     setError('')
-    setIsRunning(true)
-    streamEventsRef.current = []
-    setTranscript((current) => ({ ...current, entries: [...current.entries, { id: crypto.randomUUID(), type: 'message', role: 'user', text: prompt }] }))
+    setIsSubmitting(true)
+    shouldAutoScrollRef.current = true
     try {
-      await agent.call('prompt', [prompt], {
-        stream: {
-          onChunk: (chunk) => {
-            if (request !== promptRequestRef.current) return
-            const update = chunk as PiStreamEvent
-            if (update.type === 'error') setError(update.error || 'Pi stopped unexpectedly.')
-            else enqueueStreamEvent(update)
-          },
-          onError: (streamError) => { if (request === promptRequestRef.current) setError(streamError) },
-        },
-      })
+      // Durable once this resolves; the answer streams in as pi events.
+      await agent.stub.submit(prompt)
     } catch (caught) {
-      if (request === promptRequestRef.current) setError(caught instanceof Error ? caught.message : String(caught))
+      setInput(prompt)
+      setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
-      if (request === promptRequestRef.current) {
-        flushStreamEvents()
-        setIsRunning(false)
-        await Promise.all([refreshSession(), refreshFiles(), refreshApp()])
-      }
+      setIsSubmitting(false)
     }
   }
 
-  async function runAction(key: string, operation: () => Promise<unknown>) {
-    if (pendingAction || isRunning) return
-    const request = ++actionRequestRef.current
-    setPendingAction(key)
-    setError('')
+  async function rename() {
+    const next = window.prompt('Session name', summary?.name ?? '')
+    if (next === null) return
     try {
-      await operation()
-      if (request === actionRequestRef.current) await refreshSession()
+      setSummary(await registry.stub.renameSession(sessionId, next.trim() || undefined))
     } catch (caught) {
-      if (request === actionRequestRef.current) setError(caught instanceof Error ? caught.message : String(caught))
-    } finally {
-      if (request === actionRequestRef.current) setPendingAction('')
+      setError(caught instanceof Error ? caught.message : String(caught))
     }
   }
 
@@ -247,45 +194,29 @@ export function usePiSession(sessionId: string) {
   return {
     abort: async () => { try { await agent.stub.abort() } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)) } },
     activeTextId: transcript.activeTextId,
-    appStatus,
-    branch,
     canDownload: Boolean(selectedPath && selectedPath === fileContentPath && !fileError),
-    compact: (focus?: string) => runAction('compact', () => agent.stub.compact(focus)),
-    desktopPanel,
-    deploy: () => runAction('deploy', async () => {
-      await agent.stub.deployApp()
-      await refreshApp()
-    }),
     downloadSelectedFile,
     entries: transcript.entries,
-    error,
+    error: error || view.error,
     fileContent,
     fileError,
     files,
     filesError,
     filesLoading,
-    fork: (entryId: string, name?: string) => registry.stub.forkSession({ sourceSessionId: sessionId, entryId, name }),
     handleTranscriptScroll,
     input,
     isReady,
     isRunning,
     mobileView,
-    navigateTree: (entryId: string) => runAction('navigate', async () => {
-      const result = await agent.stub.navigateTree(entryId)
-      if (result.editorText) setInput(result.editorText)
-    }),
-    overview,
-    pendingAction,
-    previewUrl: `/__preview/${sessionId}/`,
+    queued: view.queued,
     refreshFiles,
-    rename: (name: string) => runAction('rename', () => agent.stub.setSessionName(name)),
+    rename,
     selectedPath,
-    setDesktopPanel,
-    setEntryLabel: (entryId: string, label?: string) => runAction('label', () => agent.stub.setEntryLabel(entryId, label)),
     setInput,
     setMobileView,
     setSelectedPath,
     submit,
+    summary,
     transcriptRef,
   }
 }

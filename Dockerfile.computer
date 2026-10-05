@@ -1,4 +1,6 @@
-FROM --platform=linux/amd64 ghcr.io/cloudflare/computer-computerd-linux-x64:0.1.0-alpha.1 AS computerd
+# computerd for the PiSession container. The computerd version must match
+# @cloudflare/computer in package.json.
+FROM --platform=linux/amd64 ghcr.io/cloudflare/computer-computerd-linux-x64:0.4.0 AS computerd
 
 FROM --platform=linux/amd64 node:22-bookworm-slim
 
@@ -9,6 +11,8 @@ RUN apt-get update \
 
 COPY --from=computerd /usr/local/bin/computerd /usr/local/bin/computerd
 
+# FUSE_MOUNT=auto uses real FUSE on Cloudflare Containers and the userspace
+# shim under wrangler dev.
 ENV PORT=8080
 ENV MOUNT_POINT=/workspace
 ENV FUSE_MOUNT=auto

@@ -1,101 +1,126 @@
+import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
+import type { AgentEvent, EntryRecord } from '@earendil-works/pi-durable'
 import { describe, expect, it } from 'vitest'
-import { messageText, reduceStreamEvent, transcriptEntries, type TranscriptState } from './transcript'
+import { EMPTY_VIEW, messageText, reducePiEvents, transcriptEntries } from './transcript'
+
+const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+
+function assistant(content: AssistantMessage['content']): AssistantMessage {
+  return { role: 'assistant', content, api: 'faux', provider: 'faux', model: 'faux', usage, stopReason: 'stop', timestamp: 0 }
+}
+
+let nextId = 1
+function entry(kind: string, message?: Message, extra: Partial<EntryRecord> = {}): EntryRecord {
+  return { id: nextId++, conversationId: 1, kind, ...(message ? { model: [message] } : {}), ...extra } as EntryRecord
+}
+
+const user = (text: string) => entry('pi.user', { role: 'user', content: text, timestamp: 0 })
+
+function snapshot(entries: EntryRecord[], extra: Partial<Extract<AgentEvent, { type: 'snapshot' }>> = {}): AgentEvent {
+  return { type: 'snapshot', entries, tools: [], compactions: [], inbox: [], agent: {}, usage: { models: {}, tools: {} }, ...extra } as AgentEvent
+}
 
 describe('messageText', () => {
-  it('reads string messages', () => {
+  it('reads string and block content', () => {
     expect(messageText({ content: 'hello' })).toBe('hello')
-  })
-
-  it('joins text blocks and ignores tool calls', () => {
-    expect(messageText({
-      content: [
-        { type: 'text', text: 'hello ' },
-        { type: 'toolCall', name: 'read' },
-        { type: 'text', text: 'world' },
-      ],
-    })).toBe('hello world')
-  })
-
-  it('handles malformed messages', () => {
-    expect(messageText(null)).toBe('')
-    expect(messageText({ content: [{ type: 'text' }] })).toBe('')
+    expect(messageText({ content: [{ type: 'text', text: 'hello ' }, { type: 'text', text: 'world' }] })).toBe('hello world')
+    expect(messageText(undefined)).toBe('')
   })
 })
 
-describe('transcriptEntries', () => {
-  it('keeps reasoning, tool calls, and final responses distinct', () => {
-    expect(transcriptEntries([
-      { role: 'user', content: 'Create a file' },
-      { role: 'assistant', content: [
+describe('pi event reducer', () => {
+  it('projects a snapshot into reasoning, tool calls, and responses', () => {
+    const view = reducePiEvents(EMPTY_VIEW, [snapshot([
+      user('Create a file'),
+      entry('pi.system', { role: 'system', content: 'prompt', timestamp: 0 } as unknown as Message),
+      entry('pi.assistant', assistant([
         { type: 'thinking', thinking: 'I should write it.' },
-        { type: 'toolCall', id: 'call-1', name: 'write', arguments: { path: '/hello.ts' } },
+        { type: 'toolCall', id: 'call-1', name: 'write', arguments: { path: '/workspace/a.ts' } },
+      ])),
+      entry('pi.tool-result', { role: 'toolResult', toolCallId: 'call-1', toolName: 'write', content: [{ type: 'text', text: 'wrote' }], isError: false, timestamp: 0 }),
+      entry('pi.assistant', assistant([{ type: 'text', text: 'Done.' }])),
+    ])])
+
+    expect(transcriptEntries(view).entries.map((row) => ({ type: row.type, ...('status' in row ? { status: row.status } : {}) }))).toEqual([
+      { type: 'message' },
+      { type: 'reasoning', status: 'complete' },
+      { type: 'tool', status: 'complete' },
+      { type: 'message' },
+    ])
+    expect(transcriptEntries(view).entries[2]).toMatchObject({ name: 'write', result: 'wrote', args: { path: '/workspace/a.ts' } })
+  })
+
+  it('streams the live assistant message and settles it on message_end', () => {
+    const final = entry('pi.assistant', assistant([{ type: 'text', text: 'Hello there' }]))
+    let view = reducePiEvents(EMPTY_VIEW, [snapshot([user('hi')]), { type: 'run_start', inputs: [] } as AgentEvent])
+    view = reducePiEvents(view, [
+      { type: 'message_start', message: assistant([]) },
+      { type: 'message_update', usage, changes: [
+        { type: 'text_start', contentIndex: 0, block: { type: 'text', text: '' } },
+        { type: 'text_delta', contentIndex: 0, delta: 'Hello' },
       ] },
-      { role: 'toolResult', toolCallId: 'call-1', isError: false },
-      { role: 'assistant', content: [{ type: 'text', text: 'Created it.' }] },
-    ])).toEqual([
-      { id: 'stored-0', type: 'message', role: 'user', text: 'Create a file' },
-      { id: 'stored-1-0', type: 'reasoning', text: 'I should write it.', status: 'complete' },
-      { id: 'stored-1-1', type: 'tool', callId: 'call-1', name: 'write', args: { path: '/hello.ts' }, status: 'complete' },
-      { id: 'stored-3-0', type: 'message', role: 'assistant', text: 'Created it.' },
-    ])
-  })
+    ] as AgentEvent[])
 
-  it('marks failed tool calls', () => {
-    expect(transcriptEntries([
-      { role: 'assistant', content: [{ type: 'toolCall', id: 'call-1', name: 'read', arguments: {} }] },
-      { role: 'toolResult', toolCallId: 'call-1', isError: true },
-    ])[0]).toMatchObject({ type: 'tool', status: 'error' })
-  })
+    const streaming = transcriptEntries(view)
+    expect(view.running).toBe(true)
+    expect(streaming.entries.at(-1)).toMatchObject({ role: 'assistant', text: 'Hello' })
+    expect(streaming.activeTextId).toBe(streaming.entries.at(-1)?.id)
 
-  it('identifies stored compaction and branch summaries separately from reasoning', () => {
-    expect(transcriptEntries([
-      { id: 'compact-1', type: 'compaction', summary: 'Earlier work', seq: 1, parentId: null, timestamp: '' },
-      { id: 'branch-1', type: 'branch_summary', summary: 'Other branch', seq: 2, parentId: 'compact-1', timestamp: '' },
-    ])).toEqual([
-      { id: 'compact-1', type: 'summary', kind: 'compaction', text: 'Earlier work', status: 'complete' },
-      { id: 'branch-1', type: 'summary', kind: 'branch', text: 'Other branch', status: 'complete' },
-    ])
-  })
-})
+    view = reducePiEvents(view, [
+      { type: 'message_update', usage, changes: [{ type: 'text_delta', contentIndex: 0, delta: ' there' }] },
+      { type: 'message_end', entry: final },
+      { type: 'run_end', inputs: [] },
+    ] as AgentEvent[])
 
-describe('reduceStreamEvent', () => {
-  const empty: TranscriptState = { entries: [], activeReasoningId: '', activeTextId: '' }
-
-  it('creates IDs without detaching randomUUID from crypto', () => {
-    const started = reduceStreamEvent(empty, { type: 'text_start' })
-
-    expect(started.activeTextId).toBeTruthy()
-  })
-
-  it('accumulates streamed text in one assistant message', () => {
-    const started = reduceStreamEvent(empty, { type: 'text_start' }, () => 'message-1')
-    const first = reduceStreamEvent(started, { type: 'text_delta', delta: 'Hello ' })
-    const second = reduceStreamEvent(first, { type: 'text_delta', delta: 'world' })
-
-    expect(second.entries).toEqual([
-      { id: 'message-1', type: 'message', role: 'assistant', text: 'Hello world' },
-    ])
-  })
-
-  it('tracks reasoning and tool completion independently', () => {
-    const reasoning = reduceStreamEvent(empty, { type: 'thinking_start' }, () => 'reasoning-1')
-    const tool = reduceStreamEvent(reasoning, {
-      type: 'tool_execution_start',
-      callId: 'call-1',
-      name: 'write',
-      args: { path: '/hello.ts' },
+    expect(view.live).toBeNull()
+    expect(view.running).toBe(false)
+    expect(transcriptEntries(view)).toEqual({
+      activeTextId: '',
+      entries: [
+        expect.objectContaining({ role: 'user', text: 'hi' }),
+        expect.objectContaining({ role: 'assistant', text: 'Hello there' }),
+      ],
     })
-    const completed = reduceStreamEvent(tool, {
+  })
+
+  it('shows running tool output until the result arrives', () => {
+    const call = entry('pi.assistant', assistant([{ type: 'toolCall', id: 'call-2', name: 'exec', arguments: { command: 'ls' } }]))
+    let view = reducePiEvents(EMPTY_VIEW, [snapshot([user('list'), call], { run: { inputs: [] } })])
+    view = reducePiEvents(view, [
+      { type: 'tool_execution_start', toolCallId: 'call-2', toolName: 'exec', args: { command: 'ls' } },
+      { type: 'tool_execution_update', toolCallId: 'call-2', toolName: 'exec', output: { append: 'a.ts\n' } },
+    ] as AgentEvent[])
+
+    expect(transcriptEntries(view).entries.at(-1)).toMatchObject({ type: 'tool', status: 'running', result: 'a.ts\n' })
+
+    view = reducePiEvents(view, [{
       type: 'tool_execution_end',
-      callId: 'call-1',
-      name: 'write',
-      isError: false,
-      result: { content: 'Wrote /hello.ts' },
-    })
+      toolCallId: 'call-2',
+      toolName: 'exec',
+      entry: entry('pi.tool-result', { role: 'toolResult', toolCallId: 'call-2', toolName: 'exec', content: [{ type: 'text', text: 'a.ts' }], isError: true, timestamp: 0 }),
+    }] as AgentEvent[])
 
-    expect(completed.entries).toMatchObject([
-      { id: 'reasoning-1', type: 'reasoning', status: 'running' },
-      { id: 'tool-call-1', type: 'tool', status: 'complete', result: { content: 'Wrote /hello.ts' } },
+    expect(view.tools).toEqual({})
+    expect(transcriptEntries(view).entries.at(-1)).toMatchObject({ type: 'tool', status: 'error', result: 'a.ts' })
+  })
+
+  it('starts a new context at a compaction head and shows its summary first', () => {
+    const old = user('old')
+    const kept = user('kept')
+    const compaction = entry('pi.compaction', { role: 'user', content: 'Summary of earlier work', timestamp: 0 }, { head: kept.id })
+    const view = reducePiEvents(EMPTY_VIEW, [snapshot([old, kept]), { type: 'entry_appended', entry: compaction }])
+
+    expect(transcriptEntries(view).entries).toEqual([
+      expect.objectContaining({ type: 'summary', kind: 'compaction', text: 'Summary of earlier work' }),
+      expect.objectContaining({ type: 'message', text: 'kept' }),
     ])
+  })
+
+  it('reports unanswered submissions but not aborts', () => {
+    const failed = reducePiEvents(EMPTY_VIEW, [{ type: 'submission', record: { status: 'unanswered', reason: 'no_model' } } as unknown as AgentEvent])
+    const aborted = reducePiEvents(EMPTY_VIEW, [{ type: 'submission', record: { status: 'unanswered', reason: 'aborted' } } as unknown as AgentEvent])
+
+    expect(failed.error).toMatch(/no_model/)
+    expect(aborted.error).toBe('')
   })
 })
