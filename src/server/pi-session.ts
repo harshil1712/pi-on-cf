@@ -20,12 +20,21 @@ import { PI_REGISTRY_INSTANCE, type PiEventsMessage, type WorkspaceFile, type Wo
 import { createWorkspaceTools } from './workspace-tools'
 import { WORKSPACE_ROOT, workspacePath } from './workspace-root'
 
+/**
+ * Rebuildable trees the container keeps on its own disk instead of syncing
+ * into the Durable Object. A synced `npm install` pulls tens of thousands of
+ * files into the DO and the next reconnect pushes them all back, which
+ * exceeds the isolate's memory limit and resets it on every attempt.
+ */
+const CONTAINER_LOCAL_PATHS = ['**/node_modules', '**/.wrangler', '**/.venv', '**/__pycache__']
+
 const PREAMBLE = [
   'You are Pi, a coding agent running natively on Cloudflare Workers.',
   `Your durable workspace is ${WORKSPACE_ROOT}. Paths are absolute and the same in every tool and backend.`,
   'Use read, write, edit, delete, ls, find and grep for files.',
   'exec runs commands on one of three backends: shell is a fast just-bash environment with text utilities and git; javascript runs an ES module in an isolated Worker with node:fs/promises, ws:git and ws:artifacts; container is a Linux machine with Node.js, npm and network access.',
   'Prefer shell for searches, text processing and git. Use container only for native binaries, package installs, builds, tests or networked CLIs.',
+  `Dependency and tool caches (${CONTAINER_LOCAL_PATHS.join(', ')}) stay on the container's disk: only container commands can see them, and they are lost when the container is replaced, so reinstall if they are missing.`,
 ].join('\n')
 
 const FILE_LIST_LIMIT = 1000
@@ -49,6 +58,7 @@ class PiSessionHost extends withWorkspaceContainer(class extends Agent<Env> {}) 
     egress: { mode: 'direct' },
     name: 'computer',
     instance: 'standard-2',
+    ignore: CONTAINER_LOCAL_PATHS,
   })
 }
 
