@@ -1,0 +1,19 @@
+src/features/workspace/workspace-app.test.tsx
+  s_6fe4495357382b::t_8ceb8eaa3fee5f 6,171-201
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "dd4a47efc091983aa7d1557120dad11d939aa54c",
+  "prompts": {},
+  "sessions": {
+    "s_6fe4495357382b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a10b9a-ecc2-7102-a811-d5d5769a9b8a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
