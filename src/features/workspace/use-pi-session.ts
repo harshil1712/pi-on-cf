@@ -19,6 +19,19 @@ function isPiEvents(value: unknown): value is PiEventsMessage {
   return Boolean(value && typeof value === 'object' && (value as { type?: unknown }).type === 'pi:events')
 }
 
+/**
+ * The Agents SDK reports a failed session startup with one `{ error: stack }`
+ * frame, then closes with 1011 and the client retries. Returns the stack's
+ * first line, the error message.
+ */
+function setupError(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const error = (value as { error?: unknown }).error
+  return typeof error === 'string' ? error.split('\n')[0] : undefined
+}
+
+const NORMAL_CLOSURE = 1000
+
 export function usePiSession(sessionId: string) {
   const [view, setView] = useState<PiView>(EMPTY_VIEW)
   const [summary, setSummary] = useState<SessionSummary | null>(null)
@@ -26,6 +39,8 @@ export function usePiSession(sessionId: string) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isReady, setIsReady] = useState(false)
   const [error, setError] = useState('')
+  // Connection trouble, cleared as soon as pi events flow again.
+  const [connectionError, setConnectionError] = useState('')
   const [files, setFiles] = useState<WorkspaceFile[]>([])
   const [selectedPath, setSelectedPath] = useState('')
   const [fileContent, setFileContent] = useState('')
@@ -65,13 +80,24 @@ export function usePiSession(sessionId: string) {
       } catch {
         return
       }
+      const failure = setupError(parsed)
+      if (failure) {
+        setConnectionError(`The session could not start: ${failure}. Retrying…`)
+        return
+      }
       if (!isPiEvents(parsed)) return
+      setConnectionError('')
       // A snapshot replaces everything before it, so drop queued deltas.
       if (parsed.events[0]?.type === 'snapshot') pendingEventsRef.current = []
       pendingEventsRef.current.push(...parsed.events)
       frameRef.current ??= requestAnimationFrame(flushEvents)
     },
-    onConnectionError: (connectionError) => setError(connectionError.message),
+    onClose: (event) => {
+      if (event.code === NORMAL_CLOSURE) return
+      // Keep a startup failure's message; it says more than this one.
+      setConnectionError((current) => current || 'Connection to the session lost. Reconnecting…')
+    },
+    onConnectionError: (failure) => setError(failure.message),
   })
   const registry = useAgent<PiRegistryContract, unknown>({
     agent: PI_REGISTRY_NAME,
@@ -197,7 +223,7 @@ export function usePiSession(sessionId: string) {
     canDownload: Boolean(selectedPath && selectedPath === fileContentPath && !fileError),
     downloadSelectedFile,
     entries: transcript.entries,
-    error: error || view.error,
+    error: error || connectionError || view.error,
     fileContent,
     fileError,
     files,

@@ -3,7 +3,7 @@ import type { AgentEvent, EntryRecord } from '@earendil-works/pi-durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSummary, WorkspaceFile, WorkspaceFileContent } from '../../shared/pi-contract'
 
-type AgentOptions = { agent: string; onMessage?: (message: MessageEvent) => void }
+type AgentOptions = { agent: string; onMessage?: (message: MessageEvent) => void; onClose?: (event: CloseEvent) => void }
 
 const mocks = vi.hoisted(() => {
   const sessionAgent = {
@@ -166,6 +166,37 @@ describe('WorkspaceApp', () => {
 
     await deliver({ type: 'submission', record: { status: 'unanswered', reason: 'no_model' } } as unknown as AgentEvent)
     expect(screen.getByRole('alert').textContent).toContain('A prompt is required.')
+  })
+
+  it('explains a failed session startup instead of loading forever', async () => {
+    render(<WorkspaceApp sessionId="session-12345678" />)
+
+    act(() => {
+      mocks.sessionOptions?.onMessage?.(new MessageEvent('message', { data: JSON.stringify({ error: 'Error: pi could not open\n    at open (pi.js:1:1)' }) }))
+      mocks.sessionOptions?.onClose?.(new CloseEvent('close', { code: 1011 }))
+    })
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('The session could not start: Error: pi could not open')
+    expect(alert.textContent).not.toContain('pi.js')
+
+    // The client retries; the next snapshot clears the error.
+    await deliver(snapshot([]))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect((screen.getByLabelText('INSTRUCTION') as HTMLTextAreaElement).disabled).toBe(false)
+  })
+
+  it('reports a lost connection until pi events resume', async () => {
+    render(<WorkspaceApp sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+
+    act(() => mocks.sessionOptions?.onClose?.(new CloseEvent('close', { code: 1006 })))
+    expect((await screen.findByRole('alert')).textContent).toContain('Reconnecting')
+
+    await deliver(snapshot([]))
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    act(() => mocks.sessionOptions?.onClose?.(new CloseEvent('close', { code: 1000 })))
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('refreshes workspace files when a tool finishes', async () => {
