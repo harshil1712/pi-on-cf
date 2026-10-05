@@ -1,0 +1,21 @@
+src/server/pi-session.ts
+  s_6fe4495357382b::t_327bc89d64cbf4 32-37,185
+src/server/sessions.worker.test.ts
+  s_6fe4495357382b::t_323ffeac225daa 75-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ad4f43ba9919cec78f0bb10f1ac27932a756c1f1",
+  "prompts": {},
+  "sessions": {
+    "s_6fe4495357382b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a10b9a-ecc2-7102-a811-d5d5769a9b8a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
