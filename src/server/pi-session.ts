@@ -29,6 +29,12 @@ const PREAMBLE = [
 ].join('\n')
 
 const FILE_LIST_LIMIT = 1000
+/**
+ * Computer anchors exclude globs at the listed root, so `**\/` is needed to
+ * skip these at any depth. Matching the directory itself also stops the walk
+ * from descending into it.
+ */
+const FILE_LIST_EXCLUDE = ['**/node_modules', '**/.git']
 
 /**
  * The container half of the session. The backend lives on this base class
@@ -176,7 +182,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   async listFiles(): Promise<WorkspaceFile[]> {
     const workspace = await getWorkspace(this)
     const found = await workspace.fs.find(WORKSPACE_ROOT, '**', {
-      exclude: ['node_modules/**', '.git/**'],
+      exclude: FILE_LIST_EXCLUDE,
       limit: FILE_LIST_LIMIT,
     })
     const files = await Promise.all(found

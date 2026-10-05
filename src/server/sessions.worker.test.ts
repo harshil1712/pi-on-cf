@@ -72,6 +72,21 @@ describe('pi session', () => {
     expect((await session(id).listFiles()).map(({ path }) => path)).toEqual(['/workspace/hello.txt'])
   })
 
+  it('leaves dependencies and git internals out of the file list at any depth', async () => {
+    const { id } = await registry().createSession()
+    for (const path of [
+      '/workspace/node_modules/top/index.js',
+      '/workspace/.git/HEAD',
+      '/workspace/app/node_modules/nested/index.js',
+      '/workspace/app/.git/HEAD',
+      '/workspace/app/src.js',
+    ]) {
+      expect((await session(id).promptForTest(`write ${path} x`)).text).toMatch(/^tool said:/)
+    }
+
+    expect((await session(id).listFiles()).map(({ path }) => path)).toEqual(['/workspace/app/src.js'])
+  })
+
   it('lets the JavaScript backend write into a fresh workspace', async () => {
     const { id } = await registry().createSession()
     const module = "import { writeFile } from 'node:fs/promises'\nexport default async function () { await writeFile('/workspace/js.txt', 'from js'); return 'ok' }"
