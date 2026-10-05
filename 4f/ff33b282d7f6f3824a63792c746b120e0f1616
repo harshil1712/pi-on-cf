@@ -1,0 +1,25 @@
+docs/architecture.md
+  s_6fe4495357382b::t_3a910329db06c6 64
+src/server/pi-session.ts
+  s_6fe4495357382b::t_d9544f0824c8c0 200-209,215-222
+src/server/sessions.worker.test.ts
+  s_6fe4495357382b::t_783eb003be72b4 2,32-49
+tsconfig.json
+  s_6fe4495357382b::t_f2eac54264f453 16-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "4fff33b282d7f6f3824a63792c746b120e0f1616",
+  "prompts": {},
+  "sessions": {
+    "s_6fe4495357382b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a10b9a-ecc2-7102-a811-d5d5769a9b8a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
