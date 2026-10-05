@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers'
+import { runDurableObjectAlarm } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
 import type { PiEventsMessage } from '../shared/pi-contract'
 import type { PiSession as TestPiSession } from '../server-test-entry'
@@ -28,6 +29,24 @@ describe('session registry', () => {
 })
 
 describe('pi session', () => {
+  it('deletes its transcript and workspace without failing the registry call', async () => {
+    const { id } = await registry().createSession()
+    await session(id).promptForTest('write /workspace/doomed.txt bye')
+    expect((await session(id).listFiles()).map(({ path }) => path)).toEqual(['/workspace/doomed.txt'])
+
+    await registry().deleteSession(id)
+    expect(await registry().getSession(id)).toBeNull()
+
+    // The wipe runs in the session's own alarm, after the RPC has returned.
+    expect(await runDurableObjectAlarm(session(id))).toBe(true)
+    // A request that lands while the destroyed instance shuts down fails once;
+    // the next one reaches a fresh, empty instance.
+    const files = await session(id).listFiles().catch(() => session(id).listFiles())
+    expect(files).toEqual([])
+    const fresh = await session(id).promptForTest('hello again')
+    expect(fresh.kinds.filter((kind) => kind === 'pi.user')).toHaveLength(1)
+  })
+
   it('starts with an empty workspace', async () => {
     const { id } = await registry().createSession()
     expect(await session(id).listFiles()).toEqual([])

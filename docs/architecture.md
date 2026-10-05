@@ -61,7 +61,7 @@ The container dials back to the object at `/api` through `WorkspaceProxy`; `PiSe
 
 ## PiRegistry
 
-The singleton `PiRegistry` stores each session's ID, optional name, and timestamps. It creates, lists, renames, and deletes sessions. Deleting a session aborts its run and calls `destroy()` on its `PiSession`, which drops Pi's tables and the workspace. A `PiSession` touches its registry row when it accepts a prompt.
+The singleton `PiRegistry` stores each session's ID, optional name, and timestamps. It creates, lists, renames, and deletes sessions. Deleting a session aborts its run, stops its container, and schedules `destroy()` on its `PiSession` through the Agents SDK's destroy alarm, which drops Pi's tables and the workspace in a separate invocation. Scheduling it, rather than calling `destroy()` inline, keeps the isolate abort from racing the reply to the registry; the catalog row is removed only after that teardown succeeds, so a failed delete can be retried. A `PiSession` touches its registry row when it accepts a prompt.
 
 ## Security Model
 

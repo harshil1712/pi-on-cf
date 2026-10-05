@@ -197,13 +197,29 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     return { path, content, size: stat.size, mtime: new Date(stat.mtime).toISOString() }
   }
 
-  /** Called by the registry: stop the run and drop every durable trace. */
+  /**
+   * Called by the registry: stop the run and the container, then drop every
+   * durable trace.
+   *
+   * `destroy()` aborts the isolate on the next tick, which can race this RPC's
+   * reply to the registry. `_cf_scheduleDestroy()` instead persists a destroy
+   * marker and an alarm, so the wipe runs in its own invocation and resumes
+   * there if it is interrupted. It is marked internal in the Agents SDK; it is
+   * the SDK's own path for destroying an Agent from an RPC caller.
+   */
   async deleteContents(): Promise<void> {
     await this.harness.abort().catch(() => false)
     await Promise.all([...this.#watches.values()].map((watch) => watch.stop()))
     this.#watches.clear()
     await this.harness.dispose()
-    await this.destroy()
+    // Computer has no container teardown, and destroy() does not stop it, so
+    // a running container would outlive the session until it idles out.
+    if (this.ctx.container?.running) {
+      await this.ctx.container.destroy().catch((error: unknown) => {
+        console.error('Could not stop the session container', error)
+      })
+    }
+    await this._cf_scheduleDestroy()
   }
 
   async #watch(connection: Connection): Promise<void> {
