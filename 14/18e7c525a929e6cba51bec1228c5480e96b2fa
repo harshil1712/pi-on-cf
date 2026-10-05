@@ -1,0 +1,25 @@
+Dockerfile.computer
+  s_43c19c911f7b1c::t_fca952f8a83d89 3
+package-lock.json
+  s_43c19c911f7b1c::t_615e876ae55a0c 10,1724-1726
+package.json
+  s_43c19c911f7b1c::t_025f4daed73fd6 22
+src/server/pi-session.ts
+  s_43c19c911f7b1c::t_a4828c4fe69a17 23-30,37,61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "1418e7c525a929e6cba51bec1228c5480e96b2fa",
+  "prompts": {},
+  "sessions": {
+    "s_43c19c911f7b1c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a10c28-418b-7102-a811-d5d79064c719",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
