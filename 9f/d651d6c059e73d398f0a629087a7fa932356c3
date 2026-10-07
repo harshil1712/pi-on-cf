@@ -1,0 +1,35 @@
+README.md
+  s_5b5774e0f11003::t_c90d4a19c88bd9 46,52,54-56
+docs/architecture.md
+  s_5b5774e0f11003::t_4f66a4a85992bc 39-40,66-82,91,113
+src/server-test-entry.ts
+  s_5b5774e0f11003::t_e3dba357d7b7b1 15,32,52-55,68,83,85
+src/server/bundled-skills/skill-creator/SKILL.md
+  s_5b5774e0f11003::t_dc5e520aed9007 1-156
+src/server/bundled-skills/skill-creator/references/LICENSE.txt
+  s_5b5774e0f11003::t_03f03944c88883 1-202
+src/server/pi-session.ts
+  s_5b5774e0f11003::t_f10eaad5352bc4 21-22,108,115,125-129,169-171,174
+src/server/skill-tools.ts
+  s_5b5774e0f11003::t_3fce1be82e7922 1-92
+src/server/skills.ts
+  s_5b5774e0f11003::t_babb1dc2af33b0 3-5,10-78,99-100,104-106,116-128
+src/server/skills.worker.test.ts
+  s_5b5774e0f11003::t_5facc945d8b8aa 4,12-16,22-25,29,32,82,92-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9fd651d6c059e73d398f0a629087a7fa932356c3",
+  "prompts": {},
+  "sessions": {
+    "s_5b5774e0f11003": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a10d7a-2935-7102-a811-d5d8676fe7ae",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
