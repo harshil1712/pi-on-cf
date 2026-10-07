@@ -18,7 +18,8 @@ import { PiHarness, type PiModel } from 'agents/harness/pi'
 import { createAI } from 'agents/models/pi-ai'
 import type { SkillSource } from 'agents/skills'
 import { PI_REGISTRY_INSTANCE, type PiEventsMessage, type WorkspaceFile, type WorkspaceFileContent } from '../shared/pi-contract'
-import { bucketSkills, SkillCatalog } from './skills'
+import { createSkillTools } from './skill-tools'
+import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
 import { createWorkspaceTools } from './workspace-tools'
 import { WORKSPACE_ROOT, workspacePath } from './workspace-root'
 
@@ -104,14 +105,14 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
 
   readonly model = this.modelSource()
   readonly registry = createRegistry()
-  readonly skills = new SkillCatalog(this.skillSources())
+  readonly skills = new SkillCatalog(() => this.skillSources())
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       const workspace = await getWorkspace(this)
       this.registry.install({
         name: 'pi-on-cf',
         sections: [{ key: 'preamble', render: () => PREAMBLE, tag: false }],
-        tools: createWorkspaceTools({
+        tools: [...createWorkspaceTools({
           workspace,
           shell: {
             defaultBackend: 'shell',
@@ -121,7 +122,11 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
               container: { description: 'Linux container with Node.js, npm and network access.' },
             },
           },
-        }),
+        }), ...createSkillTools({
+          bucket: this.env.BUCKET,
+          workspace,
+          onChange: () => this.skills.reload(this.registry),
+        })],
       })
       // Skills are optional: an unreachable bucket must not stop pi opening.
       await this.skills.sync(this.registry).catch((error: unknown) => {
@@ -161,11 +166,12 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   }
 
   /**
-   * Where pi's Agent Skills come from: `skills/` in the app's R2 bucket.
-   * Earlier sources win a name. Tests override this.
+   * Where pi's Agent Skills come from: the built-in skills, then `skills/`
+   * in the app's R2 bucket. Earlier sources win a name, so a shared skill
+   * cannot replace a built-in one. Tests override this.
    */
   protected skillSources(): SkillSource[] {
-    return this.env.BUCKET ? [bucketSkills(this.env.BUCKET)] : []
+    return [builtInSkills, bucketSkills(this.env.BUCKET)]
   }
 
   override fetch(request: Request): Promise<Response> {

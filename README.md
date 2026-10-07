@@ -43,15 +43,17 @@ Open `http://localhost:3000`.
 
 ## Skills
 
-Pi offers [Agent Skills](https://developers.cloudflare.com/agents/runtime/execution/agent-skills/) from `skills/` in the bucket: one directory per skill, holding a `SKILL.md` with `name` and `description` frontmatter, and optional `references/`, `scripts/` and `assets/`.
+Pi offers [Agent Skills](https://developers.cloudflare.com/agents/runtime/execution/agent-skills/) from two sources: built-in skills in `src/server/bundled-skills`, which ship with the Worker, and shared skills under `skills/` in the bucket. Each skill is a directory holding a `SKILL.md` with `name` and `description` frontmatter, and optional `references/`, `scripts/` and `assets/`. A built-in skill wins a name, so a shared skill cannot replace one.
 
 ```bash
 npx wrangler r2 object put pi-on-cf/skills/release-notes/SKILL.md --file SKILL.md --remote
 ```
 
-The skill catalog goes into the system prompt. The model loads a skill with `activate_skill` and reads its files with `read_skill_resource`; skill scripts do not run. A session lists the bucket when it starts and again at most once a minute after a prompt, so new and changed skills reach running sessions without a deploy.
+Only each skill's name and description go into the system prompt. The model loads a skill's body with `activate_skill` and reads its files with `read_skill_resource`; skill scripts do not run. A session lists the bucket when it starts and again at most once a minute after a prompt, so new and changed skills reach running sessions without a deploy.
 
-Anyone who can write to `skills/` can instruct every session, including its container with network access. Restrict write access to the bucket.
+The agent manages shared skills too. The built-in `skill-creator` skill, adapted from Anthropic's [skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator) under the Apache License 2.0, teaches it to draft a skill in `/workspace/skills/<name>/` and publish it with `save_skill`. `open_skill` copies a shared skill into the workspace to edit, and `delete_skill` deletes one. Built-in skills cannot be changed.
+
+A shared skill instructs every session, including its container with network access, and the agent saves skills without review. A session that follows injected instructions, from a web page or a repository, can save a skill that steers every other session. Anyone who can write to `skills/` in the bucket can do the same; restrict write access to it.
 
 `Dockerfile.computer` pins the `computerd` image; keep its version in step with `@cloudflare/computer`.
 

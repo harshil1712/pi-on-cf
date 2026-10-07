@@ -12,7 +12,7 @@ import type { PiModel } from 'agents/harness/pi'
 import type { SkillSource } from 'agents/skills'
 import { PiRegistry as AppPiRegistry } from './server/pi-registry'
 import { PiSession as AppPiSession } from './server/pi-session'
-import { bucketSkills } from './server/skills'
+import { bucketSkills, builtInSkills } from './server/skills'
 
 export { ComputerTest } from './server/computer-test'
 export { WorkspaceProxy, WorkspaceServiceProxy } from '@cloudflare/computer'
@@ -29,6 +29,7 @@ function textOf(content: Message['content'] | undefined): string {
  * - `exec <backend> <command>` calls Computer's `exec` tool.
  * - `skill <name>` calls `activate_skill`.
  * - `resource <name> <path>` calls `read_skill_resource`.
+ * - `tool <name> <json>` calls any tool with the JSON as its arguments.
  * - `catalog` answers with the `skills` prompt section the model sees.
  * - After a tool result it answers `tool said: <result>`.
  * - Anything else is echoed back.
@@ -48,6 +49,10 @@ function script(context: TranscriptContext): AssistantMessage {
     }
     return fauxAssistantMessage([fauxText(`catalog: ${catalog ?? 'none'}`)])
   }
+  const tool = /^tool (\S+) (\{[\s\S]*\})$/.exec(prompt)
+  if (tool) {
+    return fauxAssistantMessage([fauxToolCall(tool[1]!, JSON.parse(tool[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: 'toolUse' })
+  }
   const resource = /^resource (\S+) (\S+)$/.exec(prompt)
   if (resource) {
     return fauxAssistantMessage([fauxToolCall('read_skill_resource', { name: resource[1], path: resource[2] })], { stopReason: 'toolUse' })
@@ -60,7 +65,7 @@ function script(context: TranscriptContext): AssistantMessage {
   if (exec) {
     return fauxAssistantMessage([fauxToolCall('exec', { backend: exec[1], command: exec[2] })], { stopReason: 'toolUse' })
   }
-  const write = /^write (\S+) (.+)$/.exec(prompt)
+  const write = /^write (\S+) ([\s\S]+)$/.exec(prompt)
   if (write) {
     return fauxAssistantMessage([fauxToolCall('write', { path: write[1], content: write[2] })], { stopReason: 'toolUse' })
   }
@@ -75,9 +80,9 @@ export class PiSession extends AppPiSession {
     return { provider: faux.provider, default: faux.getModel() }
   }
 
-  /** The app's bucket source, listing on every refresh so tests see changes at once. */
+  /** The app's sources, with the bucket listed on every refresh so tests see changes at once. */
   protected override skillSources(): SkillSource[] {
-    return [bucketSkills(this.env.BUCKET, { refreshIntervalMs: 0 })]
+    return [builtInSkills, bucketSkills(this.env.BUCKET, { refreshIntervalMs: 0 })]
   }
 
   /** Sync skills with the bucket now; `true` when the catalog changed. */
