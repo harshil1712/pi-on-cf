@@ -1,0 +1,23 @@
+.editorconfig
+  s_07d926c45dcd8c::t_10fb5d026a1ab4 1-12
+.github/workflows/ci.yml
+  s_07d926c45dcd8c::t_5971ef3db211ca 1-24
+.node-version
+  s_07d926c45dcd8c::t_c2a2a024e1d897 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "bd5134aecb18c558d61a1f8b526dc4acd70117ad",
+  "prompts": {},
+  "sessions": {
+    "s_07d926c45dcd8c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1188a-0297-7416-94ff-ad43633ede3f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
