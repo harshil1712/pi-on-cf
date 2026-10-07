@@ -39,6 +39,20 @@ Open `http://localhost:3000`.
 
 `AI_MODEL` selects the model new sessions start with; `AI_GATEWAY_ID` selects the AI Gateway. Both are non-secret variables in `wrangler.jsonc`. The shared file keeps the neutral gateway ID `default`; keep account-specific configuration in an ignored `wrangler.local.jsonc` and select it with `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite commands or `--config wrangler.local.jsonc` for Wrangler.
 
+`BUCKET` is the app's R2 bucket, `pi-on-cf`. It is a remote binding, so local development reads the real bucket. Create it once with `npx wrangler r2 bucket create pi-on-cf`.
+
+## Skills
+
+Pi offers [Agent Skills](https://developers.cloudflare.com/agents/runtime/execution/agent-skills/) from `skills/` in the bucket: one directory per skill, holding a `SKILL.md` with `name` and `description` frontmatter, and optional `references/`, `scripts/` and `assets/`.
+
+```bash
+npx wrangler r2 object put pi-on-cf/skills/release-notes/SKILL.md --file SKILL.md --remote
+```
+
+The skill catalog goes into the system prompt. The model loads a skill with `activate_skill` and reads its files with `read_skill_resource`; skill scripts do not run. A session lists the bucket when it starts and again at most once a minute after a prompt, so new and changed skills reach running sessions without a deploy.
+
+Anyone who can write to `skills/` can instruct every session, including its container with network access. Restrict write access to the bucket.
+
 `Dockerfile.computer` pins the `computerd` image; keep its version in step with `@cloudflare/computer`.
 
 `compatibility_date` is the newest date the bundled workerd supports. `package.json` overrides the `miniflare` and `wrangler` that `@cloudflare/vitest-pool-workers` pins, so dev, tests, and deploys share one runtime. Bump the date together with Wrangler, and drop the override once the pool ships a matching Miniflare.

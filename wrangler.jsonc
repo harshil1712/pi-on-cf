@@ -50,6 +50,14 @@
       "new_sqlite_classes": ["PiRegistry"],
     },
   ],
+  // The app's one R2 bucket. Agent Skills live under `skills/`.
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "pi-on-cf",
+      "remote": true,
+    },
+  ],
   "artifacts": [
     {
       "binding": "ARTIFACTS",

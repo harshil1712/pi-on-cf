@@ -9,7 +9,9 @@ import {
   type TranscriptContext,
 } from '@earendil-works/pi-ai'
 import type { PiModel } from 'agents/harness/pi'
+import type { SkillSource } from 'agents/skills'
 import { PiSession as AppPiSession } from './server/pi-session'
+import { bucketSkills } from './server/skills'
 
 export { PiRegistry } from './server/pi-registry'
 export { ComputerTest } from './server/computer-test'
@@ -25,6 +27,9 @@ function textOf(content: Message['content'] | undefined): string {
  * The faux model, derived from the transcript alone:
  * - `write <path> <text>` calls Computer's `write` tool.
  * - `exec <backend> <command>` calls Computer's `exec` tool.
+ * - `skill <name>` calls `activate_skill`.
+ * - `resource <name> <path>` calls `read_skill_resource`.
+ * - `catalog` answers with the `skills` prompt section the model sees.
  * - After a tool result it answers `tool said: <result>`.
  * - Anything else is echoed back.
  */
@@ -35,6 +40,22 @@ function script(context: TranscriptContext): AssistantMessage {
     return fauxAssistantMessage([fauxText(`${last.isError ? 'tool failed' : 'tool said'}: ${textOf(last.content)}`)])
   }
   const prompt = last?.role === 'user' ? textOf(last.content) : ''
+  if (prompt === 'catalog') {
+    // Replaying system messages in order yields the current sections.
+    let catalog: string | null = null
+    for (const message of context.messages) {
+      if (message.role === 'system' && message.sections && 'skills' in message.sections) catalog = message.sections.skills ?? null
+    }
+    return fauxAssistantMessage([fauxText(`catalog: ${catalog ?? 'none'}`)])
+  }
+  const resource = /^resource (\S+) (\S+)$/.exec(prompt)
+  if (resource) {
+    return fauxAssistantMessage([fauxToolCall('read_skill_resource', { name: resource[1], path: resource[2] })], { stopReason: 'toolUse' })
+  }
+  const skill = /^skill (\S+)$/.exec(prompt)
+  if (skill) {
+    return fauxAssistantMessage([fauxToolCall('activate_skill', { name: skill[1] })], { stopReason: 'toolUse' })
+  }
   const exec = /^exec (\S+) ([\s\S]+)$/.exec(prompt)
   if (exec) {
     return fauxAssistantMessage([fauxToolCall('exec', { backend: exec[1], command: exec[2] })], { stopReason: 'toolUse' })
@@ -52,6 +73,17 @@ export class PiSession extends AppPiSession {
     const faux = fauxProvider({ tokensPerSecond: 500 })
     faux.setResponses(Array.from({ length: 100 }, () => script))
     return { provider: faux.provider, default: faux.getModel() }
+  }
+
+  /** The app's bucket source, listing on every refresh so tests see changes at once. */
+  protected override skillSources(): SkillSource[] {
+    return [bucketSkills(this.env.BUCKET, { refreshIntervalMs: 0 })]
+  }
+
+  /** Sync skills with the bucket now; `true` when the catalog changed. */
+  async syncSkillsForTest(): Promise<boolean> {
+    await this.harness.pi()
+    return this.skills.sync(this.registry)
   }
 
   /** Submit and wait for pi's answer: its status, text and the transcript entry kinds. */

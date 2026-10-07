@@ -16,7 +16,9 @@ import { type AgentEventStream, createRegistry, Harness } from '@earendil-works/
 import { Agent, callable, type Connection } from 'agents'
 import { PiHarness, type PiModel } from 'agents/harness/pi'
 import { createAI } from 'agents/models/pi-ai'
+import type { SkillSource } from 'agents/skills'
 import { PI_REGISTRY_INSTANCE, type PiEventsMessage, type WorkspaceFile, type WorkspaceFileContent } from '../shared/pi-contract'
+import { bucketSkills, SkillCatalog } from './skills'
 import { createWorkspaceTools } from './workspace-tools'
 import { WORKSPACE_ROOT, workspacePath } from './workspace-root'
 
@@ -92,6 +94,7 @@ function workspaceOptions(self: PiSessionHost): WorkspaceOptions {
 export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   readonly model = this.modelSource()
   readonly registry = createRegistry()
+  readonly skills = new SkillCatalog(this.skillSources())
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       const workspace = await getWorkspace(this)
@@ -109,6 +112,10 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
             },
           },
         }),
+      })
+      // Skills are optional: an unreachable bucket must not stop pi opening.
+      await this.skills.sync(this.registry).catch((error: unknown) => {
+        console.error('Could not load skills', error)
       })
       const models = createModels()
       models.setProvider(this.model.provider)
@@ -141,6 +148,14 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     return { provider: ai.provider, default: ai(this.env.AI_MODEL) }
   }
 
+  /**
+   * Where pi's Agent Skills come from: `skills/` in the app's R2 bucket.
+   * Earlier sources win a name. Tests override this.
+   */
+  protected skillSources(): SkillSource[] {
+    return this.env.BUCKET ? [bucketSkills(this.env.BUCKET)] : []
+  }
+
   override fetch(request: Request): Promise<Response> {
     // computerd dials back to `/api` through the container egress.
     if (new URL(request.url).pathname === '/api') return this.container.handleFetch(request)
@@ -167,12 +182,14 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   async submit(prompt: string) {
     const receipt = await this.harness.submit(validPrompt(prompt))
     this.ctx.waitUntil(this.#touchRegistry())
+    this.ctx.waitUntil(this.#syncSkills())
     return { operationId: receipt.operationId, accepted: receipt.accepted }
   }
 
   @callable()
   async steer(prompt: string) {
     const receipt = await this.harness.session().steer(validPrompt(prompt))
+    this.ctx.waitUntil(this.#syncSkills())
     return { operationId: receipt.operationId, accepted: receipt.accepted }
   }
 
@@ -257,6 +274,20 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     if (!watch) return
     this.#watches.delete(connection.id)
     await watch.stop()
+  }
+
+  /**
+   * Pick up skills added to or changed in the bucket. Runs beside the turn:
+   * the source lists the bucket at most once a minute, and pi applies a new
+   * catalog from its next model request.
+   */
+  async #syncSkills(): Promise<void> {
+    try {
+      await this.harness.pi()
+      await this.skills.sync(this.registry)
+    } catch (error) {
+      console.error('Could not refresh skills', error)
+    }
   }
 
   async #touchRegistry(): Promise<void> {

@@ -19,6 +19,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@cloudflare/codemode": "^0.5.3",
     "@cloudflare/computer": "0.4.1",
     "@cloudflare/kumo": "^2.14.0",
     "@cloudflare/vite-plugin": "^1.62.5",
@@ -35,6 +36,8 @@
     "@tanstack/react-start": "latest",
     "@tanstack/router-plugin": "^1.132.0",
     "agents": "^0.26.0",
+    "ai": "^7.0.130",
+    "just-bash": "^3.2.0",
     "lucide-react": "^0.545.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

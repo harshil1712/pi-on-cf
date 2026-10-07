@@ -20,6 +20,9 @@
     { "tag": "v2", "new_sqlite_classes": ["PiRegistry"] },
     { "tag": "v3", "new_sqlite_classes": ["ComputerTest"] }
   ],
+  "r2_buckets": [
+    { "binding": "BUCKET", "bucket_name": "pi-on-cf-test" }
+  ],
   "worker_loaders": [
     { "binding": "LOADER" }
   ]
