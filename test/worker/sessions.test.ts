@@ -2,9 +2,9 @@ import { env } from 'cloudflare:workers'
 import { runDurableObjectAlarm } from 'cloudflare:test'
 import { routeAgentRequest } from 'agents'
 import { describe, expect, it } from 'vitest'
-import { type PiEventsMessage, sessionBasePath } from '../shared/pi-contract'
-import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from '../server-test-entry'
-import { AGENT_ROUTES } from './agent-routes'
+import { type PiEventsMessage, sessionBasePath } from '~/shared/pi-contract'
+import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from './entry'
+import { AGENT_ROUTES } from '~/server/agent-routes'
 
 const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>
 

@@ -1,6 +1,6 @@
 import { Agent, callable } from 'agents'
 import { type RoutedAgentEntry, RoutedAgents } from 'agents/routing'
-import { PI_SESSIONS_ROUTE, type SessionSummary } from '../shared/pi-contract'
+import { PI_SESSIONS_ROUTE, type SessionSummary } from '~/shared/pi-contract'
 import type { PiSession } from './pi-session'
 
 type SessionMetadata = {

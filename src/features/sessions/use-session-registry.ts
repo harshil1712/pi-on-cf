@@ -6,7 +6,7 @@ import {
   PI_REGISTRY_NAME,
   type PiRegistryContract,
   type SessionSummary,
-} from '../../shared/pi-contract'
+} from '~/shared/pi-contract'
 
 export function useSessionRegistry() {
   const agent = useAgent<PiRegistryContract, unknown>({

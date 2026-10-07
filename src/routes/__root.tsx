@@ -1,7 +1,7 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { TooltipProvider } from '@cloudflare/kumo/components/tooltip'
-import { themeScript } from '../features/theme/theme'
-import appCss from '../styles.css?url'
+import { themeScript } from '~/features/theme/theme'
+import appCss from '~/styles.css?url'
 
 export const Route = createRootRoute({
   head: () => ({

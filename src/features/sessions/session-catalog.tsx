@@ -4,8 +4,8 @@ import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button } from '@cloudflare/kumo/components/button'
 import { Input } from '@cloudflare/kumo/components/input'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
-import { ThemeToggle } from '../theme/theme-toggle'
-import type { SessionSummary } from '../../shared/pi-contract'
+import { ThemeToggle } from '~/features/theme/theme-toggle'
+import type { SessionSummary } from '~/shared/pi-contract'
 import { useSessionRegistry } from './use-session-registry'
 
 function relativeTime(value: string, now: number) {

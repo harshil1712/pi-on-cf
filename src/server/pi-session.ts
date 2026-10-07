@@ -17,7 +17,7 @@ import { Agent, type AgentStaticOptions, callable, type Connection, getAgentByNa
 import { PiHarness, type PiModel } from 'agents/harness/pi'
 import { createAI } from 'agents/models/pi-ai'
 import type { SkillSource } from 'agents/skills'
-import { PI_REGISTRY_INSTANCE, type PiEventsMessage, type WorkspaceFile, type WorkspaceFileContent } from '../shared/pi-contract'
+import { PI_REGISTRY_INSTANCE, type PiEventsMessage, type WorkspaceFile, type WorkspaceFileContent } from '~/shared/pi-contract'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
 import { createWorkspaceTools } from './workspace-tools'

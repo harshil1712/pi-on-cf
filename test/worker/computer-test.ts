@@ -3,8 +3,8 @@ import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-ja
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient } from '@cloudflare/computer/git'
 import { DurableObject } from 'cloudflare:workers'
-import { createWorkspaceTools } from './workspace-tools'
-import { WORKSPACE_ROOT } from './workspace-root'
+import { createWorkspaceTools } from '~/server/workspace-tools'
+import { WORKSPACE_ROOT } from '~/server/workspace-root'
 
 type ToolOutcome = { isError: boolean; text: string }
 

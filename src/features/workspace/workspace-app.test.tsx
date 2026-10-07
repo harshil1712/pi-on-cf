@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { AgentEvent, EntryRecord } from '@earendil-works/pi-durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SessionSummary, WorkspaceFile, WorkspaceFileContent } from '../../shared/pi-contract'
+import type { SessionSummary, WorkspaceFile, WorkspaceFileContent } from '~/shared/pi-contract'
 
 type AgentOptions = { agent: string; onMessage?: (message: MessageEvent) => void; onClose?: (event: CloseEvent) => void }
 

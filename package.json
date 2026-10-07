@@ -15,8 +15,10 @@
     "generate-routes": "tsr generate",
     "lint": "oxlint --deny-warnings",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && vitest run --config vitest.worker.config.ts",
-    "test:worker": "vitest run --config vitest.worker.config.ts"
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:worker": "vitest run --project worker",
+    "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
     "@cloudflare/codemode": "^0.5.3",

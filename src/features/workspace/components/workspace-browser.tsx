@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Button } from '@cloudflare/kumo/components/button'
 import { Check, Copy, Download, FileText, RefreshCw } from 'lucide-react'
-import type { WorkspaceFile } from '../../../shared/pi-contract'
+import type { WorkspaceFile } from '~/shared/pi-contract'
 
 // Shiki and the Markdown renderer load on demand, outside the main bundle.
 const HighlightedFile = lazy(() => import('./highlighted-code').then((module) => ({ default: module.HighlightedFile })))

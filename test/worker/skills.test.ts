@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { PiSession as TestPiSession } from '../server-test-entry'
-import { publishSkill, SKILLS_PREFIX } from './skills'
+import type { PiSession as TestPiSession } from './entry'
+import { publishSkill, SKILLS_PREFIX } from '~/server/skills'
 
 const session = () => env.PiSession.getByName(crypto.randomUUID()) as unknown as DurableObjectStub<TestPiSession>
 

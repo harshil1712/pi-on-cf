@@ -10,11 +10,11 @@ import {
 } from '@earendil-works/pi-ai'
 import type { PiModel } from 'agents/harness/pi'
 import type { SkillSource } from 'agents/skills'
-import { PiRegistry as AppPiRegistry } from './server/pi-registry'
-import { PiSession as AppPiSession } from './server/pi-session'
-import { bucketSkills, builtInSkills } from './server/skills'
+import { PiRegistry as AppPiRegistry } from '~/server/pi-registry'
+import { PiSession as AppPiSession } from '~/server/pi-session'
+import { bucketSkills, builtInSkills } from '~/server/skills'
 
-export { ComputerTest } from './server/computer-test'
+export { ComputerTest } from './computer-test'
 export { WorkspaceProxy, WorkspaceServiceProxy } from '@cloudflare/computer'
 
 function textOf(content: Message['content'] | undefined): string {

@@ -13,7 +13,7 @@ import {
   type SessionSummary,
   sessionBasePath,
   type WorkspaceFile,
-} from '../../shared/pi-contract'
+} from '~/shared/pi-contract'
 import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from './transcript'
 
 function isPiEvents(value: unknown): value is PiEventsMessage {

@@ -35,7 +35,7 @@
       "class_name": "PiSession",
       "scheduling_policy": "durable_object",
       "images": {
-        "computer": { "dockerfile": "./Dockerfile.computer" },
+        "computer": { "dockerfile": "./container/Dockerfile" },
       },
       "observability": { "enabled": true },
     },

@@ -115,10 +115,8 @@ Not implemented in this application:
 ## Verification
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
+npm run check
 npm run build
 ```
 
-The Workers suite runs a real `PiSession` with pi-ai's faux provider: a plain answer, a model tool call that writes through Computer, and the WebSocket snapshot. It also exercises Computer's Worker Shell, git, Worker JavaScript, and the tool adapter. Live Workers AI inference and the container backend are not covered by tests.
+The Workers suite, in `test/worker`, runs a real `PiSession` with pi-ai's faux provider: a plain answer, a model tool call that writes through Computer, and the WebSocket snapshot. It also exercises Computer's Worker Shell, git, Worker JavaScript, and the tool adapter. Live Workers AI inference and the container backend are not covered by tests.
