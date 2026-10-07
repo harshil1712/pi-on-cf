@@ -65,8 +65,8 @@ describe('SessionCatalog', () => {
     render(<Home />)
     await screen.findByText('Edge cache prototype')
 
-    fireEvent.change(screen.getByLabelText('SESSION NAME OPTIONAL'), { target: { value: '  New investigation  ' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'CREATE SESSION' }).closest('form')!)
+    fireEvent.change(screen.getByLabelText('Session name'), { target: { value: '  New investigation  ' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'New session' }).closest('form')!)
 
     await waitFor(() => expect(mocks.registry.stub.createSession).toHaveBeenCalledWith({ name: 'New investigation' }))
     expect(mocks.navigate).toHaveBeenCalledWith({ to: '/sessions/$sessionId', params: { sessionId: 'created-session' } })

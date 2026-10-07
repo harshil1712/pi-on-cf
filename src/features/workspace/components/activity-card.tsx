@@ -1,67 +1,77 @@
 import { useEffect, useState } from 'react'
 import { Collapsible } from '@cloudflare/kumo/components/collapsible'
 import { Loader } from '@cloudflare/kumo/components/loader'
-import { BrainCircuit, Check, CircleX, RotateCcw, Scissors, Wrench } from 'lucide-react'
+import { Brain, ChevronRight, CircleAlert, RotateCcw, Scissors, Wrench } from 'lucide-react'
 import type { TranscriptEntry } from '../transcript'
 
 function toolArgumentSummary(args: unknown) {
   if (!args || typeof args !== 'object') return ''
   const values = args as Record<string, unknown>
-  for (const key of ['path', 'command', 'source', 'pattern', 'query', 'search']) {
+  for (const key of ['path', 'command', 'source', 'pattern', 'query', 'search', 'name']) {
     if (typeof values[key] === 'string') return values[key]
   }
   return ''
 }
 
+function toolLabel(name: string) {
+  const label = name.replaceAll('_', ' ')
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
+function stringify(value: unknown) {
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+}
+
 export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type: 'reasoning' | 'summary' | 'tool' }> }) {
-  const [open, setOpen] = useState(entry.status === 'running')
+  // Reasoning streams open so it can be followed; tool calls stay collapsed.
+  const [open, setOpen] = useState(entry.type === 'reasoning' && entry.status === 'running')
 
   useEffect(() => {
-    if (entry.status === 'running') setOpen(true)
-  }, [entry.status])
+    if (entry.type === 'reasoning') setOpen(entry.status === 'running')
+  }, [entry.type, entry.status])
 
-  const reasoning = entry.type === 'reasoning'
-  const sessionSummary = entry.type === 'summary'
-  const toolSummary = entry.type === 'tool' ? toolArgumentSummary(entry.args) : ''
-  const heading = reasoning ? 'REASONING' : sessionSummary
-    ? entry.kind === 'compaction' ? 'COMPACTION SUMMARY' : 'CONTEXT RESET'
-    : entry.name.replaceAll('_', ' ').toUpperCase()
-  const description = reasoning ? (entry.status === 'running' ? 'WORKING THROUGH THE TASK' : 'THOUGHT PROCESS')
-    : sessionSummary ? 'SESSION CONTEXT CHECKPOINT'
-    : (toolSummary || 'WORKSPACE OPERATION')
+  const running = entry.status === 'running'
+  const error = entry.status === 'error'
+  let icon = <Wrench size={14} />
+  let label: string
+  let detail = ''
+
+  if (entry.type === 'reasoning') {
+    icon = <Brain size={14} />
+    label = running ? 'Thinking…' : 'Thought'
+  } else if (entry.type === 'summary') {
+    icon = entry.kind === 'compaction' ? <Scissors size={14} /> : <RotateCcw size={14} />
+    label = entry.kind === 'compaction' ? 'Compaction summary' : 'Context reset'
+  } else {
+    label = toolLabel(entry.name)
+    detail = toolArgumentSummary(entry.args)
+  }
+  if (running && entry.type === 'tool') icon = <Loader size={14} aria-label="Tool running" />
+  if (error) icon = <CircleAlert size={14} aria-label="Failed" />
 
   return (
-    <Collapsible.Root
-      className={`activity-card ${reasoning ? 'reasoning-card' : sessionSummary ? 'summary-card' : `tool-card status-${entry.status}`}`}
-      open={open}
-      onOpenChange={setOpen}
-    >
+    <Collapsible.Root className={`activity status-${entry.status}`} open={open} onOpenChange={setOpen}>
       <Collapsible.Trigger className="activity-trigger">
-        <span className="activity-icon">{reasoning ? <BrainCircuit size={15} /> : sessionSummary ? entry.kind === 'compaction' ? <Scissors size={14} /> : <RotateCcw size={14} /> : <Wrench size={14} />}</span>
-        <span className="activity-heading">
-          <strong>{heading}</strong>
-          <small>{description}</small>
-        </span>
-        <span className={`activity-status status-${entry.status}`}>
-          {entry.status === 'running' && <Loader size={13} aria-label={reasoning ? 'Reasoning in progress' : 'Tool running'} />}
-          {entry.status === 'complete' && <Check size={13} />}
-          {entry.status === 'error' && <CircleX size={13} />}
-          {entry.status}
-        </span>
+        {icon}
+        <span className="activity-label">{label}</span>
+        {detail && <span className="activity-detail">{detail}</span>}
+        <ChevronRight size={13} className="activity-chevron" aria-hidden="true" />
       </Collapsible.Trigger>
-      <Collapsible.Panel className={reasoning || sessionSummary ? 'reasoning-content' : 'tool-arguments'}>
-        {reasoning || sessionSummary ? entry.text : (
+      <Collapsible.Panel className="activity-content">
+        {entry.type === 'tool' ? (
           <>
-            <span>INPUT</span>
-            <pre>{JSON.stringify(entry.args ?? {}, null, 2)}</pre>
+            <div className="activity-section">
+              <span>Input</span>
+              <pre>{JSON.stringify(entry.args ?? {}, null, 2)}</pre>
+            </div>
             {entry.result !== undefined && (
-              <>
-                <span>OUTPUT</span>
-                <pre>{typeof entry.result === 'string' ? entry.result : JSON.stringify(entry.result, null, 2)}</pre>
-              </>
+              <div className="activity-section">
+                <span>{error ? 'Error' : 'Output'}</span>
+                <pre>{stringify(entry.result)}</pre>
+              </div>
             )}
           </>
-        )}
+        ) : <div className="activity-text">{entry.text}</div>}
       </Collapsible.Panel>
     </Collapsible.Root>
   )

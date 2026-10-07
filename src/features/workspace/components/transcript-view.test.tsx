@@ -49,7 +49,7 @@ describe('TranscriptView', () => {
       />,
     )
 
-    expect(screen.getByText('COMPACTION SUMMARY')).toBeTruthy()
-    expect(screen.queryByText('REASONING')).toBeNull()
+    expect(screen.getByText('Compaction summary')).toBeTruthy()
+    expect(screen.queryByText(/^Thought|Thinking/)).toBeNull()
   })
 })

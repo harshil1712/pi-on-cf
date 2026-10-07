@@ -102,12 +102,12 @@ describe('WorkspaceApp', () => {
     expect(mocks.useAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'PiSession', basePath: 'api/agents/pi-registry/singleton/sessions/session-12345678' }))
     expect(mocks.useAgent).not.toHaveBeenCalledWith(expect.objectContaining({ agent: 'PiSession', name: expect.anything() }))
     expect(mocks.useAgent).toHaveBeenCalledWith({ agent: 'PiRegistry', name: 'singleton', prefix: 'api/agents' })
-    expect((screen.getByLabelText('INSTRUCTION') as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByLabelText('Message Pi') as HTMLTextAreaElement).disabled).toBe(true)
 
     await deliver(snapshot([userEntry('current transcript')]))
 
     expect(screen.getByText('current transcript', { selector: '.message-body' })).toBeTruthy()
-    expect((screen.getByLabelText('INSTRUCTION') as HTMLTextAreaElement).disabled).toBe(false)
+    expect((screen.getByLabelText('Message Pi') as HTMLTextAreaElement).disabled).toBe(false)
     expect(await screen.findByRole('button', { name: 'Current session' })).toBeTruthy()
   })
 
@@ -115,9 +115,9 @@ describe('WorkspaceApp', () => {
     render(<WorkspaceApp sessionId="session-12345678" />)
     await deliver(snapshot([]))
 
-    const input = screen.getByLabelText('INSTRUCTION') as HTMLTextAreaElement
+    const input = screen.getByLabelText('Message Pi') as HTMLTextAreaElement
     fireEvent.change(input, { target: { value: 'Do work' } })
-    fireEvent.submit(screen.getByRole('button', { name: /execute/i }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Send' }).closest('form')!)
     await waitFor(() => expect(mocks.sessionAgent.stub.submit).toHaveBeenCalledWith('Do work'))
 
     await deliver(...[
@@ -133,18 +133,18 @@ describe('WorkspaceApp', () => {
     // While pi runs, a prompt steers it instead of starting a new run.
     expect(input.disabled).toBe(false)
     fireEvent.change(input, { target: { value: 'Use pnpm' } })
-    fireEvent.submit(screen.getByRole('button', { name: /steer/i }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Steer' }).closest('form')!)
     await waitFor(() => expect(mocks.sessionAgent.stub.steer).toHaveBeenCalledWith('Use pnpm'))
     expect(mocks.sessionAgent.stub.submit).toHaveBeenCalledTimes(1)
     await deliver({ type: 'inbox_update', items: [{ id: 3, mode: 'steer' }] } as unknown as AgentEvent)
-    expect(screen.getByText(/1 QUEUED/)).toBeTruthy()
+    expect(screen.getByText(/1 queued/)).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: /abort/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(mocks.sessionAgent.stub.abort).toHaveBeenCalled())
 
     await deliver({ type: 'run_end', inputs: [] }, { type: 'inbox_update', items: [] } as unknown as AgentEvent)
-    expect(screen.queryByRole('button', { name: /abort/i })).toBeNull()
-    expect(screen.queryByText(/QUEUED/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
+    expect(screen.queryByText(/queued/)).toBeNull()
   })
 
   it('batches pi events into one animation-frame update', async () => {
@@ -172,10 +172,10 @@ describe('WorkspaceApp', () => {
     render(<WorkspaceApp sessionId="session-12345678" />)
     await deliver(snapshot([]))
 
-    fireEvent.change(screen.getByLabelText('INSTRUCTION'), { target: { value: 'Do work' } })
-    fireEvent.submit(screen.getByRole('button', { name: /execute/i }).closest('form')!)
+    fireEvent.change(screen.getByLabelText('Message Pi'), { target: { value: 'Do work' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Send' }).closest('form')!)
     expect((await screen.findByRole('alert')).textContent).toContain('A prompt is required.')
-    expect((screen.getByLabelText('INSTRUCTION') as HTMLTextAreaElement).value).toBe('Do work')
+    expect((screen.getByLabelText('Message Pi') as HTMLTextAreaElement).value).toBe('Do work')
 
     await deliver({ type: 'submission', record: { status: 'unanswered', reason: 'no_model' } } as unknown as AgentEvent)
     expect(screen.getByRole('alert').textContent).toContain('A prompt is required.')
@@ -195,7 +195,7 @@ describe('WorkspaceApp', () => {
     // The client retries; the next snapshot clears the error.
     await deliver(snapshot([]))
     expect(screen.queryByRole('alert')).toBeNull()
-    expect((screen.getByLabelText('INSTRUCTION') as HTMLTextAreaElement).disabled).toBe(false)
+    expect((screen.getByLabelText('Message Pi') as HTMLTextAreaElement).disabled).toBe(false)
   })
 
   it('reports a lost connection until pi events resume', async () => {
@@ -264,15 +264,15 @@ describe('WorkspaceApp', () => {
     expect(await screen.findByRole('button', { name: 'Renamed' })).toBeTruthy()
   })
 
-  it('switches between the mobile CHAT and FILES views', async () => {
+  it('switches between the mobile Chat and Files views', async () => {
     render(<WorkspaceApp sessionId="session-12345678" />)
-    const chatTab = screen.getByRole('tab', { name: 'CHAT' })
-    const filesTab = screen.getByRole('tab', { name: /FILES/ })
+    const chatTab = screen.getByRole('tab', { name: 'Chat' })
+    const filesTab = screen.getByRole('tab', { name: /Files/ })
     expect(chatTab.getAttribute('aria-selected')).toBe('true')
 
     fireEvent.click(filesTab)
     await waitFor(() => expect(filesTab.getAttribute('aria-selected')).toBe('true'))
     expect(chatTab.getAttribute('aria-selected')).toBe('false')
-    expect(screen.getByRole('tabpanel', { name: /FILES/ })).toBeTruthy()
+    expect(screen.getByRole('tabpanel', { name: /Files/ })).toBeTruthy()
   })
 })

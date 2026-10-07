@@ -1,5 +1,6 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { TooltipProvider } from '@cloudflare/kumo/components/tooltip'
+import { themeScript } from '../features/theme/theme'
 import appCss from '../styles.css?url'
 
 export const Route = createRootRoute({
@@ -28,8 +29,10 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-mode="light">
+    // The theme script sets data-mode before hydration, so React must not reset it.
+    <html lang="en" data-mode="light" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <HeadContent />
       </head>
       <body>

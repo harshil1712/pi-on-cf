@@ -2,7 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button } from '@cloudflare/kumo/components/button'
+import { Input } from '@cloudflare/kumo/components/input'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { ThemeToggle } from '../theme/theme-toggle'
 import type { SessionSummary } from '../../shared/pi-contract'
 import { useSessionRegistry } from './use-session-registry'
 
@@ -18,7 +20,7 @@ function relativeTime(value: string, now: number) {
 }
 
 function displayName(session: SessionSummary) {
-  return session.name?.trim() || `UNTITLED / ${session.id.slice(0, 8)}`
+  return session.name?.trim() || `Untitled ${session.id.slice(0, 8)}`
 }
 
 export function SessionCatalog() {
@@ -69,51 +71,47 @@ export function SessionCatalog() {
   }
 
   return (
-    <main className="catalog-shell">
-      <header className="catalog-masthead">
-        <div className="brand-lockup">
-          <div className="brand-mark">π</div>
-          <div><p className="eyebrow">DURABLE AGENT SESSION REGISTRY</p><h1>PI SESSIONS</h1></div>
-        </div>
-        <div className="catalog-counter"><strong>{registry.sessions.length.toString().padStart(2, '0')}</strong><span>ACTIVE THREADS</span></div>
+    <main className="catalog">
+      <header className="topbar">
+        <span className="brand"><span className="brand-mark" aria-hidden="true">π</span>Pi</span>
+        <div className="topbar-actions"><ThemeToggle /></div>
       </header>
 
-      <section className="catalog-grid">
-        <aside className="catalog-control">
-          <p className="panel-index">01 / INITIALIZE</p>
-          <h2>START A NEW<br />WORKING LINE</h2>
-          <form onSubmit={create} className="create-session-form">
-            <label htmlFor="session-name">SESSION NAME <span>OPTIONAL</span></label>
-            <input id="session-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. EDGE CACHE PROTOTYPE" maxLength={120} />
-            <Button type="submit" disabled={Boolean(busy)} className="catalog-primary">
-              <Plus size={18} /> {busy === 'create' ? 'INITIALIZING' : 'CREATE SESSION'}
-            </Button>
-          </form>
-          <div className="registry-note"><span>REGISTRY</span><strong>SINGLETON / ONLINE</strong><p>Each session is an isolated Durable Object with its own history and workspace.</p></div>
-        </aside>
-
-        <div className="catalog-list-area">
-          {(registry.error || mutationError) && <Banner className="error-banner" variant="error" role="alert" description={registry.error || mutationError} />}
-
-          <section className="session-list" aria-labelledby="session-list-title" aria-busy={registry.loading}>
-            <div className="session-list-heading"><h2 id="session-list-title">RECENT SESSIONS</h2><span>UPDATED / DESCENDING</span></div>
-            {!registry.loading && registry.sessions.length === 0 && <div className="catalog-empty"><strong>NO SESSION RECORDS</strong><span>Create the first durable working line.</span></div>}
-            {registry.sessions.map((session, index) => (
-              <article className="session-row" key={session.id}>
-                <span className="session-number">{String(index + 1).padStart(2, '0')}</span>
-                <Link className="session-main-link" to="/sessions/$sessionId" params={{ sessionId: session.id }}>
-                  <strong>{displayName(session)}</strong>
-                  <span>UPDATED <time dateTime={session.updatedAt}>{relativeTime(session.updatedAt, now)}</time></span>
-                </Link>
-                <div className="session-actions" aria-label={`Actions for ${displayName(session)}`}>
-                  <Button shape="square" size="sm" variant="ghost" aria-label="Rename session" title="Rename session" disabled={Boolean(busy)} onClick={() => rename(session)} icon={<Pencil size={15} />} />
-                  <Button shape="square" size="sm" variant="ghost" aria-label="Delete session" title="Delete session" disabled={Boolean(busy)} onClick={() => { if (window.confirm(`Delete ${displayName(session)}? This cannot be undone.`)) void mutate(`delete-${session.id}`, () => registry.agent.stub.deleteSession(session.id)) }} icon={<Trash2 size={15} />} />
-                </div>
-              </article>
-            ))}
-          </section>
+      <div className="catalog-body">
+        <div className="catalog-heading">
+          <h1>Sessions</h1>
+          <p>Each session keeps its own conversation and workspace files.</p>
         </div>
-      </section>
+
+        <form onSubmit={create} className="new-session">
+          <Input aria-label="Session name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Name a new session (optional)" maxLength={120} />
+          <Button type="submit" variant="primary" loading={busy === 'create'} disabled={Boolean(busy)} icon={<Plus size={16} />}>New session</Button>
+        </form>
+
+        {(registry.error || mutationError) && <Banner className="error-banner" variant="error" role="alert" description={registry.error || mutationError} />}
+
+        <section aria-labelledby="session-list-title" aria-busy={registry.loading}>
+          <h2 id="session-list-title" className="section-label">Recent{registry.sessions.length > 0 && <span>· {registry.sessions.length}</span>}</h2>
+          {registry.loading && registry.sessions.length === 0 && <p className="catalog-loading">Loading…</p>}
+          {!registry.loading && registry.sessions.length === 0 && <div className="catalog-empty">No sessions yet. Create one to get started.</div>}
+          {registry.sessions.length > 0 && (
+            <ul className="session-list">
+              {registry.sessions.map((session) => (
+                <li className="session-row" key={session.id}>
+                  <Link className="session-link" to="/sessions/$sessionId" params={{ sessionId: session.id }}>
+                    <strong className={session.name?.trim() ? '' : 'untitled'}>{displayName(session)}</strong>
+                    <span><time dateTime={session.updatedAt}>{relativeTime(session.updatedAt, now)}</time></span>
+                  </Link>
+                  <div className="session-actions" aria-label={`Actions for ${displayName(session)}`}>
+                    <Button shape="square" size="sm" variant="ghost" aria-label="Rename session" title="Rename" disabled={Boolean(busy)} onClick={() => rename(session)} icon={<Pencil size={14} />} />
+                    <Button shape="square" size="sm" variant="ghost" aria-label="Delete session" title="Delete" disabled={Boolean(busy)} onClick={() => { if (window.confirm(`Delete ${displayName(session)}? This cannot be undone.`)) void mutate(`delete-${session.id}`, () => registry.agent.stub.deleteSession(session.id)) }} icon={<Trash2 size={14} />} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
     </main>
   )
 }
