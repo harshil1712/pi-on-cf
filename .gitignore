@@ -1,19 +1,21 @@
+# Dependencies and build output
 node_modules
-.DS_Store
 dist
-dist-ssr
-*.local
-.env
-.nitro
-.tanstack
-.wrangler
-wrangler.local.jsonc
-wrangler.*.local.jsonc
-.output
-.vinxi
-__unconfig*
-todos.json
+coverage
 
+# Cloudflare and TanStack local state
+.wrangler
+.tanstack
+
+# Local configuration and secrets
+.env
 .dev.vars*
 !.dev.vars.example
 !.env.example
+*.local
+wrangler.local.jsonc
+wrangler.*.local.jsonc
+
+# OS and tooling
+.DS_Store
+todos.json
