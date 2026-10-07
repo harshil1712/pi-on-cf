@@ -1,0 +1,31 @@
+README.md
+  s_5b5774e0f11003::t_fd935917b12e90 15
+docs/architecture.md
+  s_5b5774e0f11003::t_c62b06b84d225f 12,14,22,27,47-48,67-69,73
+src/features/workspace/use-pi-session.ts
+  s_5b5774e0f11003::t_b6a2d7b103f3e1 14,73,75,132-138,143
+src/features/workspace/workspace-app.test.tsx
+  s_5b5774e0f11003::t_e03fdad63fb873 10,99,102-103,246-256
+src/server-test-entry.ts
+  s_5b5774e0f11003::t_3c6cdf7d613457 13,96-107
+src/server/pi-session.ts
+  s_5b5774e0f11003::t_c079301e17644c 16,50-52,98-104,148-150,246-258,260-261,307-310
+src/server/sessions.worker.test.ts
+  s_5b5774e0f11003::t_c99554b7132dc7 3,5-38,53,59-137,143-148,152,154-155,158,160,166,171,180-181,186-187,192,200,203,208,210,213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "549c15c49ad52f5cc24f9188f25e0f4ca594fa9d",
+  "prompts": {},
+  "sessions": {
+    "s_5b5774e0f11003": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a10d7a-2935-7102-a811-d5d8676fe7ae",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
