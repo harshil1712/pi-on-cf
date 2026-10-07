@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '~/shared/pi-contract'
 
@@ -72,18 +72,40 @@ describe('SessionCatalog', () => {
   })
 
   it('routes rename and delete actions through the registry', async () => {
-    vi.spyOn(window, 'prompt').mockReturnValue('  Renamed session  ')
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<SessionCatalog />)
     await screen.findByText('Edge cache prototype')
 
     fireEvent.click(screen.getByRole('button', { name: 'Rename session' }))
+    const renameDialog = await screen.findByRole('dialog', { name: 'Rename session' })
+    const nameField = within(renameDialog).getByLabelText('Name') as HTMLInputElement
+    expect(nameField.value).toBe('Edge cache prototype')
+    fireEvent.change(nameField, { target: { value: '  Renamed session  ' } })
+    fireEvent.click(within(renameDialog).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(mocks.registry.stub.renameSession).toHaveBeenCalledWith('session-12345678', 'Renamed session'))
     await waitFor(() => expect((screen.getByRole('button', { name: 'Delete session' }) as HTMLButtonElement).disabled).toBe(false))
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete session' }))
+    const deleteDialog = await screen.findByRole('alertdialog', { name: 'Delete session?' })
+    expect(deleteDialog.textContent).toContain('Edge cache prototype and its workspace files will be deleted.')
+    expect(mocks.registry.stub.deleteSession).not.toHaveBeenCalled()
+    fireEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(mocks.registry.stub.deleteSession).toHaveBeenCalledWith('session-12345678'))
-    expect(window.confirm).toHaveBeenCalledWith('Delete Edge cache prototype? This cannot be undone.')
+  })
+
+  it('leaves the session alone when a dialog is cancelled', async () => {
+    render(<SessionCatalog />)
+    await screen.findByText('Edge cache prototype')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete session' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename session' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    expect(mocks.registry.stub.deleteSession).not.toHaveBeenCalled()
+    expect(mocks.registry.stub.renameSession).not.toHaveBeenCalled()
   })
 
   it('refreshes relative timestamps while the catalog remains open', async () => {

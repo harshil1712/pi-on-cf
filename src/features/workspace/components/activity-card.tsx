@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Collapsible } from '@cloudflare/kumo/components/collapsible'
 import { Loader } from '@cloudflare/kumo/components/loader'
-import { Brain, ChevronRight, CircleAlert, RotateCcw, Scissors, Wrench } from 'lucide-react'
+import { cn } from '@cloudflare/kumo/utils'
+import { ArrowCounterClockwiseIcon, BrainIcon, CaretRightIcon, ScissorsIcon, WarningCircleIcon, WrenchIcon } from '@phosphor-icons/react'
 import type { TranscriptEntry } from '../transcript'
 
 function toolArgumentSummary(args: unknown) {
@@ -32,47 +33,52 @@ export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type
 
   const running = entry.status === 'running'
   const error = entry.status === 'error'
-  let icon = <Wrench size={14} />
+  let icon = <WrenchIcon size={14} />
   let label: string
   let detail = ''
 
   if (entry.type === 'reasoning') {
-    icon = <Brain size={14} />
+    icon = <BrainIcon size={14} />
     label = running ? 'Thinking…' : 'Thought'
   } else if (entry.type === 'summary') {
-    icon = entry.kind === 'compaction' ? <Scissors size={14} /> : <RotateCcw size={14} />
+    icon = entry.kind === 'compaction' ? <ScissorsIcon size={14} /> : <ArrowCounterClockwiseIcon size={14} />
     label = entry.kind === 'compaction' ? 'Compaction summary' : 'Context reset'
   } else {
     label = toolLabel(entry.name)
     detail = toolArgumentSummary(entry.args)
   }
   if (running && entry.type === 'tool') icon = <Loader size={14} aria-label="Tool running" />
-  if (error) icon = <CircleAlert size={14} aria-label="Failed" />
+  if (error) icon = <WarningCircleIcon size={14} aria-label="Failed" />
 
   return (
-    <Collapsible.Root className={`activity status-${entry.status}`} open={open} onOpenChange={setOpen}>
-      <Collapsible.Trigger className="activity-trigger">
-        {icon}
-        <span className="activity-label">{label}</span>
-        {detail && <span className="activity-detail">{detail}</span>}
-        <ChevronRight size={13} className="activity-chevron" aria-hidden="true" />
+    // Tool calls, reasoning, and checkpoints are quiet single-line rows tucked under the message above.
+    <Collapsible.Root className="activity group/activity -mt-3 mb-5 animate-enter [.activity+&]:-mt-4.5" open={open} onOpenChange={setOpen}>
+      <Collapsible.Trigger className={cn(
+        '-ml-1.5 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-kumo-tint',
+        error ? 'text-kumo-danger' : 'text-kumo-subtle hover:text-kumo-default',
+      )}>
+        <span className="flex shrink-0">{icon}</span>
+        <span className="shrink-0 font-medium">{label}</span>
+        {detail && <span className="min-w-0 truncate font-mono text-xs opacity-85">{detail}</span>}
+        <CaretRightIcon size={13} className="shrink-0 transition-transform group-data-[open]/activity:rotate-90" aria-hidden="true" />
       </Collapsible.Trigger>
-      <Collapsible.Panel className="activity-content">
+      <Collapsible.Panel className="mt-1 mb-2 divide-y divide-kumo-hairline overflow-hidden rounded-lg border border-kumo-hairline bg-kumo-base">
         {entry.type === 'tool' ? (
           <>
-            <div className="activity-section">
-              <span>Input</span>
-              <pre>{JSON.stringify(entry.args ?? {}, null, 2)}</pre>
-            </div>
-            {entry.result !== undefined && (
-              <div className="activity-section">
-                <span>{error ? 'Error' : 'Output'}</span>
-                <pre>{stringify(entry.result)}</pre>
-              </div>
-            )}
+            <ActivitySection label="Input">{JSON.stringify(entry.args ?? {}, null, 2)}</ActivitySection>
+            {entry.result !== undefined && <ActivitySection label={error ? 'Error' : 'Output'}>{stringify(entry.result)}</ActivitySection>}
           </>
-        ) : <div className="activity-text">{entry.text}</div>}
+        ) : <div className="max-h-60 overflow-y-auto px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-kumo-subtle">{entry.text}</div>}
       </Collapsible.Panel>
     </Collapsible.Root>
+  )
+}
+
+function ActivitySection({ label, children }: { label: string; children: string }) {
+  return (
+    <div>
+      <span className="block px-3 pt-2 text-[11px] font-medium text-kumo-subtle">{label}</span>
+      <pre className="m-0 max-h-55 overflow-auto px-3 pt-1 pb-2.5 font-mono text-xs/normal whitespace-pre-wrap wrap-anywhere">{children}</pre>
+    </div>
   )
 }

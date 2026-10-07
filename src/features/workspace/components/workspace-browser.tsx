@@ -1,7 +1,12 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { Button } from '@cloudflare/kumo/components/button'
-import { Check, Copy, Download, FileText, RefreshCw } from 'lucide-react'
+import { Button, RefreshButton } from '@cloudflare/kumo/components/button'
+import { Empty } from '@cloudflare/kumo/components/empty'
+import { Loader } from '@cloudflare/kumo/components/loader'
+import { Tabs } from '@cloudflare/kumo/components/tabs'
+import { cn } from '@cloudflare/kumo/utils'
+import { CheckIcon, CopyIcon, DownloadSimpleIcon, FileTextIcon, FolderOpenIcon } from '@phosphor-icons/react'
 import type { WorkspaceFile } from '~/shared/pi-contract'
+import { CODE_VIEWER } from './code-viewer'
 
 // Shiki and the Markdown renderer load on demand, outside the main bundle.
 const HighlightedFile = lazy(() => import('./highlighted-code').then((module) => ({ default: module.HighlightedFile })))
@@ -60,56 +65,57 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
   }
 
   return (
-    <section id="files-panel" className="workspace-panel" role="tabpanel" aria-label="Files" aria-busy={filesLoading}>
-      <header className="workspace-header">
-        <strong>Workspace{files.length > 0 && <span>{files.length} {files.length === 1 ? 'file' : 'files'}</span>}</strong>
-        <div>
-          <Button
-            shape="square"
-            size="sm"
-            variant="ghost"
-            onClick={onRefresh}
-            disabled={filesLoading}
-            title="Refresh files"
-            aria-label="Refresh files"
-            icon={<RefreshCw size={14} className={filesLoading ? 'spinning' : ''} />}
-          />
-        </div>
+    <section id="files-panel" className="flex min-h-0 min-w-0 flex-1 flex-col" role="tabpanel" aria-label="Files" aria-busy={filesLoading}>
+      <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-kumo-hairline pr-2 pl-3.5">
+        <span className="text-sm font-semibold">
+          Workspace{files.length > 0 && <span className="ml-1.5 font-normal text-kumo-subtle">{files.length} {files.length === 1 ? 'file' : 'files'}</span>}
+        </span>
+        <RefreshButton size="sm" variant="ghost" onClick={onRefresh} loading={filesLoading} aria-label="Refresh files" title="Refresh files" />
       </header>
-
-      <div className="file-list" aria-label="Workspace files">
-        {filesLoading && files.length === 0 && <p className="file-state">Loading files…</p>}
-        {filesError && <p className="file-error" role="alert">{filesError}</p>}
-        {!filesLoading && !filesError && files.length === 0 && <p className="file-empty">No files yet. Files Pi creates will appear here.</p>}
+      <div className={cn('min-h-18 overflow-y-auto p-1', files.length > 0 ? 'max-h-2/5 shrink border-b border-kumo-hairline' : 'flex-1')} aria-label="Workspace files">
+        {filesLoading && files.length === 0 && <div className="flex items-center justify-center gap-2 px-3 py-5 text-sm text-kumo-subtle"><Loader size="sm" />Loading files…</div>}
+        {filesError && <p className="px-3.5 py-3 text-sm text-kumo-danger" role="alert">{filesError}</p>}
+        {!filesLoading && !filesError && files.length === 0 && (
+          <Empty size="sm" className="border-0 bg-transparent" icon={<FolderOpenIcon size={32} className="text-kumo-inactive" />} title="No files yet" description="Files Pi creates will appear here." />
+        )}
         {files.map((file) => {
           const { name, dir } = splitPath(file.path)
+          const selected = selectedPath === file.path
           return (
             <button
-              className={selectedPath === file.path ? 'selected' : ''}
+              className={cn('flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left', selected ? 'bg-kumo-fill' : 'hover:bg-kumo-tint')}
               key={file.path}
               onClick={() => onSelectPath(file.path)}
-              aria-pressed={selectedPath === file.path}
+              aria-pressed={selected}
               title={file.path}
             >
-              <FileText size={14} />
-              <span className="file-label"><span className="file-name">{name}</span>{dir && <span className="file-dir"><bdi>{dir}</bdi></span>}</span>
-              <span className="file-size">{formatBytes(file.size)}</span>
+              <FileTextIcon size={14} className="shrink-0 text-kumo-subtle" />
+              <span className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden whitespace-nowrap">
+                <span className="shrink-0 text-sm">{name}</span>
+                {/* Right-to-left so a long directory is clipped at its start, keeping the nearest folder visible. */}
+                {dir && <span className="min-w-0 truncate text-left text-xs text-kumo-subtle [direction:rtl]"><bdi>{dir}</bdi></span>}
+              </span>
+              <span className="shrink-0 text-[11px] text-kumo-subtle tabular-nums">{formatBytes(file.size)}</span>
             </button>
           )
         })}
       </div>
-
-      {files.length > 0 && <div className="file-preview">
+      {files.length > 0 && <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
         {selectedPath ? (
           <>
-            <header className="file-preview-header">
-              <span title={selectedPath}><bdi>{selectedPath}</bdi></span>
-              <div className="file-preview-actions">
+            <header className="flex h-10 min-w-0 items-center justify-between gap-2 border-b border-kumo-hairline pr-2 pl-3.5">
+              <span className="min-w-0 truncate text-left font-mono text-xs text-kumo-subtle [direction:rtl]" title={selectedPath}><bdi>{selectedPath}</bdi></span>
+              <div className="flex shrink-0 items-center gap-0.5">
                 {markdown && (
-                  <fieldset className="view-switch" aria-label="Markdown view">
-                    <button type="button" aria-pressed={markdownView === 'preview'} onClick={() => setMarkdownView('preview')}>Preview</button>
-                    <button type="button" aria-pressed={markdownView === 'source'} onClick={() => setMarkdownView('source')}>Source</button>
-                  </fieldset>
+                  <div className="mr-1.5">
+                    <Tabs
+                      size="sm"
+                      variant="segmented"
+                      tabs={[{ value: 'preview', label: 'Preview' }, { value: 'source', label: 'Source' }]}
+                      value={markdownView}
+                      onValueChange={(value) => setMarkdownView(value as 'preview' | 'source')}
+                    />
+                  </div>
                 )}
                 <Button
                   shape="square"
@@ -119,7 +125,7 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
                   disabled={!canDownload}
                   title={copied ? 'Copied' : 'Copy contents'}
                   aria-label={copied ? 'Copied' : 'Copy contents'}
-                  icon={copied ? <Check size={14} /> : <Copy size={14} />}
+                  icon={copied ? <CheckIcon className="text-kumo-success" /> : CopyIcon}
                 />
                 <Button
                   shape="square"
@@ -129,12 +135,12 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
                   disabled={!canDownload}
                   title="Download file"
                   aria-label="Download file"
-                  icon={<Download size={14} />}
+                  icon={DownloadSimpleIcon}
                 />
               </div>
             </header>
-            {fileError ? <p className="file-error" role="alert">{fileError}</p> : (
-              <Suspense fallback={<pre className="code-viewer"><code>{fileContent}</code></pre>}>
+            {fileError ? <p className="px-3.5 py-3 text-sm text-kumo-danger" role="alert">{fileError}</p> : (
+              <Suspense fallback={<pre className={CODE_VIEWER}><code>{fileContent}</code></pre>}>
                 {showPreview
                   ? <MarkdownFile content={fileContent} />
                   : <HighlightedFile content={fileContent} path={selectedPath} />}
@@ -142,7 +148,7 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
             )}
           </>
         ) : (
-          <div className="preview-placeholder">Select a file to preview</div>
+          <div className="row-span-full grid place-items-center text-sm text-kumo-subtle">Select a file to preview</div>
         )}
       </div>}
     </section>

@@ -1,6 +1,7 @@
 import { code, createCodePlugin } from '@streamdown/code'
 import type { BundledLanguage } from 'shiki'
 import { Streamdown } from 'streamdown'
+import { CODE_VIEWER } from './code-viewer'
 
 const workspaceCode = createCodePlugin({ themes: ['github-light', 'github-dark'] })
 
@@ -97,7 +98,7 @@ export function HighlightedFile({ content, path }: { content: string; path: stri
   return (
     <>
       <pre className="sr-only"><code>{content}</code></pre>
-      <Streamdown className="code-viewer" controls={false} lineNumbers mode="static" plugins={{ code: workspaceCode }}>
+      <Streamdown className={CODE_VIEWER} controls={false} lineNumbers mode="static" plugins={{ code: workspaceCode }}>
         {fenced(content, languageForPath(path))}
       </Streamdown>
     </>
@@ -108,11 +109,14 @@ export function MarkdownFile({ content }: { content: string }) {
   const { entries, body } = parseFrontmatter(content)
 
   return (
-    <div className="markdown-viewer">
+    <div className="markdown-viewer min-h-0 min-w-0 overflow-auto px-5 pt-4 pb-8 text-sm leading-relaxed wrap-anywhere">
       {entries.length > 0 && (
-        <dl className="frontmatter">
+        <dl className="mb-5 divide-y divide-kumo-hairline overflow-hidden rounded-lg border border-kumo-hairline text-xs">
           {entries.map(([key, value]) => (
-            <div key={key}><dt>{key}</dt><dd>{value}</dd></div>
+            <div key={key} className="grid grid-cols-[minmax(72px,max-content)_minmax(0,1fr)] gap-3 px-3 py-1.75">
+              <dt className="font-mono text-kumo-subtle">{key}</dt>
+              <dd className="whitespace-pre-wrap">{value}</dd>
+            </div>
           ))}
         </dl>
       )}

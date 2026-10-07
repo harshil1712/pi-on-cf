@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { AgentEvent, EntryRecord } from '@earendil-works/pi-durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSummary, WorkspaceFile, WorkspaceFileContent } from '~/shared/pi-contract'
@@ -255,10 +255,12 @@ describe('WorkspaceApp', () => {
   })
 
   it('renames the session through the registry', async () => {
-    vi.spyOn(window, 'prompt').mockReturnValue('Renamed')
     render(<WorkspaceApp sessionId="session-12345678" />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Current session' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Rename session' })
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: ' Renamed ' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(mocks.registryAgent.stub.renameSession).toHaveBeenCalledWith('session-12345678', 'Renamed'))
     expect(await screen.findByRole('button', { name: 'Renamed' })).toBeTruthy()

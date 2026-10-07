@@ -201,11 +201,9 @@ export function usePiSession(sessionId: string) {
     }
   }
 
-  async function rename() {
-    const next = window.prompt('Session name', summary?.name ?? '')
-    if (next === null) return
+  async function rename(name: string | undefined) {
     try {
-      setSummary(await registry.stub.renameSession(sessionId, next.trim() || undefined))
+      setSummary(await registry.stub.renameSession(sessionId, name))
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     }

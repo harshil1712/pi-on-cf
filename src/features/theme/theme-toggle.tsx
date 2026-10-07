@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@cloudflare/kumo/components/button'
-import { Monitor, Moon, Sun } from 'lucide-react'
+import { DropdownMenu } from '@cloudflare/kumo/components/dropdown'
+import { MonitorIcon, MoonIcon, SunIcon } from '@phosphor-icons/react'
 import { applyThemePreference, readThemePreference, storeThemePreference, type ThemePreference } from './theme'
 
-const NEXT: Record<ThemePreference, ThemePreference> = { system: 'light', light: 'dark', dark: 'system' }
-const LABEL: Record<ThemePreference, string> = { system: 'System', light: 'Light', dark: 'Dark' }
+const OPTIONS = [
+  { value: 'system', label: 'System', icon: MonitorIcon },
+  { value: 'light', label: 'Light', icon: SunIcon },
+  { value: 'dark', label: 'Dark', icon: MoonIcon },
+] as const satisfies ReadonlyArray<{ value: ThemePreference; label: string; icon: unknown }>
 
 export function ThemeToggle() {
   // The server can't see the stored choice, so read it after hydration.
@@ -21,23 +25,28 @@ export function ThemeToggle() {
     return () => query.removeEventListener('change', update)
   }, [preference])
 
-  const Icon = preference === 'system' ? Monitor : preference === 'light' ? Sun : Moon
-  const title = `Theme: ${LABEL[preference]} (switch to ${LABEL[NEXT[preference]].toLowerCase()})`
+  const current = OPTIONS.find((option) => option.value === preference) ?? OPTIONS[0]
+  const CurrentIcon = current.icon
 
   return (
-    <Button
-      shape="square"
-      size="sm"
-      variant="ghost"
-      className="theme-toggle"
-      aria-label={title}
-      title={title}
-      onClick={() => {
-        const next = NEXT[preference]
-        storeThemePreference(next)
-        setPreference(next)
-      }}
-      icon={<Icon size={15} />}
-    />
+    <DropdownMenu>
+      <DropdownMenu.Trigger render={<Button shape="square" size="sm" variant="ghost" aria-label={`Theme: ${current.label}`} icon={<CurrentIcon size={16} />} />} />
+      <DropdownMenu.Content align="end">
+        <DropdownMenu.RadioGroup
+          value={preference}
+          onValueChange={(value: ThemePreference) => {
+            storeThemePreference(value)
+            setPreference(value)
+          }}
+        >
+          {OPTIONS.map(({ value, label, icon }) => (
+            <DropdownMenu.RadioItem key={value} value={value} icon={icon}>
+              {label}
+              <DropdownMenu.RadioItemIndicator />
+            </DropdownMenu.RadioItem>
+          ))}
+        </DropdownMenu.RadioGroup>
+      </DropdownMenu.Content>
+    </DropdownMenu>
   )
 }
