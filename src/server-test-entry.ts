@@ -10,10 +10,10 @@ import {
 } from '@earendil-works/pi-ai'
 import type { PiModel } from 'agents/harness/pi'
 import type { SkillSource } from 'agents/skills'
+import { PiRegistry as AppPiRegistry } from './server/pi-registry'
 import { PiSession as AppPiSession } from './server/pi-session'
 import { bucketSkills } from './server/skills'
 
-export { PiRegistry } from './server/pi-registry'
 export { ComputerTest } from './server/computer-test'
 export { WorkspaceProxy, WorkspaceServiceProxy } from '@cloudflare/computer'
 
@@ -90,6 +90,18 @@ export class PiSession extends AppPiSession {
   async promptForTest(prompt: string): Promise<{ status: string; text?: string; kinds: string[] }> {
     const result = await this.harness.prompt(prompt)
     return { status: result.status, text: result.text, kinds: result.messages.map((entry) => entry.kind) }
+  }
+}
+
+/** The application's PiRegistry, with a way to reach a session's Agent directly. */
+export class PiRegistry extends AppPiRegistry {
+  /** The physical Agent name behind a catalog entry, or null once it is gone. */
+  async sessionAgentNameForTest(sessionId: string): Promise<string | null> {
+    const stub = await this.sessions.get(sessionId)
+    if (!stub) return null
+    const name = stub.id.name
+    if (!name) throw new Error(`Session ${sessionId} has no Agent name`)
+    return name
   }
 }
 

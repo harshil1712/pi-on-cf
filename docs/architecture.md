@@ -9,9 +9,9 @@ Pi on Cloudflare is a TanStack Start application deployed as a Cloudflare Worker
 - Pi's durable harness, `@earendil-works/pi-durable`, hosted by the Agents SDK's `PiHarness` (`agents/harness/pi`).
 - Workers AI and AI Gateway through `agents/models/pi-ai` and the `AI` binding.
 - One `PiSession` Durable Object per session, owning the Pi conversation and a Cloudflare Computer workspace.
-- A singleton `PiRegistry` Durable Object for the session catalog.
+- A singleton `PiRegistry` Durable Object for the session catalog, on the Agents SDK's `RoutedAgents` (`agents/routing`).
 
-The Worker routes `/api/agents/*` through the Agents SDK and sends other requests to TanStack Start. The browser has a session catalog at `/` and a workspace at `/sessions/:sessionId`.
+The Worker routes `/api/agents/*` through the Agents SDK and sends other requests to TanStack Start. Sessions are reachable only through the registry: `src/server/agent-routes.ts` refuses direct `/api/agents/pi-session/*` requests. The browser has a session catalog at `/` and a workspace at `/sessions/:sessionId`.
 
 Relevant source:
 
@@ -19,11 +19,12 @@ Relevant source:
 - `src/shared/pi-contract.ts`
 - `src/server/pi-session.ts`
 - `src/server/pi-registry.ts`
+- `src/server/agent-routes.ts`
 - `wrangler.jsonc`
 
 ## PiSession
 
-Each session ID addresses one `PiSession`, an Agents SDK `Agent` composed with two Computer mixins:
+Each session ID is a `PiRegistry` catalog entry that names one `PiSession`, an Agents SDK `Agent` composed with two Computer mixins:
 
 - `withWorkspaceContainer` makes the object the host of its own Computer container.
 - `withWorkspace` builds the `Workspace` and serves it to Computer's Worker Shell through `__getWorkspaceStub`.
@@ -43,6 +44,8 @@ The model comes from `createAI({ binding: env.AI })`. New sessions start on `AI_
 
 ### Transport
 
+The browser connects to `/api/agents/pi-registry/singleton/sessions/{id}`, which the registry forwards to the session's Agent; the Agent then owns the socket, so session traffic never wakes the registry. `PiSession` sets `sendIdentityOnConnect: false`, so its physical name never reaches the browser.
+
 Commands are `@callable` methods: `submit`, `steer`, `abort`, `listFiles`, and `readWorkspaceFile`. `submit` resolves once Pi has durably accepted the prompt, before the model runs.
 
 Each WebSocket connection gets its own `session.events()` watch. The first frame is a `snapshot`; each later frame is one batch of Pi agent events per commit. The client folds them with the reducer in `src/features/workspace/transcript.ts`. Watches live in memory, so `onStart` re-watches every connection that outlived the previous isolate and sends a fresh snapshot. A reconnecting browser always starts from the current state, including an in-flight answer.
@@ -61,11 +64,13 @@ The container dials back to the object at `/api` through `WorkspaceProxy`; `PiSe
 
 ## PiRegistry
 
-The singleton `PiRegistry` stores each session's ID, optional name, and timestamps. It creates, lists, renames, and deletes sessions. Deleting a session aborts its run, stops its container, and schedules `destroy()` on its `PiSession` through the Agents SDK's destroy alarm, which drops Pi's tables and the workspace in a separate invocation. Scheduling it, rather than calling `destroy()` inline, keeps the isolate abort from racing the reply to the registry; the catalog row is removed only after that teardown succeeds, so a failed delete can be retried. A `PiSession` touches its registry row when it accepts a prompt.
+The singleton `PiRegistry` keeps the session catalog with the Agents SDK's `RoutedAgents` capability: each entry maps a public session ID to an opaque physical `PiSession` name, with an optional session name as metadata and timestamps. Creating, listing, and renaming touch only the registry's SQLite. Creating a session also calls `joinCatalog` on the new `PiSession`, which stores the entry ID it reports activity under; a `PiSession` touches its entry when it accepts a prompt, which moves it to the top of the list.
+
+Deleting a session hides the entry, condemns the `PiSession` through the Agents SDK's deferred teardown, then removes the row; a failed delete leaves a hidden row and can be retried. The teardown runs `destroy()` in the session's own alarm: Lifecycle disposal stops the session's event watches and its container, closes Pi, and then the Agent wipes Pi's tables and the workspace.
 
 ## Security Model
 
-The application has no authentication or authorization. Anyone who can reach a deployment can list, read, change, and delete every session and workspace, and run models on the account's AI binding. Session UUIDs are isolation mechanisms, not authorization boundaries. Protect the whole Worker with Cloudflare Access or another authentication layer.
+The application has no authentication or authorization. Anyone who can reach a deployment can list, read, change, and delete every session and workspace, and run models on the account's AI binding. Session IDs are isolation mechanisms, not authorization boundaries. `RoutedAgents` supports one registry per user, which is where per-user isolation would start once the application authenticates users. Protect the whole Worker with Cloudflare Access or another authentication layer.
 
 Local `.wrangler/` state can contain transcripts and workspace files.
 

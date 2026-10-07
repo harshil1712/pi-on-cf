@@ -11,6 +11,7 @@ import {
   type PiRegistryContract,
   type PiSessionContract,
   type SessionSummary,
+  sessionBasePath,
   type WorkspaceFile,
 } from '../../shared/pi-contract'
 import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from './transcript'
@@ -69,9 +70,9 @@ export function usePiSession(sessionId: string) {
   }, [])
 
   const agent = useAgent<PiSessionContract, unknown>({
+    // The registry routes the socket to the session's Agent.
     agent: PI_AGENT_NAME,
-    name: sessionId,
-    prefix: PI_AGENT_PREFIX,
+    basePath: sessionBasePath(sessionId),
     onMessage: (message) => {
       if (typeof message.data !== 'string') return
       let parsed: unknown
@@ -128,12 +129,18 @@ export function usePiSession(sessionId: string) {
   useEffect(() => {
     let ignore = false
     registry.stub.getSession(sessionId).then((session) => {
-      if (!ignore) setSummary(session)
+      if (ignore) return
+      setSummary(session)
+      if (session) return
+      // The registry answers this session's socket with 404, and the client
+      // would retry it forever.
+      setError('This session does not exist. It may have been deleted.')
+      agent.close()
     }).catch((caught) => {
       if (!ignore) setError(caught instanceof Error ? caught.message : String(caught))
     })
     return () => { ignore = true }
-  }, [registry.stub, sessionId])
+  }, [agent, registry.stub, sessionId])
 
   useEffect(() => () => {
     filesRequestRef.current += 1

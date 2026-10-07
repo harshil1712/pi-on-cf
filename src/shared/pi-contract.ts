@@ -4,6 +4,18 @@ export const PI_AGENT_NAME = 'PiSession'
 export const PI_REGISTRY_NAME = 'PiRegistry'
 export const PI_AGENT_PREFIX = 'api/agents'
 export const PI_REGISTRY_INSTANCE = 'singleton'
+/** The registry's route segment for sessions; see `sessionBasePath`. */
+export const PI_SESSIONS_ROUTE = 'sessions'
+
+/**
+ * A session's path, through the registry: the registry owns the catalog and
+ * forwards the session's requests and WebSocket to its Agent, whose own name
+ * never leaves the registry. `pi-registry` is the kebab-case of the
+ * `PiRegistry` binding, as `routeAgentRequest` matches it.
+ */
+export function sessionBasePath(sessionId: string): string {
+  return `${PI_AGENT_PREFIX}/pi-registry/${PI_REGISTRY_INSTANCE}/${PI_SESSIONS_ROUTE}/${encodeURIComponent(sessionId)}`
+}
 
 /**
  * Server → browser frame on a PiSession connection. It carries pi-durable's

@@ -13,7 +13,7 @@ import { createCloudflareObserver } from '@cloudflare/computer/observe/cloudflar
 import type { Provider } from '@earendil-works/pi-ai'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { type AgentEventStream, createRegistry, Harness } from '@earendil-works/pi-durable'
-import { Agent, callable, type Connection } from 'agents'
+import { Agent, type AgentStaticOptions, callable, type Connection, getAgentByName } from 'agents'
 import { PiHarness, type PiModel } from 'agents/harness/pi'
 import { createAI } from 'agents/models/pi-ai'
 import type { SkillSource } from 'agents/skills'
@@ -46,6 +46,9 @@ const FILE_LIST_LIMIT = 1000
  * from descending into it.
  */
 const FILE_LIST_EXCLUDE = ['**/node_modules', '**/.git']
+
+/** Storage key of this session's catalog entry ID, set by the registry. */
+const CATALOG_ENTRY_KEY = 'pi-on-cf:catalog-entry'
 
 /**
  * The container half of the session. The backend lives on this base class
@@ -92,6 +95,13 @@ function workspaceOptions(self: PiSessionHost): WorkspaceOptions {
  * Computer workspace, in one Durable Object.
  */
 export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
+  /**
+   * Clients reach a session through the registry by its catalog entry ID.
+   * The identity frame would hand them this Agent's physical name, which
+   * the registry keeps to itself.
+   */
+  static override options: AgentStaticOptions = { sendIdentityOnConnect: false }
+
   readonly model = this.modelSource()
   readonly registry = createRegistry()
   readonly skills = new SkillCatalog(this.skillSources())
@@ -135,7 +145,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    this.lifecycle.use(this.harness)
+    // Lifecycle disposes in reverse order, so this teardown runs before
+    // the harness closes.
+    this.lifecycle.use(this.harness).use({ dispose: () => this.#teardown() })
   }
 
   /**
@@ -231,28 +243,28 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   }
 
   /**
-   * Called by the registry: stop the run and the container, then drop every
-   * durable trace.
-   *
-   * `destroy()` aborts the isolate on the next tick, which can race this RPC's
-   * reply to the registry. `_cf_scheduleDestroy()` instead persists a destroy
-   * marker and an alarm, so the wipe runs in its own invocation and resumes
-   * there if it is interrupted. It is marked internal in the Agents SDK; it is
-   * the SDK's own path for destroying an Agent from an RPC caller.
+   * Called by the registry once, at creation: the catalog entry ID this
+   * session reports its activity under.
    */
-  async deleteContents(): Promise<void> {
-    await this.harness.abort().catch(() => false)
-    await Promise.all([...this.#watches.values()].map((watch) => watch.stop()))
+  async joinCatalog(entryId: string): Promise<void> {
+    await this.ctx.storage.put(CATALOG_ENTRY_KEY, entryId)
+  }
+
+  /**
+   * Runs when the registry deletes this session: `RoutedAgents` condemns the
+   * Agent, and `destroy()` disposes its Lifecycle before it wipes storage.
+   * Computer has no container teardown, and `destroy()` does not stop the
+   * container, so it would outlive the session until it idled out. It never
+   * throws, so the wipe that follows always runs.
+   */
+  async #teardown(): Promise<void> {
+    await Promise.allSettled([...this.#watches.values()].map((watch) => watch.stop()))
     this.#watches.clear()
-    await this.harness.dispose()
-    // Computer has no container teardown, and destroy() does not stop it, so
-    // a running container would outlive the session until it idles out.
     if (this.ctx.container?.running) {
       await this.ctx.container.destroy().catch((error: unknown) => {
         console.error('Could not stop the session container', error)
       })
     }
-    await this._cf_scheduleDestroy()
   }
 
   async #watch(connection: Connection): Promise<void> {
@@ -292,8 +304,10 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
 
   async #touchRegistry(): Promise<void> {
     try {
-      const registry = this.env.PiRegistry.getByName(PI_REGISTRY_INSTANCE)
-      await registry.touchSession(this.name)
+      const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY)
+      if (!entryId) return
+      const registry = await getAgentByName(this.env.PiRegistry, PI_REGISTRY_INSTANCE)
+      await registry.touchSession(entryId)
     } catch (error) {
       console.error('Could not update the session registry', error)
     }

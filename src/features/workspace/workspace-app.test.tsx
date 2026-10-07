@@ -7,6 +7,7 @@ type AgentOptions = { agent: string; onMessage?: (message: MessageEvent) => void
 
 const mocks = vi.hoisted(() => {
   const sessionAgent = {
+    close: vi.fn(),
     stub: {
       abort: vi.fn(),
       listFiles: vi.fn(),
@@ -95,10 +96,11 @@ describe('WorkspaceApp', () => {
     mocks.registryAgent.stub.renameSession.mockResolvedValue(summary({ name: 'Renamed' }))
   })
 
-  it('connects to the named PiSession and renders its pi snapshot', async () => {
+  it('connects to the session through the registry and renders its pi snapshot', async () => {
     render(<WorkspaceApp sessionId="session-12345678" />)
 
-    expect(mocks.useAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'PiSession', name: 'session-12345678', prefix: 'api/agents' }))
+    expect(mocks.useAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'PiSession', basePath: 'api/agents/pi-registry/singleton/sessions/session-12345678' }))
+    expect(mocks.useAgent).not.toHaveBeenCalledWith(expect.objectContaining({ agent: 'PiSession', name: expect.anything() }))
     expect(mocks.useAgent).toHaveBeenCalledWith({ agent: 'PiRegistry', name: 'singleton', prefix: 'api/agents' })
     expect((screen.getByLabelText('INSTRUCTION') as HTMLTextAreaElement).disabled).toBe(true)
 
@@ -239,6 +241,17 @@ describe('WorkspaceApp', () => {
 
     await act(async () => firstRead.resolve(fileContent('/workspace/a.ts', 'stale file')))
     expect(screen.queryByText('stale file')).toBeNull()
+  })
+
+  it('stops connecting to a session the registry does not hold', async () => {
+    mocks.registryAgent.stub.getSession.mockResolvedValue(null)
+    render(<WorkspaceApp sessionId="session-12345678" />)
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('This session does not exist'))
+    expect(mocks.sessionAgent.close).toHaveBeenCalledOnce()
+    // The 404'd socket's close must not replace the message with a reconnect notice.
+    act(() => mocks.sessionOptions?.onClose?.(new CloseEvent('close', { code: 1006 })))
+    expect(screen.getByRole('alert').textContent).toContain('This session does not exist')
   })
 
   it('renames the session through the registry', async () => {

@@ -12,7 +12,7 @@ A Worker-native coding agent: Pi's durable harness running inside Cloudflare Dur
 - `agents/models/pi-ai` (`createAI`) gives Pi Workers AI and AI Gateway over the `AI` binding.
 - `@cloudflare/computer` provides the durable workspace at `/workspace`, with Worker Shell, Worker JavaScript, and a Durable Object-scheduled Linux container as `exec` backends. Its `createPiTools` supplies the model's tools.
 - Pi's agent events stream to the browser over the Agents SDK WebSocket: a snapshot on connect, then one batch per commit.
-- A singleton `PiRegistry` Durable Object keeps the session catalog.
+- A singleton `PiRegistry` Durable Object keeps the session catalog with the Agents SDK's `RoutedAgents`, and is the only route to a session.
 - TanStack Start renders the UI; Cloudflare Kumo provides UI primitives.
 
 The source is organized by runtime boundary:
