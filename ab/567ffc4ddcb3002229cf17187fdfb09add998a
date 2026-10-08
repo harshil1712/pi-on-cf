@@ -1,0 +1,45 @@
+README.md
+  s_746cd0bbda7944::t_aac6fabc683c6a 47
+docs/architecture.md
+  s_746cd0bbda7944::t_3913077262f706 56-61,111-113,152
+src/components/session-sidebar.tsx
+  s_746cd0bbda7944::t_4b005ac7e7367a 8,31-51,116
+src/contract.ts
+  s_746cd0bbda7944::t_a9b7fda7e647f4 2-4,100-101
+src/lib/run-status.ts
+  s_746cd0bbda7944::t_0a53ccacd326cc 1-45
+src/lib/transcript.ts
+  s_746cd0bbda7944::t_8061d1b9d707a9 3,79-82
+src/server/pi-registry.ts
+  s_746cd0bbda7944::t_4927c89545d250 3,16-17,141-155,183
+src/server/pi-session.ts
+  s_746cd0bbda7944::t_91584753afcec4 30,75-76,189-191,232-248,253,394,396-397,429-469
+test/unit/components/home-page.test.tsx
+  s_746cd0bbda7944::t_2d3ccc4b88ee67 32
+test/unit/components/session-page.test.tsx
+  s_746cd0bbda7944::t_63830534c78ca5 64
+test/unit/components/session-sidebar.test.tsx
+  s_746cd0bbda7944::t_99a376ff325601 38,87-102
+test/unit/lib/run-status.test.ts
+  s_746cd0bbda7944::t_d57e45746e9cc5 1-33
+test/worker/entry.ts
+  s_746cd0bbda7944::t_231194f9ce4e92 19,41-42,54-55,139-147
+test/worker/status.test.ts
+  s_746cd0bbda7944::t_e8af1ea8241895 1-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ab567ffc4ddcb3002229cf17187fdfb09add998a",
+  "prompts": {},
+  "sessions": {
+    "s_746cd0bbda7944": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a118a7-4d04-7416-94ff-ad470d2f0257",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
