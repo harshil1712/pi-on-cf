@@ -51,13 +51,38 @@ export async function defaultBranch(token: string, repo: RepoRef): Promise<strin
   return (await github<{ default_branch: string }>(token, `/repos/${repoSlug(repo)}`)).default_branch
 }
 
+type RepoData = { full_name: string; private: boolean; description: string | null; permissions?: { push?: boolean } }
+
+/** The `rel="next"` URL in a GitHub Link header, if any. */
+function nextLink(link: string | null): string | null {
+  if (!link) return null
+  for (const part of link.split(',')) {
+    const match = part.match(/<([^>]+)>;\s*rel="next"/)
+    if (match) return match[1]
+  }
+  return null
+}
+
 /** Repositories the token can push to, most recently pushed first. */
 export async function listRepositories(token: string): Promise<Repository[]> {
-  const data = await github<{ full_name: string; private: boolean; description: string | null; permissions?: { push?: boolean } }[]>(
-    token,
-    '/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
-  )
-  return data
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${token}`,
+    'User-Agent': 'pi-on-cf',
+    'X-GitHub-Api-Version': '2022-11-28',
+  }
+  // GitHub caps `per_page` at 100, so anything beyond it lives on later pages
+  // it advertises through the Link header. Follow them until it runs out.
+  let url: string | null = '/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member'
+  const repos: RepoData[] = []
+  while (url) {
+    const response = await fetch(url.startsWith('http') ? url : `https://api.github.com${url}`, { headers })
+    const data = await response.json().catch(() => null) as RepoData[] | { message?: string } | null
+    if (!response.ok) throw new Error(`GitHub ${response.status}: ${data && !Array.isArray(data) ? (data.message ?? response.statusText) : response.statusText}`)
+    repos.push(...(data as RepoData[]))
+    url = nextLink(response.headers.get('link'))
+  }
+  return repos
     .filter((repo) => repo.permissions?.push !== false)
     .map((repo) => ({ repo: repo.full_name, private: repo.private, ...(repo.description ? { description: repo.description } : {}) }))
 }
