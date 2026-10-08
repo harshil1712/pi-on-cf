@@ -1,0 +1,57 @@
+README.md
+  s_746cd0bbda7944::t_fb00d985977b4f 3,14,62-63,66-71
+docs/architecture.md
+  s_746cd0bbda7944::t_457e8e63ae0cc5 40-41,52,68-81,103-105,109,126-127,142
+src/features/sessions/session-catalog.test.tsx
+  s_746cd0bbda7944::t_dbbd6be8c2bd73 74-85
+src/features/sessions/session-catalog.tsx
+  s_746cd0bbda7944::t_01314187634174 11,29,82,110-117
+src/features/workspace/components/changes-browser.tsx
+  s_746cd0bbda7944::t_af3026cd6215e0 1-73
+src/features/workspace/components/prompt-composer.tsx
+  s_746cd0bbda7944::t_765ad17c9143fc 1,4-10,19-20,23,25-58,63-93,95,98,102-104,106-123,129-133
+src/features/workspace/use-pi-session.ts
+  s_746cd0bbda7944::t_1055aa92cbfe27 13,15,20,42,76,80-81,135-137,239,253-254,265
+src/features/workspace/workspace-app.test.tsx
+  s_746cd0bbda7944::t_9c6fcb9b64234a 4,6-11,18,20-21,277-350
+src/features/workspace/workspace-app.tsx
+  s_746cd0bbda7944::t_03e9e116719108 8,11,31-33,40-45,54-56,58,76-80,104,112-132
+src/server/github.ts
+  s_746cd0bbda7944::t_69b90107b651ab 1-87
+src/server/pi-registry.ts
+  s_746cd0bbda7944::t_5bc32c5b688e3c 3,8-10,77-82,105-106
+src/server/pi-session.ts
+  s_746cd0bbda7944::t_deb59836c981db 20-30,33,46,70,100-101,118-119,128-131,142-150,203-207,273-292,302-306,315-340,356-365
+src/server/task.ts
+  s_746cd0bbda7944::t_ae10430a12ee73 1-162
+src/shared/pi-contract.ts
+  s_746cd0bbda7944::t_a429a5adcf7838 40-80,84-86,92,98-100
+src/shared/repo-mention.test.ts
+  s_746cd0bbda7944::t_3c559924a06e92 1-16
+src/shared/repo-mention.ts
+  s_746cd0bbda7944::t_32ca1ef14bcc19 1-6
+test/worker/entry.ts
+  s_746cd0bbda7944::t_6b176c96f6eafd 11-12,17,37,48-49,51,53,55,93-122
+test/worker/task.test.ts
+  s_746cd0bbda7944::t_3c95197b88f20f 1-168
+worker-configuration.d.ts
+  s_746cd0bbda7944::t_574c85448a4801 2,11,27
+wrangler.jsonc
+  s_746cd0bbda7944::t_fa65ac2717c34a 15-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5b603f7ee9890730c3f2b48faf5fa05c19419ca6",
+  "prompts": {},
+  "sessions": {
+    "s_746cd0bbda7944": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a118a7-4d04-7416-94ff-ad470d2f0257",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
