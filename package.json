@@ -41,6 +41,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.62.5",
     "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@octokit/openapi-types": "^29.0.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/router-cli": "^1.132.0",
     "@testing-library/dom": "^10.4.1",

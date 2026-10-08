@@ -1,4 +1,7 @@
+import type { components } from '@octokit/openapi-types'
 import type { PullRequest, Repository } from '~/contract'
+
+type Schema = components['schemas']
 
 /** A GitHub repository, `owner/name`. */
 export type RepoRef = { owner: string; name: string }
@@ -22,9 +25,11 @@ export const cloneUrl = (repo: RepoRef) => `https://github.com/${repoSlug(repo)}
 export const gitAuth = (token: string) => ({ username: 'x-access-token', password: token })
 export const gitAuthHeaders = (token: string) => ({ Authorization: `Basic ${btoa(`x-access-token:${token}`)}` })
 
-/** One GitHub REST API call. Throws GitHub's own message on failure. */
-async function github<T>(token: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  const response = await fetch(`https://api.github.com${path}`, {
+const API = 'https://api.github.com'
+
+/** One GitHub REST API call, with the URL of the next page if there is one. Throws GitHub's own message on failure. */
+async function request<T>(token: string, url: string, init: { method?: string; body?: unknown } = {}): Promise<{ data: T; next: string | null }> {
+  const response = await fetch(url, {
     method: init.method ?? 'GET',
     headers: {
       Accept: 'application/vnd.github+json',
@@ -35,12 +40,38 @@ async function github<T>(token: string, path: string, init: { method?: string; b
     },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   })
-  const data = await response.json().catch(() => null) as { message?: string; errors?: { message?: string }[] } | null
+  const data = await response.json().catch(() => null)
   if (!response.ok) {
-    const detail = data?.errors?.map((error) => error.message).filter(Boolean).join('; ')
-    throw new Error(`GitHub ${response.status}: ${data?.message ?? response.statusText}${detail ? ` (${detail})` : ''}`)
+    const error = data as Partial<Schema['validation-error']> | null
+    const detail = error?.errors?.map((item) => item.message).filter(Boolean).join('; ')
+    throw new Error(`GitHub ${response.status}: ${error?.message ?? response.statusText}${detail ? ` (${detail})` : ''}`)
   }
-  return data as T
+  return { data: data as T, next: nextPage(response.headers.get('Link')) }
+}
+
+/** One GitHub REST API call to `path`. */
+const github = async <T>(token: string, path: string, init?: { method?: string; body?: unknown }): Promise<T> =>
+  (await request<T>(token, `${API}${path}`, init)).data
+
+/**
+ * The `rel="next"` URL of a `Link` header. Only an api.github.com URL is
+ * followed, so the token is never sent anywhere else.
+ */
+export function nextPage(link: string | null): string | null {
+  const url = link?.match(/<([^>]+)>;\s*rel="next"/)?.[1]
+  return url?.startsWith(`${API}/`) ? url : null
+}
+
+/** Every item of a paginated GET, following `Link` headers for at most `maxPages` pages. */
+async function githubAll<T>(token: string, path: string, maxPages: number): Promise<T[]> {
+  const items: T[] = []
+  let url: string | null = `${API}${path}`
+  for (let page = 0; url && page < maxPages; page++) {
+    const { data, next }: { data: T[]; next: string | null } = await request<T[]>(token, url)
+    items.push(...data)
+    url = next
+  }
+  return items
 }
 
 /**
@@ -48,22 +79,25 @@ async function github<T>(token: string, path: string, init: { method?: string; b
  * only be read, and `create_pull_request` reports a push GitHub refuses.
  */
 export async function defaultBranch(token: string, repo: RepoRef): Promise<string> {
-  return (await github<{ default_branch: string }>(token, `/repos/${repoSlug(repo)}`)).default_branch
+  return (await github<Schema['full-repository']>(token, `/repos/${repoSlug(repo)}`)).default_branch
 }
 
-/** Repositories the token can push to, most recently pushed first. */
+/** Pages of 100 repositories fetched for suggestions; more than this is not worth the wait. */
+const REPOSITORY_PAGES = 5
+
+/** Repositories the token can push to, most recently pushed first, up to 500. */
 export async function listRepositories(token: string): Promise<Repository[]> {
-  const data = await github<{ full_name: string; private: boolean; description: string | null; permissions?: { push?: boolean } }[]>(
+  const data = await githubAll<Schema['repository']>(
     token,
     '/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
+    REPOSITORY_PAGES,
   )
   return data
     .filter((repo) => repo.permissions?.push !== false)
     .map((repo) => ({ repo: repo.full_name, private: repo.private, ...(repo.description ? { description: repo.description } : {}) }))
 }
 
-type PullRequestData = { number: number; html_url: string }
-const pullRequest = (data: PullRequestData): PullRequest => ({ number: data.number, url: data.html_url })
+const pullRequest = (data: Pick<Schema['pull-request'], 'number' | 'html_url'>): PullRequest => ({ number: data.number, url: data.html_url })
 
 /**
  * Open a draft pull request from `branch` into `base`, or update the open
@@ -71,15 +105,15 @@ const pullRequest = (data: PullRequestData): PullRequest => ({ number: data.numb
  */
 export async function upsertPullRequest(token: string, repo: RepoRef, input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest & { created: boolean }> {
   const head = encodeURIComponent(`${repo.owner}:${input.branch}`)
-  const [open] = await github<PullRequestData[]>(token, `/repos/${repoSlug(repo)}/pulls?state=open&head=${head}`)
+  const [open] = await github<Schema['pull-request-simple'][]>(token, `/repos/${repoSlug(repo)}/pulls?state=open&head=${head}`)
   if (open) {
-    const updated = await github<PullRequestData>(token, `/repos/${repoSlug(repo)}/pulls/${open.number}`, {
+    const updated = await github<Schema['pull-request']>(token, `/repos/${repoSlug(repo)}/pulls/${open.number}`, {
       method: 'PATCH',
       body: { title: input.title, body: input.body },
     })
     return { ...pullRequest(updated), created: false }
   }
-  const created = await github<PullRequestData>(token, `/repos/${repoSlug(repo)}/pulls`, {
+  const created = await github<Schema['pull-request']>(token, `/repos/${repoSlug(repo)}/pulls`, {
     method: 'POST',
     body: { title: input.title, body: input.body, head: input.branch, base: input.base, draft: true },
   })
