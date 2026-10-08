@@ -1,0 +1,19 @@
+src/components/home-page.tsx
+  s_9db2b475b80bc7::t_c4b1e8c00bea4e 5,34,54-56,59,63,90-107,115,123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e4d9615548dd0953d68d4dfda5d61dea986f8c8d",
+  "prompts": {},
+  "sessions": {
+    "s_9db2b475b80bc7": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a11b91-4a2f-76cd-a15d-7aa0676fad2e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
