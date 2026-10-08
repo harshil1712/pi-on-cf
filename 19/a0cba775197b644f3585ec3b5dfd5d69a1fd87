@@ -1,0 +1,31 @@
+src/features/workspace/components/changes-browser.tsx
+  s_746cd0bbda7944::t_010d5eb32871f9 12-14,68-69
+src/features/workspace/components/highlighted-code.tsx
+  s_746cd0bbda7944::t_84dd5c3709f783 4,92,124
+src/features/workspace/components/link-safety.tsx
+  s_746cd0bbda7944::t_99237aba82b439 1-43
+src/features/workspace/components/transcript-view.tsx
+  s_746cd0bbda7944::t_f17f0bb7670d0d 8,79,83
+src/features/workspace/workspace-app.test.tsx
+  s_746cd0bbda7944::t_bcf8d89df5425d 351-373
+src/features/workspace/workspace-app.tsx
+  s_746cd0bbda7944::t_49d543a7aaf3ec 78-79
+src/styles.css
+  s_746cd0bbda7944::t_fda724ae0fdf38 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "19a0cba775197b644f3585ec3b5dfd5d69a1fd87",
+  "prompts": {},
+  "sessions": {
+    "s_746cd0bbda7944": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a118a7-4d04-7416-94ff-ad470d2f0257",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
