@@ -1,0 +1,23 @@
+package-lock.json
+  s_341da425d76d4c::t_8ae6ed71622ad3 30,4129-4135
+package.json
+  s_341da425d76d4c::t_371bd38f211607 44
+test/worker/github.test.ts
+  s_341da425d76d4c::t_d669d7c0f6ebff 1-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5e3836707f1afc7048ba194f4cdcac997d3202a1",
+  "prompts": {},
+  "sessions": {
+    "s_341da425d76d4c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a11bb1-28cf-76cd-a15d-7aa37b0fd99d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
