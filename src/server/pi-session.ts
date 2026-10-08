@@ -218,8 +218,6 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     // Computer creates directories on demand, but the JavaScript backend's
     // writeFile does not create parents, so the root must exist up front.
     await (await getWorkspace(this)).fs.mkdir(WORKSPACE_ROOT, { recursive: true })
-    // Sessions from before the picker kept no model in their state, and run on the default.
-    if (!this.state.model) this.setState({ ...this.state, model: this.model.default.id })
     for (const connection of this.getConnections()) await this.#watch(connection)
   }
 

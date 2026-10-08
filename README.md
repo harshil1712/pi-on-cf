@@ -22,7 +22,7 @@ See [Pi on Cloudflare Architecture](docs/architecture.md) for the system design.
 
 ```
 ├── container/Dockerfile      computerd image for the session container
-├── docs/                     architecture and research notes
+├── docs/                     architecture notes
 ├── public/                   static assets served as-is
 ├── src/
 │   ├── server.ts             Worker entry: Agents routing, then TanStack Start

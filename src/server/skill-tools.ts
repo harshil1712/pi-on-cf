@@ -5,7 +5,7 @@ import { deleteSharedSkill, isSkillName, publishSkill, readSharedSkill } from '.
 import { WORKSPACE_ROOT } from './workspace-root'
 
 /** Where the agent drafts and edits skills: `/workspace/skills/<name>/`. */
-export const SKILL_DRAFTS = `${WORKSPACE_ROOT}/skills`
+const SKILL_DRAFTS = `${WORKSPACE_ROOT}/skills`
 
 const nameParameter = Type.Object({
   name: Type.String({ description: 'The skill name: lowercase letters, digits, and single hyphens.' }),

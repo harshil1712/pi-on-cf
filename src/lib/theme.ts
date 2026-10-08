@@ -1,6 +1,6 @@
 export type ThemePreference = 'system' | 'light' | 'dark'
 
-export const THEME_STORAGE_KEY = 'pi-theme'
+const THEME_STORAGE_KEY = 'pi-theme'
 
 /**
  * Runs in <head> before first paint so the page never flashes the wrong

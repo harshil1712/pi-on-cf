@@ -8,7 +8,7 @@ export type TranscriptEntry =
   | { id: string; type: 'tool'; callId: string; name: string; args: unknown; result?: unknown; status: 'running' | 'complete' | 'error' }
 
 /** A tool call pi is running now, with its retained output. */
-export type RunningTool = { name: string; output: string }
+type RunningTool = { name: string; output: string }
 
 /**
  * One session as the browser sees it, folded from pi-durable's agent
@@ -29,7 +29,7 @@ export function reducePiEvents(view: PiView, events: readonly AgentEvent[]): PiV
   return events.reduce(reducePiEvent, view)
 }
 
-export function reducePiEvent(view: PiView, event: AgentEvent): PiView {
+function reducePiEvent(view: PiView, event: AgentEvent): PiView {
   switch (event.type) {
     case 'snapshot':
       return {
