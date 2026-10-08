@@ -7,6 +7,7 @@ import {
   PI_AGENT_PREFIX,
   PI_REGISTRY_INSTANCE,
   PI_REGISTRY_NAME,
+  type ModelOption,
   type PiEventsMessage,
   type PiRegistryContract,
   type PiSessionContract,
@@ -40,6 +41,8 @@ export function usePiSession(sessionId: string) {
   const [view, setView] = useState<PiView>(EMPTY_VIEW)
   const [summary, setSummary] = useState<SessionSummary | null>(null)
   const [task, setTask] = useState<SessionTask | null>(null)
+  const [model, setModel] = useState('')
+  const [models, setModels] = useState<ModelOption[]>([])
   const [input, setInput] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isReady, setIsReady] = useState(false)
@@ -77,8 +80,11 @@ export function usePiSession(sessionId: string) {
     // The registry routes the socket to the session's Agent.
     agent: PI_AGENT_NAME,
     basePath: sessionBasePath(sessionId),
-    // The task, and the pull request once the agent opens one.
-    onStateUpdate: (state) => setTask(state.task),
+    // The task, the pull request once the agent opens one, and the model.
+    onStateUpdate: (state) => {
+      setTask(state.task)
+      setModel(state.model)
+    },
     onMessage: (message) => {
       if (typeof message.data !== 'string') return
       let parsed: unknown
@@ -131,6 +137,16 @@ export function usePiSession(sessionId: string) {
   useEffect(() => {
     void refreshFiles()
   }, [refreshFiles, filesVersion])
+
+  useEffect(() => {
+    if (!isReady) return
+    let ignore = false
+    // The picker is optional: without a list it stays hidden.
+    agent.stub.listModels().then((list) => {
+      if (!ignore) setModels(list)
+    }, () => {})
+    return () => { ignore = true }
+  }, [agent.stub, isReady])
 
   const changes = useTaskChanges(agent.stub, task, filesVersion)
   const listRepositories = useCallback(() => agent.stub.listRepositories(), [agent.stub])
@@ -210,6 +226,14 @@ export function usePiSession(sessionId: string) {
     }
   }
 
+  async function chooseModel(id: string) {
+    try {
+      await agent.stub.setModel(id)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught))
+    }
+  }
+
   async function rename(name: string | undefined) {
     try {
       setSummary(await registry.stub.renameSession(sessionId, name))
@@ -253,12 +277,15 @@ export function usePiSession(sessionId: string) {
     // Suggestions only make sense until the session has its repository.
     listRepositories: task ? undefined : listRepositories,
     mobileView,
+    model,
+    models,
     queued: view.queued,
     refreshFiles,
     rename,
     selectedPath,
     setInput,
     setMobileView,
+    setModel: chooseModel,
     setSelectedPath,
     submit,
     summary,

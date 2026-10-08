@@ -19,6 +19,7 @@ import { createAI } from 'agents/models/pi-ai'
 import type { SkillSource } from 'agents/skills'
 import {
   PI_REGISTRY_INSTANCE,
+  type ModelOption,
   type PiEventsMessage,
   type PiSessionState,
   type Repository,
@@ -28,6 +29,7 @@ import {
   type WorkspaceFileContent,
 } from '~/shared/pi-contract'
 import { listRepositories } from './github'
+import { modelOptions } from './models'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
 import { cloneTask, createTaskTools, listChanges, readChange, taskSection } from './task'
@@ -115,9 +117,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
    */
   static override options: AgentStaticOptions = { sendIdentityOnConnect: false }
 
-  override initialState: PiSessionState = { task: null }
-
   readonly model = this.modelSource()
+  // After `model`: field initializers run in order.
+  override initialState: PiSessionState = { task: null, model: this.model.default.id }
   readonly registry = createRegistry()
   readonly skills = new SkillCatalog(() => this.skillSources())
   readonly harness = new PiHarness({
@@ -182,13 +184,15 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   }
 
   /**
-   * The models pi can use and the one new sessions start with: Workers AI and
-   * AI Gateway over the AI binding. Tests override this with pi-ai's faux
-   * provider.
+   * The models pi can use, the one new sessions start with, and the ones the
+   * picker offers: Workers AI and AI Gateway over the AI binding. Every
+   * choice must be on `provider`, since pi resolves models there. Tests
+   * override this with pi-ai's faux provider.
    */
-  protected modelSource(): { provider: Provider; default: PiModel } {
+  protected modelSource(): { provider: Provider; default: PiModel; choices: ModelChoice[] } {
     const ai = createAI({ binding: this.env.AI, id: this.env.AI_GATEWAY_ID || 'default' })
-    return { provider: ai.provider, default: ai(this.env.AI_MODEL) }
+    const choices = modelOptions(this.env.AI_MODEL).map(({ id, label }) => ({ model: ai(id), label }))
+    return { provider: ai.provider, default: ai(this.env.AI_MODEL), choices }
   }
 
   /**
@@ -216,6 +220,8 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     // Computer creates directories on demand, but the JavaScript backend's
     // writeFile does not create parents, so the root must exist up front.
     await (await getWorkspace(this)).fs.mkdir(WORKSPACE_ROOT, { recursive: true })
+    // Sessions from before the picker kept no model in their state, and run on the default.
+    if (!this.state.model) this.setState({ ...this.state, model: this.model.default.id })
     for (const connection of this.getConnections()) await this.#watch(connection)
   }
 
@@ -252,6 +258,20 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     this.ctx.waitUntil(this.harness.abort().catch((error: unknown) => {
       console.error('Could not abort the session', error)
     }))
+  }
+
+  @callable()
+  listModels(): ModelOption[] {
+    return this.model.choices.map(({ model, label }) => ({ id: model.id, label }))
+  }
+
+  /** Switch the session's model. Pi uses it from its next model request. */
+  @callable()
+  async setModel(id: string): Promise<void> {
+    const choice = this.model.choices.find(({ model }) => model.id === id)
+    if (!choice) throw new Error(`Unknown model: ${id}`)
+    await this.harness.session().setModel(choice.model)
+    this.setState({ ...this.state, model: id })
   }
 
   @callable()
@@ -326,7 +346,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
 
   /** Set the task, and copy what the catalog lists to the registry. */
   async #setTask(task: SessionTask): Promise<void> {
-    this.setState({ task })
+    this.setState({ ...this.state, task })
     // The catalog's copy is for display: failing to update it must not fail the caller.
     try {
       const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY)
@@ -411,6 +431,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     }
   }
 }
+
+/** A model the picker offers, as pi resolves it and as the page shows it. */
+export type ModelChoice = { model: PiModel; label: string }
 
 function send(connection: Connection, message: PiEventsMessage): void {
   try {

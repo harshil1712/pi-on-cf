@@ -102,7 +102,7 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
           <TranscriptView activeTextId={session.activeTextId} entries={session.entries} isRunning={session.isRunning} onScroll={session.handleTranscriptScroll} onTryOperation={() => { session.setInput('Create /workspace/hello.ts with a Worker that returns “Hello from Pi”.'); document.getElementById('prompt')?.focus() }} transcriptRef={session.transcriptRef} />
           <div className="mx-auto w-full max-w-200 shrink-0 px-3 pt-2 pb-3 md:px-5 md:pb-4">
             {session.error && <Banner className="mb-2" variant="error" role="alert" description={session.error} />}
-            <PromptComposer input={session.input} isReady={session.isReady} isRunning={session.isRunning} onAbort={() => void session.abort()} onInputChange={session.setInput} onSubmit={session.submit} repositories={session.listRepositories} />
+            <PromptComposer input={session.input} isReady={session.isReady} isRunning={session.isRunning} onAbort={() => void session.abort()} onInputChange={session.setInput} onSubmit={session.submit} repositories={session.listRepositories} models={session.models} model={session.model} onModelChange={(id) => void session.setModel(id)} />
           </div>
         </div>
         <div className={cn(

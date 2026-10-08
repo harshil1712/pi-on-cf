@@ -2,9 +2,10 @@ import { useRef, useState, type FormEventHandler } from 'react'
 import { Button } from '@cloudflare/kumo/components/button'
 import { InputArea } from '@cloudflare/kumo/components/input'
 import { Loader } from '@cloudflare/kumo/components/loader'
+import { Select } from '@cloudflare/kumo/components/select'
 import { cn } from '@cloudflare/kumo/utils'
 import { ArrowUpIcon, LockSimpleIcon, StopIcon } from '@phosphor-icons/react'
-import type { Repository } from '~/shared/pi-contract'
+import type { ModelOption, Repository } from '~/shared/pi-contract'
 import { mentionQueryAt } from '~/shared/repo-mention'
 
 const SUGGESTION_LIMIT = 8
@@ -18,9 +19,13 @@ type PromptComposerProps = {
   onSubmit: FormEventHandler<HTMLFormElement>
   /** Offers `@owner/name` suggestions while the session has no repository. */
   repositories?: () => Promise<Repository[]>
+  /** The models the picker offers; without any, there is no picker. */
+  models?: ModelOption[]
+  model?: string
+  onModelChange?: (id: string) => void
 }
 
-export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChange, onSubmit, repositories }: PromptComposerProps) {
+export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChange, onSubmit, repositories, models, model, onModelChange }: PromptComposerProps) {
   const sendLabel = isRunning ? 'Steer' : 'Send'
   const field = useRef<HTMLTextAreaElement>(null)
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null)
@@ -142,9 +147,24 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
           <Button type="submit" variant="primary" shape="square" disabled={!isReady || !input.trim()} aria-label={sendLabel} title={`${sendLabel} (Enter)`} icon={<ArrowUpIcon weight="bold" />} />
         </div>
       </form>
-      <p className="mx-1 mt-1.5 text-center text-xs text-kumo-subtle max-md:hidden">
-        <kbd className="font-medium">Enter</kbd> to send · <kbd className="font-medium">Shift</kbd>+<kbd className="font-medium">Enter</kbd> for a new line
-      </p>
+      <div className={cn('mx-1 mt-1.5 flex items-center gap-2', models?.length ? 'justify-between' : 'justify-center')}>
+        {models?.length ? (
+          <Select
+            aria-label="Model"
+            size="sm"
+            className="min-w-36"
+            items={models.map(({ id, label }) => ({ value: id, label }))}
+            value={model || null}
+            onValueChange={(id) => { if (typeof id === 'string' && id !== model) onModelChange?.(id) }}
+            // Pi would switch from its next request; keeping the choice to idle sessions keeps the effect obvious.
+            disabled={!isReady || isRunning}
+            side="top"
+          />
+        ) : null}
+        <p className="text-xs text-kumo-subtle max-md:hidden">
+          <kbd className="font-medium">Enter</kbd> to send · <kbd className="font-medium">Shift</kbd>+<kbd className="font-medium">Enter</kbd> for a new line
+        </p>
+      </div>
     </>
   )
 }
