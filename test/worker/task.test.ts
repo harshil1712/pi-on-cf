@@ -14,9 +14,12 @@ async function session(id: string): Promise<DurableObjectStub<TestPiSession>> {
   return env.PiSession.getByName(name) as unknown as DurableObjectStub<TestPiSession>
 }
 
-/** One callable over a session's WebSocket, the way AgentClient sends it from the browser. */
-async function call(id: string, method: string, args: unknown[]): Promise<{ success: boolean; result?: unknown; error?: string }> {
-  const response = await routeAgentRequest(new Request(`http://localhost/${sessionBasePath(id)}`, { headers: { Upgrade: 'websocket' } }), env, AGENT_ROUTES)
+const REGISTRY_URL = 'http://localhost/api/agents/pi-registry/singleton'
+const sessionUrl = (id: string) => `http://localhost/${sessionBasePath(id)}`
+
+/** One callable over an Agent's WebSocket, the way AgentClient sends it from the browser. */
+async function call(url: string, method: string, args: unknown[]): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const response = await routeAgentRequest(new Request(url, { headers: { Upgrade: 'websocket' } }), env, AGENT_ROUTES)
   const socket = response!.webSocket!
   socket.accept()
   const reply = new Promise<{ success: boolean; result?: unknown; error?: string }>((resolve, reject) => {
@@ -60,7 +63,7 @@ describe('repository parsing', () => {
 describe('repository sessions', () => {
   it('leaves cloning to the model: a mention alone clones nothing', async () => {
     const { id } = await registry().createSession()
-    const reply = await call(id, 'submit', ['What does @octo/demo do?'])
+    const reply = await call(sessionUrl(id), 'submit', ['What does @octo/demo do?'])
     expect(reply.success, reply.error).toBe(true)
     const pi = await session(id)
     const { text } = await pi.promptForTest('section repository')
@@ -86,8 +89,7 @@ describe('repository sessions', () => {
   })
 
   it('needs a GitHub token to suggest repositories', async () => {
-    const { id } = await registry().createSession()
-    const reply = await call(id, 'listRepositories', [])
+    const reply = await call(REGISTRY_URL, 'listRepositories', [])
     expect(reply.success).toBe(false)
     expect(reply.error).toMatch(/GITHUB_TOKEN/)
   })

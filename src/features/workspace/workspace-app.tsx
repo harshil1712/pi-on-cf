@@ -30,7 +30,7 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
   const [renameOpen, setRenameOpen] = useState(false)
   const [panel, setPanel] = useState<'files' | 'changes'>('changes')
   const { task } = session
-  const name = session.summary?.name || session.summary?.repo || `Untitled ${sessionId.slice(0, 8)}`
+  const name = session.summary?.name || session.summary?.title || session.summary?.repo || `Untitled ${sessionId.slice(0, 8)}`
   const status = STATUS[!session.isReady ? 'connecting' : session.isRunning ? 'running' : 'ready']
   const chatView = session.mobileView === 'chat'
 

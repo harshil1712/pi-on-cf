@@ -21,13 +21,11 @@ import {
   PI_REGISTRY_INSTANCE,
   type PiEventsMessage,
   type PiSessionState,
-  type Repository,
   type SessionTask,
   type TaskChange,
   type WorkspaceFile,
   type WorkspaceFileContent,
 } from '~/shared/pi-contract'
-import { listRepositories } from './github'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
 import { cloneTask, createTaskTools, listChanges, readChange, taskSection } from './task'
@@ -229,8 +227,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
 
   @callable()
   async submit(prompt: string) {
-    const receipt = await this.harness.submit(validPrompt(prompt))
-    this.ctx.waitUntil(this.#touchRegistry())
+    prompt = validPrompt(prompt)
+    const receipt = await this.harness.submit(prompt)
+    this.ctx.waitUntil(this.#touchRegistry(prompt))
     this.ctx.waitUntil(this.#syncSkills())
     return { operationId: receipt.operationId, accepted: receipt.accepted }
   }
@@ -268,13 +267,6 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
         return { path, size: stat.size, mtime: new Date(stat.mtime).toISOString() }
       }))
     return files.sort((a, b) => a.path.localeCompare(b.path))
-  }
-
-  @callable()
-  async listRepositories(): Promise<Repository[]> {
-    const token = this.githubToken()
-    if (!token) throw new Error('Set the GITHUB_TOKEN secret to work on GitHub repositories.')
-    return listRepositories(token)
   }
 
   @callable()
@@ -400,12 +392,13 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     }
   }
 
-  async #touchRegistry(): Promise<void> {
+  /** The prompt titles a session that has no title yet. */
+  async #touchRegistry(prompt: string): Promise<void> {
     try {
       const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY)
       if (!entryId) return
       const registry = await getAgentByName(this.env.PiRegistry, PI_REGISTRY_INSTANCE)
-      await registry.touchSession(entryId)
+      await registry.touchSession(entryId, prompt)
     } catch (error) {
       console.error('Could not update the session registry', error)
     }

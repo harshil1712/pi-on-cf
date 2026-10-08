@@ -17,14 +17,13 @@ const mocks = vi.hoisted(() => {
       abort: vi.fn(),
       listChanges: vi.fn(),
       listFiles: vi.fn(),
-      listRepositories: vi.fn(),
       readChange: vi.fn(),
       readWorkspaceFile: vi.fn(),
       steer: vi.fn(),
       submit: vi.fn(),
     },
   }
-  const registryAgent = { stub: { getSession: vi.fn(), renameSession: vi.fn() } }
+  const registryAgent = { stub: { getSession: vi.fn(), listRepositories: vi.fn(), renameSession: vi.fn() } }
   return {
     registryAgent,
     sessionAgent,
@@ -274,6 +273,20 @@ describe('WorkspaceApp', () => {
     expect(await screen.findByRole('button', { name: 'Renamed' })).toBeTruthy()
   })
 
+  it('titles an unnamed session from its first prompt, without a reload', async () => {
+    mocks.registryAgent.stub.getSession.mockResolvedValue(summary({ name: undefined }))
+    render(<WorkspaceApp sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+    expect(await screen.findByRole('button', { name: 'Untitled session-' })).toBeTruthy()
+
+    mocks.registryAgent.stub.getSession.mockResolvedValue(summary({ name: undefined, title: 'Fix the flaky test' }))
+    fireEvent.change(screen.getByLabelText('Message Pi'), { target: { value: 'Fix the flaky test' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Send' }).closest('form')!)
+
+    expect(await screen.findByRole('button', { name: 'Fix the flaky test' })).toBeTruthy()
+    expect(mocks.registryAgent.stub.getSession).toHaveBeenCalledTimes(2)
+  })
+
   it('shows a repository task, its changes and its pull request', async () => {
     const task: SessionTask = { repo: 'octo/demo', baseBranch: 'main', baseCommit: 'abc', branch: 'pi/12345678', dir: '/workspace/demo' }
     mocks.sessionAgent.stub.listChanges.mockResolvedValue([
@@ -302,7 +315,7 @@ describe('WorkspaceApp', () => {
   })
 
   it('suggests repositories after @ and inserts the one chosen', async () => {
-    mocks.sessionAgent.stub.listRepositories.mockResolvedValue([
+    mocks.registryAgent.stub.listRepositories.mockResolvedValue([
       { repo: 'octo/demo', private: true },
       { repo: 'octo/other', private: false, description: 'The other one' },
       { repo: 'acme/site', private: false },
@@ -328,7 +341,7 @@ describe('WorkspaceApp', () => {
     fireEvent.change(field, { target: { value: 'Fix the docs in @octo/other and @ac' } })
     fireEvent.click(await screen.findByRole('button', { name: /acme\/site/ }))
     expect(field.value).toBe('Fix the docs in @octo/other and @acme/site ')
-    expect(mocks.sessionAgent.stub.listRepositories).toHaveBeenCalledTimes(1)
+    expect(mocks.registryAgent.stub.listRepositories).toHaveBeenCalledTimes(1)
 
     fireEvent.change(field, { target: { value: '@zzz' } })
     expect(await screen.findByText(/No repository matches/)).toBeTruthy()
@@ -344,7 +357,7 @@ describe('WorkspaceApp', () => {
     expect(field.placeholder).not.toContain('type @')
 
     fireEvent.change(field, { target: { value: 'compare with @oct' } })
-    expect(mocks.sessionAgent.stub.listRepositories).not.toHaveBeenCalled()
+    expect(mocks.registryAgent.stub.listRepositories).not.toHaveBeenCalled()
     expect(screen.queryByLabelText('Repositories')).toBeNull()
   })
 

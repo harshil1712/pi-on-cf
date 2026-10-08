@@ -1,15 +1,15 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button } from '@cloudflare/kumo/components/button'
 import { Empty } from '@cloudflare/kumo/components/empty'
-import { Input } from '@cloudflare/kumo/components/input'
 import { LayerCard } from '@cloudflare/kumo/components/layer-card'
 import { Loader } from '@cloudflare/kumo/components/loader'
 import { Text } from '@cloudflare/kumo/components/text'
 import { cn } from '@cloudflare/kumo/utils'
 import { ChatsCircleIcon, GitPullRequestIcon, PencilSimpleIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react'
 import { PiMark, TopBar } from '~/features/shell/top-bar'
+import { PromptComposer } from '~/features/workspace/components/prompt-composer'
 import type { SessionSummary } from '~/shared/pi-contract'
 import { DeleteSessionDialog, RenameSessionDialog } from './session-dialogs'
 import { useSessionRegistry } from './use-session-registry'
@@ -26,15 +26,16 @@ function relativeTime(value: string, now: number) {
 }
 
 function displayName(session: SessionSummary) {
-  return session.name?.trim() || session.repo || `Untitled ${session.id.slice(0, 8)}`
+  return session.name?.trim() || session.title || session.repo || `Untitled ${session.id.slice(0, 8)}`
 }
 
 export function SessionCatalog() {
   const registry = useSessionRegistry()
   const navigate = useNavigate()
-  const [name, setName] = useState('')
+  const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState('')
   const [mutationError, setMutationError] = useState('')
+  const listRepositories = useCallback(() => registry.agent.stub.listRepositories(), [registry.agent.stub])
   const [now, setNow] = useState(() => Date.now())
   // The target outlives `open` so the dialog keeps its text while it animates closed.
   const [dialog, setDialog] = useState<{ action: 'rename' | 'delete'; session: SessionSummary; open: boolean } | null>(null)
@@ -58,12 +59,13 @@ export function SessionCatalog() {
     }
   }
 
-  async function create(event: FormEvent) {
-    event.preventDefault()
-    setBusy('create')
+  /** Start a session, with `prompt` as its first message when there is one. */
+  async function create(prompt?: string) {
+    if (busy) return
+    setBusy(prompt ? 'start' : 'create')
     setMutationError('')
     try {
-      const session = await registry.agent.stub.createSession({ name: name.trim() || undefined })
+      const session = await (prompt ? registry.agent.stub.createSession({ prompt }) : registry.agent.stub.createSession())
       await navigate({ to: '/sessions/$sessionId', params: { sessionId: session.id } })
     } catch (caught) {
       setMutationError(caught instanceof Error ? caught.message : String(caught))
@@ -79,14 +81,26 @@ export function SessionCatalog() {
       <div className="mx-auto w-full max-w-180 px-4 pt-7 pb-12 md:px-5 md:pt-12 md:pb-16">
         <div className="mb-6 flex flex-col gap-1">
           <Text variant="heading" size="lg" as="h1">Sessions</Text>
-          <Text variant="secondary">Each session keeps its own conversation and workspace. Mention a GitHub repository with @ in the chat, and Pi clones it when it needs the code, to answer questions or to work on a branch and open a pull request.</Text>
+          <Text variant="secondary">Tell Pi what to work on, and it starts a session with its own conversation and workspace. Mention a GitHub repository with @, and Pi clones it when it needs the code, to answer questions or to work on a branch and open a pull request.</Text>
         </div>
-        <form onSubmit={create} className="mb-8 flex flex-col gap-2 md:flex-row">
-          <div className="min-w-0 md:flex-1">
-            <Input className="w-full" aria-label="Session name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Name a new session (optional)" maxLength={120} />
+        <div className="mb-8">
+          <PromptComposer
+            input={prompt}
+            isReady={!busy}
+            isRunning={false}
+            onAbort={() => {}}
+            onInputChange={setPrompt}
+            onSubmit={(event: FormEvent) => {
+              event.preventDefault()
+              if (prompt.trim()) void create(prompt.trim())
+            }}
+            placeholder="What should Pi work on? Type @ to pick a GitHub repository"
+            repositories={listRepositories}
+          />
+          <div className="mt-2 flex justify-end">
+            <Button variant="ghost" size="sm" loading={busy === 'create'} disabled={Boolean(busy)} icon={PlusIcon} onClick={() => void create()}>New session</Button>
           </div>
-          <Button type="submit" variant="primary" loading={busy === 'create'} disabled={Boolean(busy)} icon={PlusIcon}>New session</Button>
-        </form>
+        </div>
         {(registry.error || mutationError) && <Banner className="mb-3" variant="error" role="alert" description={registry.error || mutationError} />}
         <section aria-labelledby="session-list-title" aria-busy={registry.loading}>
           <h2 id="session-list-title" className="mb-2 flex items-center gap-1.5 text-xs font-medium text-kumo-subtle">
@@ -108,7 +122,7 @@ export function SessionCatalog() {
                     params={{ sessionId: session.id }}
                   >
                     <span className="flex min-w-0 flex-col">
-                      <span className={cn('truncate', session.name?.trim() || session.repo ? 'font-medium' : 'text-kumo-subtle')}>{displayName(session)}</span>
+                      <span className={cn('truncate', session.name?.trim() || session.title || session.repo ? 'font-medium' : 'text-kumo-subtle')}>{displayName(session)}</span>
                       {session.repo && <span className="truncate text-xs text-kumo-subtle">{session.repo} · {session.branch}</span>}
                     </span>
                     <span className="flex shrink-0 items-center gap-2 text-xs text-kumo-subtle">

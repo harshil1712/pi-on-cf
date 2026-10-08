@@ -1,10 +1,14 @@
 import { Agent, callable } from 'agents'
 import { type RoutedAgentEntry, RoutedAgents } from 'agents/routing'
-import { PI_SESSIONS_ROUTE, type PullRequest, type SessionSummary } from '~/shared/pi-contract'
+import { PI_SESSIONS_ROUTE, type PullRequest, type Repository, type SessionSummary } from '~/shared/pi-contract'
+import { titleFromPrompt } from '~/shared/session-title'
+import { listRepositories } from './github'
 import type { PiSession } from './pi-session'
 
 type SessionMetadata = {
   name?: string
+  /** From the first prompt, for sessions nobody named. */
+  title?: string
   repo?: string
   branch?: string
   pullRequest?: PullRequest
@@ -33,7 +37,7 @@ export class PiRegistry extends Agent<Env> {
   }
 
   @callable()
-  async createSession(input: { name?: string } = {}): Promise<SessionSummary> {
+  async createSession(input: { name?: string; prompt?: string } = {}): Promise<SessionSummary> {
     const name = cleanName(input.name)
     const entry = await this.sessions.create({ metadata: name ? { name } : {} })
     // The session reports activity under its entry ID, which only the
@@ -42,11 +46,19 @@ export class PiRegistry extends Agent<Env> {
       const session = await this.sessions.get(entry.id)
       if (!session) throw new Error(`Session not found: ${entry.id}`)
       await session.joinCatalog(entry.id)
+      // The home page starts a session with its first prompt; a session
+      // that cannot take it is no use to the caller either.
+      if (input.prompt?.trim()) {
+        await session.submit(input.prompt)
+        // The session reports the prompt after `submit` returns; titling
+        // here too means the caller gets the title back.
+        await this.touchSession(entry.id, input.prompt.trim())
+      }
     } catch (error) {
       await this.sessions.delete(entry.id)
       throw error
     }
-    return summary(entry)
+    return summary(await this.#require(entry.id))
   }
 
   @callable()
@@ -69,6 +81,17 @@ export class PiRegistry extends Agent<Env> {
     return summary(await this.#require(sessionId))
   }
 
+  /**
+   * The token's repositories, for `@` suggestions. On the registry, so the
+   * home page can suggest them before any session exists.
+   */
+  @callable()
+  async listRepositories(): Promise<Repository[]> {
+    const token = this.env.GITHUB_TOKEN
+    if (!token) throw new Error('Set the GITHUB_TOKEN secret to work on GitHub repositories.')
+    return listRepositories(token)
+  }
+
   @callable()
   async deleteSession(sessionId: string): Promise<void> {
     if (!await this.sessions.delete(sessionId)) throw new Error(`Session not found: ${sessionId}`)
@@ -80,11 +103,16 @@ export class PiRegistry extends Agent<Env> {
     if (entry) await this.sessions.setMetadata(sessionId, { ...entry.metadata, ...task })
   }
 
-  /** Called by a PiSession when it accepts a prompt: moves the entry to the top. */
-  async touchSession(sessionId: string): Promise<void> {
+  /**
+   * Called by a PiSession when it accepts a prompt: moves the entry to the
+   * top, and titles it from its first prompt.
+   */
+  async touchSession(sessionId: string, prompt?: string): Promise<void> {
     const entry = await this.#find(sessionId)
+    if (!entry) return
+    const metadata = entry.metadata ?? {}
     // Rewriting the same metadata bumps the entry's `updatedAt`.
-    if (entry) await this.sessions.setMetadata(sessionId, entry.metadata)
+    await this.sessions.setMetadata(sessionId, !metadata.title && prompt ? { ...metadata, title: titleFromPrompt(prompt) } : metadata)
   }
 
   async #find(sessionId: string): Promise<RoutedAgentEntry<SessionMetadata> | undefined> {
@@ -102,6 +130,7 @@ function summary(entry: RoutedAgentEntry<SessionMetadata>): SessionSummary {
   return {
     id: entry.id,
     ...(entry.metadata?.name ? { name: entry.metadata.name } : {}),
+    ...(entry.metadata?.title ? { title: entry.metadata.title } : {}),
     ...(entry.metadata?.repo ? { repo: entry.metadata.repo, branch: entry.metadata.branch } : {}),
     ...(entry.metadata?.pullRequest ? { pullRequest: entry.metadata.pullRequest } : {}),
     createdAt: new Date(entry.createdAt).toISOString(),

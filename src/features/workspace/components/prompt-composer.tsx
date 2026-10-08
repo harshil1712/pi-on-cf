@@ -16,11 +16,13 @@ type PromptComposerProps = {
   onAbort: () => void
   onInputChange: (value: string) => void
   onSubmit: FormEventHandler<HTMLFormElement>
+  /** Replaces the placeholder that follows the session's state. */
+  placeholder?: string
   /** Offers `@owner/name` suggestions while the session has no repository. */
   repositories?: () => Promise<Repository[]>
 }
 
-export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChange, onSubmit, repositories }: PromptComposerProps) {
+export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChange, onSubmit, placeholder, repositories }: PromptComposerProps) {
   const sendLabel = isRunning ? 'Steer' : 'Send'
   const field = useRef<HTMLTextAreaElement>(null)
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null)
@@ -126,11 +128,11 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
               event.currentTarget.form?.requestSubmit()
             }
           }}
-          placeholder={!isReady
+          placeholder={placeholder ?? (!isReady
             ? 'Connecting…'
             : isRunning
               ? 'Steer Pi — it reads this after the current step'
-              : repositories ? 'Ask Pi anything · type @ to work on a GitHub repository' : 'Ask Pi to inspect, create, or edit files'}
+              : repositories ? 'Ask Pi anything · type @ to work on a GitHub repository' : 'Ask Pi to inspect, create, or edit files')}
           autoResize
           maxRows={10}
           disabled={!isReady}

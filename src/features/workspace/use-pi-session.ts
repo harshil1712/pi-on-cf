@@ -133,7 +133,7 @@ export function usePiSession(sessionId: string) {
   }, [refreshFiles, filesVersion])
 
   const changes = useTaskChanges(agent.stub, task, filesVersion)
-  const listRepositories = useCallback(() => agent.stub.listRepositories(), [agent.stub])
+  const listRepositories = useCallback(() => registry.stub.listRepositories(), [registry.stub])
 
   useEffect(() => {
     let ignore = false
@@ -201,7 +201,14 @@ export function usePiSession(sessionId: string) {
       // Durable once this resolves; the answer streams in as pi events. While
       // pi is running, the prompt steers it: pi places it after the current
       // tool round.
-      await (view.running ? agent.stub.steer(prompt) : agent.stub.submit(prompt))
+      if (view.running) {
+        await agent.stub.steer(prompt)
+      } else {
+        await agent.stub.submit(prompt)
+        // A first prompt titles the session. The title is for display only,
+        // so a failed refresh keeps the old summary.
+        registry.stub.getSession(sessionId).then((next) => { if (next) setSummary(next) }, () => {})
+      }
     } catch (caught) {
       setInput(prompt)
       setError(caught instanceof Error ? caught.message : String(caught))

@@ -81,6 +81,8 @@ export type TaskChange = {
 export type SessionSummary = {
   id: string
   name?: string
+  /** From the session's first prompt. */
+  title?: string
   repo?: string
   branch?: string
   pullRequest?: PullRequest
@@ -95,16 +97,16 @@ export interface PiSessionContract {
   abort(): void
   listFiles(): Promise<WorkspaceFile[]>
   readWorkspaceFile(path: string): Promise<WorkspaceFileContent>
-  listRepositories(): Promise<Repository[]>
   listChanges(): Promise<TaskChange[]>
   readChange(path: string): Promise<string>
 }
 
 export interface PiRegistryContract {
   readonly state: unknown
-  createSession(input?: { name?: string }): Promise<SessionSummary>
+  createSession(input?: { name?: string; prompt?: string }): Promise<SessionSummary>
   getSession(sessionId: string): Promise<SessionSummary | null>
   listSessions(): Promise<SessionSummary[]>
   renameSession(sessionId: string, name?: string): Promise<SessionSummary>
   deleteSession(sessionId: string): Promise<void>
+  listRepositories(): Promise<Repository[]>
 }

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     stub: {
       createSession: vi.fn(),
       deleteSession: vi.fn(),
+      listRepositories: vi.fn(),
       listSessions: vi.fn(),
       renameSession: vi.fn(),
     },
@@ -60,15 +61,59 @@ describe('SessionCatalog', () => {
     expect(mocks.registry.stub.listSessions).toHaveBeenCalledWith()
   })
 
-  it('creates a named session and opens its workspace', async () => {
+  it('starts a session from a prompt and opens its workspace', async () => {
     render(<SessionCatalog />)
     await screen.findByText('Edge cache prototype')
 
-    fireEvent.change(screen.getByLabelText('Session name'), { target: { value: '  New investigation  ' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'New session' }).closest('form')!)
+    fireEvent.change(screen.getByLabelText('Message Pi'), { target: { value: '  Fix the flaky test  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
-    await waitFor(() => expect(mocks.registry.stub.createSession).toHaveBeenCalledWith({ name: 'New investigation' }))
+    await waitFor(() => expect(mocks.registry.stub.createSession).toHaveBeenCalledWith({ prompt: 'Fix the flaky test' }))
     expect(mocks.navigate).toHaveBeenCalledWith({ to: '/sessions/$sessionId', params: { sessionId: 'created-session' } })
+  })
+
+  it('keeps the prompt when the session cannot start', async () => {
+    mocks.registry.stub.createSession.mockRejectedValue(new Error('No capacity'))
+    render(<SessionCatalog />)
+    await screen.findByText('Edge cache prototype')
+
+    const field = screen.getByLabelText('Message Pi') as HTMLTextAreaElement
+    fireEvent.change(field, { target: { value: 'Fix the flaky test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('No capacity')
+    expect(field.value).toBe('Fix the flaky test')
+    expect(mocks.navigate).not.toHaveBeenCalled()
+  })
+
+  it('suggests repositories from the registry', async () => {
+    mocks.registry.stub.listRepositories.mockResolvedValue([{ repo: 'octo/demo', private: false }])
+    render(<SessionCatalog />)
+    await screen.findByText('Edge cache prototype')
+
+    const field = screen.getByLabelText('Message Pi') as HTMLTextAreaElement
+    fireEvent.change(field, { target: { value: '@oc' } })
+
+    expect(await screen.findByText('octo/demo')).toBeTruthy()
+    expect(mocks.registry.stub.listRepositories).toHaveBeenCalledTimes(1)
+  })
+
+  it('still creates an empty session', async () => {
+    render(<SessionCatalog />)
+    await screen.findByText('Edge cache prototype')
+
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+
+    await waitFor(() => expect(mocks.registry.stub.createSession).toHaveBeenCalledWith())
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/sessions/$sessionId', params: { sessionId: 'created-session' } })
+  })
+
+  it('lists an unnamed session by the title of its first prompt', async () => {
+    mocks.registry.stub.listSessions.mockResolvedValue([session({ name: undefined, title: 'Fix the flaky test', repo: 'octo/demo', branch: 'pi/12345678' })])
+    render(<SessionCatalog />)
+
+    expect(await screen.findByText('Fix the flaky test', { selector: '.font-medium' })).toBeTruthy()
+    expect(screen.getByText('octo/demo · pi/12345678')).toBeTruthy()
   })
 
   it('lists a session\'s repository, branch and pull request', async () => {
