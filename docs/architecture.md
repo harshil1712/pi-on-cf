@@ -63,7 +63,7 @@ The Computer workspace is rooted at `/workspace` and has three `exec` backends:
 | `javascript` | Worker JavaScript: ES modules with `node:fs/promises`, `ws:git`, and `ws:artifacts` |
 | `container` | `ContainerBackend`: a Durable Object-scheduled Cloudflare Container running `computerd`, with direct egress |
 
-The container dials back to the object at `/api` through `WorkspaceProxy`; `PiSession.fetch` hands that upgrade to the backend. The workspace also has git and session Artifacts.
+The container dials back to the object at `/api` through `WorkspaceProxy`; `PiSession.fetch` hands that upgrade to the backend. The workspace also has git and session Artifacts. Git follows Computer's recommended setup: `createGitClient()` (isomorphic-git) on the workspace, behind the shell backend's `git` command and `ws:git`, committing as `Pi <pi@cloudflare.invalid>` through `defaultGitIdentity`. The exec tool's backend descriptions and the preamble send git to the shell backend. The container image keeps git, as Computer's agent examples do, for tools that read the repository; it has no identity, so a commit there fails instead of bypassing the workspace's. The image sets `EXEC_SHELL=/bin/bash`, so container commands support `set -o pipefail`, which the preamble suggests so piped test and build output keeps its exit code.
 
 ### Repositories
 

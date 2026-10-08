@@ -175,6 +175,15 @@ describe('pi session', () => {
     expect(result.kinds).toEqual(expect.arrayContaining(['pi.user', 'pi.assistant']))
   })
 
+  it('tells the model its git identity and to keep exit codes', async () => {
+    const { id } = await registry().createSession()
+    const { text } = await (await session(id)).promptForTest('section preamble')
+    expect(text).toContain('Run git in shell')
+    expect(text).toContain('commits as Pi <pi@cloudflare.invalid> already, so do not set user.name or user.email')
+    expect(text).toContain('do not pipe tests, builds, lint or type checks into head, tail or grep')
+    expect(text).toContain('set -o pipefail')
+  })
+
   it('runs Computer tools from a model tool call', async () => {
     const { id } = await registry().createSession()
     const pi = await session(id)

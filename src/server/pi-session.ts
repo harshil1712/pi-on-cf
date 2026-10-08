@@ -42,13 +42,23 @@ import { WORKSPACE_ROOT, workspacePath } from './workspace-root'
  */
 const CONTAINER_LOCAL_PATHS = ['**/node_modules', '**/.wrangler', '**/.venv', '**/__pycache__']
 
+/**
+ * Who the workspace's git commits as, through Computer's
+ * `defaultGitIdentity`. Pi commits there, in the shell backend, as
+ * Computer recommends; the container's git is for tools that read the
+ * repository, and has no identity, so a commit there fails loudly.
+ */
+const GIT_IDENTITY = { name: 'Pi', email: 'pi@cloudflare.invalid' }
+
 const PREAMBLE = [
   'You are Pi, a coding agent running natively on Cloudflare Workers. You work on your own: finish the task, check your work, and report what you did.',
   `Your durable workspace is ${WORKSPACE_ROOT}. Paths are absolute and the same in every tool and backend.`,
   'Use read, write, edit, delete, ls, find and grep for files.',
   'exec runs commands on one of three backends: shell is a fast just-bash environment with text utilities and git; javascript runs an ES module in an isolated Worker with node:fs/promises, ws:git and ws:artifacts; container is a Linux machine with Node.js, npm and network access.',
-  'Prefer shell for searches, text processing and git. Use container only for native binaries, package installs, builds, tests or networked CLIs.',
+  'Prefer shell for searches and text processing. Use container only for native binaries, package installs, builds, tests or networked CLIs.',
   `Dependency and tool caches (${CONTAINER_LOCAL_PATHS.join(', ')}) stay on the container's disk: only container commands can see them, and they are lost when the container is replaced, so reinstall if they are missing.`,
+  `Run git in shell: it is the workspace's own git, and commits as ${GIT_IDENTITY.name} <${GIT_IDENTITY.email}> already, so do not set user.name or user.email. It takes no -c options, and has no rebase or cherry-pick.`,
+  'A pipeline reports only its last command\'s exit code, so do not pipe tests, builds, lint or type checks into head, tail or grep: use set -o pipefail, or redirect the output to a file and read its end, and trust the exit code.',
 ].join('\n')
 
 const FILE_LIST_LIMIT = 1000
@@ -96,7 +106,7 @@ function workspaceOptions(self: PiSessionHost): WorkspaceOptions {
       self.container,
     ],
     git: createGitClient(),
-    defaultGitIdentity: { name: 'Pi', email: 'pi@cloudflare.invalid' },
+    defaultGitIdentity: GIT_IDENTITY,
     // Scoped to this session, so its repos can be found and deleted with it.
     artifacts: env.ARTIFACTS ? { binding: env.ARTIFACTS, sessionId: ctx.id.toString() } : undefined,
     observer: createCloudflareObserver({ tracing }),
@@ -134,9 +144,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
           shell: {
             defaultBackend: 'shell',
             backends: {
-              shell: { description: 'Fast Worker shell with text utilities and git.' },
+              shell: { description: 'A just-bash shell in a Worker. Starts fast, with no network. Good for cat, grep, sed, awk, jq, find, text transformations, and git (clone, status, diff, log, add, commit, branch), which works on the workspace itself. Cannot run npm, node, python or other binaries.' },
               javascript: { description: 'ES module run in an isolated Worker. Export a default async function; its JSON-compatible return value is the result. Top-level await of I/O is not allowed.' },
-              container: { description: 'Linux container with Node.js, npm and network access.' },
+              container: { description: 'A full Linux container with Node.js, npm and network access: package managers, test runners, builds and native binaries. Starts much more slowly, because the container must boot.' },
             },
           },
         }), ...createTaskTools({

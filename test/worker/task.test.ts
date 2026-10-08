@@ -113,6 +113,8 @@ describe('repository sessions', () => {
     await pi.promptForTest('write /workspace/demo/README.md one\ntwo')
     const commit = await pi.promptForTest('exec shell cd /workspace/demo && git add README.md && git commit -m "Add two"')
     expect(commit.text).toMatch(/^tool said:/)
+    // Without any git config: the identity the preamble promises.
+    expect((await pi.promptForTest('exec shell cd /workspace/demo && git log -1 --format="%an <%ae>"')).text).toContain('Pi <pi@cloudflare.invalid>')
     await pi.promptForTest('write /workspace/demo/new.txt hello')
     await pi.promptForTest('exec shell rm /workspace/demo/old.txt')
 
