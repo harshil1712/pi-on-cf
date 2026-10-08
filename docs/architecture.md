@@ -53,6 +53,12 @@ Commands are `@callable` methods: `submit`, `steer`, `abort`, `listFiles`, `read
 
 Each WebSocket connection gets its own `session.events()` watch. The first frame is a `snapshot`; each later frame is one batch of Pi agent events per commit. The client folds them with the reducer in `src/lib/transcript.ts`. Watches live in memory, so `onStart` re-watches every connection that outlived the previous isolate and sends a fresh snapshot. A reconnecting browser always starts from the current state, including an in-flight answer.
 
+### Run status
+
+Each session also keeps one watch of its own, tied to no connection, that folds its events into a run status with `reduceRunStatus` in `src/lib/run-status.ts`: `running` from `run_start`, `idle` after `run_end`, and `failed` when pi settles the run's inputs `unanswered` (a model error, a faulted or orphaned task) in the same batch as its `run_end`; an abort or a withdrawn steer is not a failure. The browser's transcript reducer shares the same `unansweredReason` test for its error. `failed` sticks until the next `run_start`. The session stores the status it last recorded and calls the registry's `setStatus` only when it changes.
+
+`onStart` opens that watch, so it runs on whatever wakes a new isolate, the alarm included. After an eviction mid-run the Lifecycle starts `PiHarness`, which re-arms its wake job, then runs `onStart`, before the wake job runs; opening pi for the watch resets interrupted tasks to pending and resumes the scheduler, and the run carries on without a new `run_start`. The watch's first snapshot therefore always goes to the registry: it shows a pending run as `running`, and turns a recorded `running` whose run is gone into `idle`. The registry ignores a report of the status it already has.
+
 ### Workspace
 
 The Computer workspace is rooted at `/workspace` and has three `exec` backends:
@@ -102,7 +108,9 @@ The singleton `PiRegistry` keeps the session catalog with the Agents SDK's `Rout
 
 Repository sessions also store the repository, the task branch and the pull request in the entry's metadata, so the catalog lists them without waking each session.
 
-The registry's Agent state is a revision that every catalog change bumps: creating, renaming, deleting, titling, touching, and a session's task or pull request. The Agents SDK syncs that state to every open page, which reloads the list when it moves, so the sidebar follows other tabs and running sessions without polling. Clients cannot write it.
+Each entry's metadata also holds the session's run status, absent while idle. `setStatus` rewrites the metadata with its other fields kept, so a status change moves the entry to the top like a prompt, and the sidebar orders and groups sessions by their latest state. The sidebar shows a pulsing dot for a running session and a warning icon after a failed run.
+
+The registry's Agent state is a revision that every catalog change bumps: creating, renaming, deleting, titling, touching, a session's task or pull request, and a change in its run status. The Agents SDK syncs that state to every open page, which reloads the list when it moves, so the sidebar follows other tabs and running sessions without polling. Clients cannot write it.
 
 Deleting a session hides the entry, condemns the `PiSession` through the Agents SDK's deferred teardown, then removes the row; a failed delete leaves a hidden row and can be retried. The teardown runs `destroy()` in the session's own alarm: Lifecycle disposal stops the session's event watches and its container, deletes its Artifacts repos, closes Pi, and then the Agent wipes Pi's tables and the workspace.
 
@@ -141,4 +149,4 @@ npm run check
 npm run build
 ```
 
-The Workers suite, in `test/worker`, runs a real `PiSession` with pi-ai's faux provider and two faux models: a plain answer, switching models, a model tool call that writes through Computer, and the WebSocket snapshot. It also exercises Computer's Worker Shell, git, Worker JavaScript, and the tool adapter, and repository tasks on a local repository: the `repository` section, changes against the base commit, read-only task state, and `create_pull_request`'s refusals. Live Workers AI inference, the container backend, GitHub itself, and Artifacts are not covered by tests.
+The Workers suite, in `test/worker`, runs a real `PiSession` with pi-ai's faux provider and two faux models: a plain answer, switching models, a model tool call that writes through Computer, the WebSocket snapshot, and the run status the registry lists, including a failed run and the correction a restart makes. It also exercises Computer's Worker Shell, git, Worker JavaScript, and the tool adapter, and repository tasks on a local repository: the `repository` section, changes against the base commit, read-only task state, and `create_pull_request`'s refusals. Live Workers AI inference, the container backend, GitHub itself, and Artifacts are not covered by tests.

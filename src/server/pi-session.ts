@@ -27,6 +27,7 @@ import {
   type WorkspaceFile,
   type WorkspaceFileContent,
 } from '~/contract'
+import { reduceRunStatus, type RunStatus } from '~/lib/run-status'
 import { modelOptions } from './models'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
@@ -71,6 +72,8 @@ const FILE_LIST_EXCLUDE = ['**/node_modules', '**/.git']
 
 /** Storage key of this session's catalog entry ID, set by the registry. */
 const CATALOG_ENTRY_KEY = 'pi-on-cf:catalog-entry'
+/** Storage key of the run status last reported to the registry. */
+const RUN_STATUS_KEY = 'pi-on-cf:run-status'
 
 /**
  * The container half of the session. The backend lives on this base class
@@ -183,6 +186,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   })
 
   readonly #watches = new Map<string, AgentEventStream>()
+  /** The session's own watch, for its run status; see `onStart`. */
+  #statusWatch: AgentEventStream | undefined
+  #status: RunStatus = 'idle'
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -223,11 +229,28 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     return super.fetch(request)
   }
 
-  /** Give sockets that outlived the previous isolate a fresh watch. */
+  /**
+   * Runs once per isolate, on whatever wakes it first, the alarm included.
+   * Watches the session's run status, and gives sockets that outlived the
+   * previous isolate a fresh watch.
+   *
+   * How a run survives eviction: while pi has work, `PiHarness` keeps a
+   * Lifecycle wake job (`pi-wake:<session>`) on the object's alarm. After an
+   * eviction the alarm wakes a new isolate; the Lifecycle starts its
+   * capabilities (PiHarness re-arms wake jobs for sessions with live tasks)
+   * and then runs this `onStart`, inside `blockConcurrencyWhile`, before the
+   * due wake job runs. Opening pi, which the status watch below does,
+   * reconciles tasks left `running` back to `pending` and `pi.resume()`s the
+   * scheduler, so the run carries on from its last commit; the wake job then
+   * waits for it, in up-to-10-minute alarm slices. The run keeps its
+   * `run_start` from before the eviction and emits no new one, so the
+   * watch's first snapshot is what tells this isolate a run is pending.
+   */
   override async onStart(): Promise<void> {
     // Computer creates directories on demand, but the JavaScript backend's
     // writeFile does not create parents, so the root must exist up front.
     await (await getWorkspace(this)).fs.mkdir(WORKSPACE_ROOT, { recursive: true })
+    await this.#watchStatus()
     for (const connection of this.getConnections()) await this.#watch(connection)
   }
 
@@ -368,8 +391,10 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
    * throws, so the wipe that follows always runs.
    */
   async #teardown(): Promise<void> {
-    await Promise.allSettled([...this.#watches.values()].map((watch) => watch.stop()))
+    const watches = [...this.#watches.values(), ...this.#statusWatch ? [this.#statusWatch] : []]
     this.#watches.clear()
+    this.#statusWatch = undefined
+    await Promise.allSettled(watches.map((watch) => watch.stop()))
     if (this.ctx.container?.running) {
       await this.ctx.container.destroy().catch((error: unknown) => {
         console.error('Could not stop the session container', error)
@@ -399,6 +424,47 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
       }
       send(connection, { type: 'pi:events', events })
     })
+  }
+
+  /**
+   * One watch per isolate, tied to no connection, that folds the session's
+   * events into its run status and reports each change to the registry.
+   * Its first report, from the snapshot, goes out even when the status has
+   * not changed, so it corrects a registry left with a stale `running`:
+   * the registry ignores a report of the status it already has.
+   */
+  async #watchStatus(): Promise<void> {
+    try {
+      const previous = this.#statusWatch
+      this.#statusWatch = undefined
+      await previous?.stop()
+      this.#status = await this.ctx.storage.get<RunStatus>(RUN_STATUS_KEY) ?? 'idle'
+      const stream = await this.harness.session().events()
+      this.#statusWatch = stream
+      await this.#reportStatus(reduceRunStatus(this.#status, [stream.snapshot]), true)
+      stream.start((events) => this.#reportStatus(reduceRunStatus(this.#status, events)))
+    } catch (error) {
+      // The status is for display: it must not stop the session starting.
+      console.error('Could not watch the session\'s run status', error)
+    }
+  }
+
+  /** Record a run status, and copy it to the registry when it changed. Never throws. */
+  async #reportStatus(status: RunStatus, always = false): Promise<void> {
+    const changed = status !== this.#status
+    if (!changed && !always) return
+    try {
+      if (changed) {
+        this.#status = status
+        await this.ctx.storage.put(RUN_STATUS_KEY, status)
+      }
+      const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY)
+      if (!entryId) return
+      const registry = await getAgentByName(this.env.PiRegistry, PI_REGISTRY_INSTANCE)
+      await registry.setStatus(entryId, status)
+    } catch (error) {
+      console.error('Could not update the session registry', error)
+    }
   }
 
   async #unwatch(connection: Connection): Promise<void> {

@@ -1,6 +1,6 @@
 import { Agent, callable, type Connection } from 'agents'
 import { type RoutedAgentEntry, RoutedAgents } from 'agents/routing'
-import { type ModelOption, PI_SESSIONS_ROUTE, type PiRegistryState, type PullRequest, type Repository, type SessionSummary } from '~/contract'
+import { type ModelOption, PI_SESSIONS_ROUTE, type PiRegistryState, type PullRequest, type Repository, type RunStatus, type SessionSummary } from '~/contract'
 import { titleFromPrompt } from './session-title'
 import { listRepositories } from './github'
 import { modelOptions } from './models'
@@ -13,6 +13,8 @@ type SessionMetadata = {
   repo?: string
   branch?: string
   pullRequest?: PullRequest
+  /** Absent while idle. */
+  status?: Exclude<RunStatus, 'idle'>
 }
 
 const MAX_NAME_LENGTH = 120
@@ -136,6 +138,21 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
     this.#changed()
   }
 
+  /**
+   * Called by a PiSession when its run status changes, and once each time
+   * it starts, to correct a status an eviction left behind. A change moves
+   * the entry to the top, like a prompt; a report of the status the entry
+   * already has changes nothing. Keeps the rest of the metadata.
+   */
+  async setStatus(sessionId: string, status: RunStatus): Promise<void> {
+    const entry = await this.#find(sessionId)
+    if (!entry) return
+    const { status: previous, ...metadata } = entry.metadata ?? {}
+    if ((previous ?? 'idle') === status) return
+    await this.sessions.setMetadata(sessionId, status === 'idle' ? metadata : { ...metadata, status })
+    this.#changed()
+  }
+
   /** The revision is the registry's to move. */
   override validateStateChange(_next: PiRegistryState, source: Connection | 'server'): void {
     if (source !== 'server') throw new Error('Registry state is read-only.')
@@ -163,6 +180,7 @@ function summary(entry: RoutedAgentEntry<SessionMetadata>): SessionSummary {
     ...(entry.metadata?.title ? { title: entry.metadata.title } : {}),
     ...(entry.metadata?.repo ? { repo: entry.metadata.repo, branch: entry.metadata.branch } : {}),
     ...(entry.metadata?.pullRequest ? { pullRequest: entry.metadata.pullRequest } : {}),
+    status: entry.metadata?.status ?? 'idle',
     createdAt: new Date(entry.createdAt).toISOString(),
     updatedAt: new Date(entry.updatedAt).toISOString(),
   }

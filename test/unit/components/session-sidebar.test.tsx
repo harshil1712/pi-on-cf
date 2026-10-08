@@ -35,7 +35,7 @@ import { SessionSidebar } from '~/components/session-sidebar'
 const hour = 60 * 60 * 1000
 const session = (overrides: Partial<SessionSummary> & { id: string }, ago = 0): SessionSummary => {
   const at = new Date(Date.now() - ago).toISOString()
-  return { createdAt: at, updatedAt: at, ...overrides }
+  return { status: 'idle', createdAt: at, updatedAt: at, ...overrides }
 }
 
 function renderSidebar() {
@@ -82,6 +82,22 @@ describe('SessionSidebar', () => {
     expect(screen.getByRole('link', { name: 'Fix the flaky test' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: 'Untitled old-sess' })).toBeTruthy()
     expect(screen.getByText('Older')).toBeTruthy()
+  })
+
+  it('marks running and failed sessions', async () => {
+    mocks.registry.stub.listSessions.mockResolvedValue([
+      session({ id: 'running-session', title: 'Busy', status: 'running' }),
+      session({ id: 'failed-session', title: 'Broken', status: 'failed' }),
+      session({ id: 'idle-session', title: 'Quiet' }),
+    ])
+    renderSidebar()
+
+    // jsdom has no layout, so the accessible name runs the inline spans together.
+    const running = await screen.findByRole('link', { name: /^Busy\s*\(running\)$/ })
+    expect(within(running).getByTitle('Running')).toBeTruthy()
+    const failed = screen.getByRole('link', { name: /^Broken\s*\(last run failed\)$/ })
+    expect(within(failed).getByTitle('Last run failed')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Quiet' })).toBeTruthy()
   })
 
   it('reloads the list when the registry reports a change', async () => {

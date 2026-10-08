@@ -5,7 +5,7 @@ import { DropdownMenu } from '@cloudflare/kumo/components/dropdown'
 import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar'
 import { useKumoToastManager } from '@cloudflare/kumo/components/toast'
 import { cn } from '@cloudflare/kumo/utils'
-import { ChatsCircleIcon, DotsThreeIcon, GitPullRequestIcon, NotePencilIcon, PencilSimpleIcon, TrashIcon } from '@phosphor-icons/react'
+import { ChatsCircleIcon, DotsThreeIcon, GitPullRequestIcon, NotePencilIcon, PencilSimpleIcon, TrashIcon, WarningCircleIcon } from '@phosphor-icons/react'
 import { PiMark } from './pi-mark'
 import { ThemeToggle } from './theme-toggle'
 import type { SessionSummary } from '~/contract'
@@ -26,6 +26,27 @@ function groupByRecency(sessions: SessionSummary[], now: number) {
     else groups.push({ label, sessions: [session] })
   }
   return groups
+}
+
+/** A pulsing dot while pi runs, in the colour of the session page's Running badge, a warning after a failed run, nothing when idle. */
+function StatusMarker({ status }: Pick<SessionSummary, 'status'>) {
+  if (status === 'running') {
+    return (
+      <span className="flex size-3 shrink-0 items-center justify-center" title="Running">
+        <span aria-hidden className="size-2 rounded-full bg-kumo-warning motion-safe:animate-pulse" />
+        <span className="sr-only">(running)</span>
+      </span>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <span className="flex shrink-0 items-center text-kumo-danger" title="Last run failed">
+        <WarningCircleIcon aria-hidden size={13} />
+        <span className="sr-only">(last run failed)</span>
+      </span>
+    )
+  }
+  return null
 }
 
 export function SessionSidebar() {
@@ -92,6 +113,7 @@ export function SessionSidebar() {
                           <span className="truncate text-xs text-kumo-subtle">{session.repo}</span>
                         )}
                       </span>
+                      <StatusMarker status={session.status} />
                       {session.pullRequest && (
                         <span className="flex shrink-0 items-center gap-0.5 text-xs text-kumo-subtle" title={`Pull request #${session.pullRequest.number}`}>
                           <GitPullRequestIcon size={12} />{session.pullRequest.number}

@@ -16,7 +16,7 @@ import type { PiModel } from 'agents/harness/pi'
 import type { SkillSource } from 'agents/skills'
 import { PiRegistry as AppPiRegistry } from '~/server/pi-registry'
 import { PiSession as AppPiSession, type ModelChoice } from '~/server/pi-session'
-import type { ModelOption, SessionTask } from '~/contract'
+import type { ModelOption, RunStatus, SessionTask } from '~/contract'
 import { bucketSkills, builtInSkills } from '~/server/skills'
 
 export { ComputerTest } from './computer-test'
@@ -38,6 +38,8 @@ function textOf(content: Message['content'] | undefined): string {
  * - `catalog` answers with the `skills` prompt section the model sees.
  * - `section <key>` answers with that prompt section.
  * - `model` answers with the ID of the model asked.
+ * - `fail` answers with a model error pi does not retry.
+ * - `slow` answers with a few seconds of streamed text.
  * - After a tool result it answers `tool said: <result>`.
  * - Anything else is echoed back.
  */
@@ -49,6 +51,8 @@ function script(context: TranscriptContext, _options: unknown, _state: unknown, 
   }
   const prompt = last?.role === 'user' ? textOf(last.content) : ''
   if (prompt === 'model') return fauxAssistantMessage([fauxText(`model: ${model.id}`)])
+  if (prompt === 'fail') return fauxAssistantMessage([], { stopReason: 'error', errorMessage: 'faux model failure' })
+  if (prompt === 'slow') return fauxAssistantMessage([fauxText('slow '.repeat(1500))])
   const section = prompt === 'catalog' ? 'skills' : /^section (\S+)$/.exec(prompt)?.[1]
   if (section) {
     // Replaying system messages in order yields the current sections.
@@ -130,6 +134,15 @@ export class PiSession extends AppPiSession {
   async syncSkillsForTest(): Promise<boolean> {
     await this.harness.pi()
     return this.skills.sync(this.registry)
+  }
+
+  /**
+   * What a new isolate does after an eviction, with `status` as the run
+   * status the previous one last recorded: `onStart` again.
+   */
+  async restartForTest(status?: RunStatus): Promise<void> {
+    if (status) await this.ctx.storage.put('pi-on-cf:run-status', status)
+    await this.onStart()
   }
 
   /** Submit and wait for pi's answer: its status, text and the transcript entry kinds. */

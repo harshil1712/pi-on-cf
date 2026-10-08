@@ -61,7 +61,7 @@ function deferred<T>() {
 
 const now = '2026-07-28T12:00:00.000Z'
 const summary = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: 'session-12345678', name: 'Current session', createdAt: now, updatedAt: now, ...overrides,
+  id: 'session-12345678', name: 'Current session', status: 'idle', createdAt: now, updatedAt: now, ...overrides,
 })
 const file = (path: string, mtime = now): WorkspaceFile => ({ path, size: 10, mtime })
 const fileContent = (path: string, content: string, mtime = now): WorkspaceFileContent => ({ ...file(path, mtime), content })

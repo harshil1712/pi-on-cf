@@ -29,7 +29,7 @@ import { HomePage } from '~/components/home-page'
 
 const now = '2026-07-28T12:00:00.000Z'
 const session = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: 'session-12345678', createdAt: now, updatedAt: now, ...overrides,
+  id: 'session-12345678', status: 'idle', createdAt: now, updatedAt: now, ...overrides,
 })
 
 function renderHome() {

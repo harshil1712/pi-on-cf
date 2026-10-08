@@ -1,4 +1,7 @@
 import type { AgentEvent } from '@earendil-works/pi-durable'
+import type { RunStatus } from '~/lib/run-status'
+
+export type { RunStatus }
 
 export const PI_AGENT_NAME = 'PiSession'
 export const PI_REGISTRY_NAME = 'PiRegistry'
@@ -94,6 +97,8 @@ export type SessionSummary = {
   repo?: string
   branch?: string
   pullRequest?: PullRequest
+  /** What pi is doing, as the session last reported it. A change moves the session to the top. */
+  status: RunStatus
   createdAt: string
   updatedAt: string
 }

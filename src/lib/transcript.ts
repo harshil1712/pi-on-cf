@@ -1,5 +1,6 @@
 import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
 import type { AgentEvent, EntryRecord, MessageChange } from '@earendil-works/pi-durable'
+import { unansweredReason } from './run-status'
 
 export type TranscriptEntry =
   | { id: string; type: 'message'; role: 'user' | 'assistant'; text: string }
@@ -75,12 +76,10 @@ function reducePiEvent(view: PiView, event: AgentEvent): PiView {
       return { ...view, queued: event.items.length }
     case 'task_failed':
       return { ...view, error: event.message }
-    case 'submission':
-      return event.record.status === 'unanswered' && event.record.reason !== 'aborted' && event.record.reason !== 'withdrawn'
-        ? { ...view, error: `Pi could not answer: ${event.record.reason}` }
-        : view
-    default:
-      return view
+    default: {
+      const reason = unansweredReason(event)
+      return reason ? { ...view, error: `Pi could not answer: ${reason}` } : view
+    }
   }
 }
 
