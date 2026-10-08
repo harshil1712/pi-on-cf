@@ -15,8 +15,13 @@ async function newSession(): Promise<{ id: string; pi: DurableObjectStub<TestPiS
 }
 
 /** One callable over a session's WebSocket, the way AgentClient sends it from the browser. */
-async function call(id: string, method: string, args: unknown[]): Promise<{ success: boolean; result?: unknown; error?: string }> {
-  const response = await routeAgentRequest(new Request(`http://localhost/${sessionBasePath(id)}`, { headers: { Upgrade: 'websocket' } }), env, AGENT_ROUTES)
+function call(id: string, method: string, args: unknown[]) {
+  return callAt(`http://localhost/${sessionBasePath(id)}`, method, args)
+}
+
+/** One callable over an Agent's WebSocket. Rejections arrive as replies, as the browser sees them. */
+async function callAt(url: string, method: string, args: unknown[]): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const response = await routeAgentRequest(new Request(url, { headers: { Upgrade: 'websocket' } }), env, AGENT_ROUTES)
   const socket = response!.webSocket!
   socket.accept()
   const reply = new Promise<{ success: boolean; result?: unknown; error?: string }>((resolve, reject) => {
@@ -65,5 +70,25 @@ describe('model picker', () => {
     expect(reply.success).toBe(false)
     expect(reply.error).toBe('Unknown model: nope')
     expect((await pi.state).model).toBe('faux-a')
+  })
+
+  it('starts a session from the home page on the model chosen there', async () => {
+    const { id } = await registry().createSession({ prompt: 'hello', model: 'faux-b' })
+    const name = await registry().sessionAgentNameForTest(id)
+    const pi = env.PiSession.getByName(name!) as unknown as DurableObjectStub<TestPiSession>
+    expect((await pi.state).model).toBe('faux-b')
+    expect((await pi.promptForTest('model')).text).toBe('model: faux-b')
+  })
+
+  it('creates no session for a model it does not offer', async () => {
+    const before = (await registry().listSessions()).length
+    const reply = await callAt('http://localhost/api/agents/pi-registry/singleton', 'createSession', [{ prompt: 'hello', model: 'nope' }])
+    expect(reply.success).toBe(false)
+    expect(reply.error).toBe('Unknown model: nope')
+    expect(await registry().listSessions()).toHaveLength(before)
+  })
+
+  it('lists the models for the home page', async () => {
+    expect((await callAt('http://localhost/api/agents/pi-registry/singleton', 'listModels', [])).result).toEqual([{ id: 'faux-a', label: 'Faux A' }, { id: 'faux-b', label: 'Faux B' }])
   })
 })

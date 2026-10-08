@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { Badge } from '@cloudflare/kumo/components/badge'
 import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button, buttonVariants } from '@cloudflare/kumo/components/button'
 import { Tabs } from '@cloudflare/kumo/components/tabs'
 import { cn } from '@cloudflare/kumo/utils'
-import { ArrowLeftIcon, GitBranchIcon, GitPullRequestIcon, PencilSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
+import { GitBranchIcon, GitPullRequestIcon, PencilSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
 import { RenameSessionDialog } from '~/features/sessions/session-dialogs'
 import { TopBar } from '~/features/shell/top-bar'
 import { ChangesBrowser } from './components/changes-browser'
@@ -35,7 +34,7 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
   const chatView = session.mobileView === 'chat'
 
   return (
-    <main className="flex h-dvh flex-col overflow-hidden">
+    <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <TopBar
         actions={<>
           {task?.pullRequest && (
@@ -57,9 +56,6 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
           </Button>
         </>}
       >
-        <Link to="/" className={buttonVariants({ variant: 'ghost', shape: 'square', size: 'base' })} aria-label="Back to sessions" title="All sessions">
-          <ArrowLeftIcon size={18} />
-        </Link>
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <h1 className="sr-only">{name}</h1>
           <Button

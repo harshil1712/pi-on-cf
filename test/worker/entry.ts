@@ -11,11 +11,12 @@ import {
 } from '@earendil-works/pi-ai'
 import { getWorkspace } from '@cloudflare/computer'
 import type { GitClient } from '@cloudflare/computer/git'
+import { callable } from 'agents'
 import type { PiModel } from 'agents/harness/pi'
 import type { SkillSource } from 'agents/skills'
 import { PiRegistry as AppPiRegistry } from '~/server/pi-registry'
 import { PiSession as AppPiSession, type ModelChoice } from '~/server/pi-session'
-import type { SessionTask } from '~/shared/pi-contract'
+import type { ModelOption, SessionTask } from '~/shared/pi-contract'
 import { bucketSkills, builtInSkills } from '~/server/skills'
 
 export { ComputerTest } from './computer-test'
@@ -140,6 +141,12 @@ export class PiSession extends AppPiSession {
 
 /** The application's PiRegistry, with a way to reach a session's Agent directly. */
 export class PiRegistry extends AppPiRegistry {
+  /** The test sessions' faux models, so the home page's choice reaches them. */
+  @callable()
+  override listModels(): ModelOption[] {
+    return [{ id: 'faux-a', label: 'Faux A' }, { id: 'faux-b', label: 'Faux B' }]
+  }
+
   /** The physical Agent name behind a catalog entry, or null once it is gone. */
   async sessionAgentNameForTest(sessionId: string): Promise<string | null> {
     const stub = await this.sessions.get(sessionId)

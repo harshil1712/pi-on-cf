@@ -1,4 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { SessionCatalog } from '~/features/sessions/session-catalog'
+import { HomePage } from '~/features/home/home-page'
 
-export const Route = createFileRoute('/')({ component: SessionCatalog })
+export const Route = createFileRoute('/')({ component: HomePage })

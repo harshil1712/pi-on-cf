@@ -111,12 +111,18 @@ export interface PiSessionContract {
   setModel(id: string): Promise<void>
 }
 
+/** The registry's Agent state: a revision every catalog change bumps, so pages know to reload the list. */
+export type PiRegistryState = {
+  revision: number
+}
+
 export interface PiRegistryContract {
-  readonly state: unknown
-  createSession(input?: { name?: string; prompt?: string }): Promise<SessionSummary>
+  readonly state: PiRegistryState
+  createSession(input?: { name?: string; prompt?: string; model?: string }): Promise<SessionSummary>
   getSession(sessionId: string): Promise<SessionSummary | null>
   listSessions(): Promise<SessionSummary[]>
   renameSession(sessionId: string, name?: string): Promise<SessionSummary>
   deleteSession(sessionId: string): Promise<void>
   listRepositories(): Promise<Repository[]>
+  listModels(): Promise<ModelOption[]>
 }

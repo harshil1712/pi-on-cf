@@ -1,8 +1,9 @@
-import { Agent, callable } from 'agents'
+import { Agent, callable, type Connection } from 'agents'
 import { type RoutedAgentEntry, RoutedAgents } from 'agents/routing'
-import { PI_SESSIONS_ROUTE, type PullRequest, type Repository, type SessionSummary } from '~/shared/pi-contract'
+import { type ModelOption, PI_SESSIONS_ROUTE, type PiRegistryState, type PullRequest, type Repository, type SessionSummary } from '~/shared/pi-contract'
 import { titleFromPrompt } from '~/shared/session-title'
 import { listRepositories } from './github'
+import { modelOptions } from './models'
 import type { PiSession } from './pi-session'
 
 type SessionMetadata = {
@@ -24,8 +25,14 @@ const MAX_NAME_LENGTH = 120
  * `/sessions/{id}/...` requests and WebSocket upgrades to that Agent, which
  * then owns its socket, and deleting an entry condemns the Agent through the
  * SDK's deferred teardown. Each session's state lives in its own Agent.
+ *
+ * Its Agent state is a revision that every catalog change bumps. The SDK
+ * syncs it to every open page, which reloads the list when it moves, so
+ * the sidebar follows titles, pull requests and order without polling.
  */
-export class PiRegistry extends Agent<Env> {
+export class PiRegistry extends Agent<Env, PiRegistryState> {
+  override initialState: PiRegistryState = { revision: 0 }
+
   readonly sessions = new RoutedAgents<PiSession, SessionMetadata>({
     namespace: this.env.PiSession,
     route: PI_SESSIONS_ROUTE,
@@ -37,8 +44,10 @@ export class PiRegistry extends Agent<Env> {
   }
 
   @callable()
-  async createSession(input: { name?: string; prompt?: string } = {}): Promise<SessionSummary> {
+  async createSession(input: { name?: string; prompt?: string; model?: string } = {}): Promise<SessionSummary> {
     const name = cleanName(input.name)
+    // Checked here, before there is an entry to undo, so a bad model never reaches a session.
+    if (input.model && !this.listModels().some(({ id }) => id === input.model)) throw new Error(`Unknown model: ${input.model}`)
     const entry = await this.sessions.create({ metadata: name ? { name } : {} })
     // The session reports activity under its entry ID, which only the
     // registry knows. Without it the entry is unusable, so undo the create.
@@ -46,6 +55,8 @@ export class PiRegistry extends Agent<Env> {
       const session = await this.sessions.get(entry.id)
       if (!session) throw new Error(`Session not found: ${entry.id}`)
       await session.joinCatalog(entry.id)
+      // Before the prompt, so pi answers it with the model the home page chose.
+      if (input.model) await session.setModel(input.model)
       // The home page starts a session with its first prompt; a session
       // that cannot take it is no use to the caller either.
       if (input.prompt?.trim()) {
@@ -56,6 +67,7 @@ export class PiRegistry extends Agent<Env> {
       await this.sessions.delete(entry.id)
       throw error
     }
+    this.#changed()
     return summary(await this.#require(entry.id))
   }
 
@@ -76,6 +88,7 @@ export class PiRegistry extends Agent<Env> {
     const nextName = cleanName(name)
     const { name: _previous, ...metadata } = entry.metadata ?? {}
     await this.sessions.setMetadata(sessionId, nextName ? { ...metadata, name: nextName } : metadata)
+    this.#changed()
     return summary(await this.#require(sessionId))
   }
 
@@ -90,15 +103,24 @@ export class PiRegistry extends Agent<Env> {
     return listRepositories(token)
   }
 
+  /** The models a session can use, the default first, for the home page's picker. Tests override this. */
+  @callable()
+  listModels(): ModelOption[] {
+    return modelOptions(this.env.AI_MODEL)
+  }
+
   @callable()
   async deleteSession(sessionId: string): Promise<void> {
     if (!await this.sessions.delete(sessionId)) throw new Error(`Session not found: ${sessionId}`)
+    this.#changed()
   }
 
   /** Called by a PiSession when it clones its repository and when it opens a pull request. */
   async setTask(sessionId: string, task: { repo: string; branch: string; pullRequest?: PullRequest }): Promise<void> {
     const entry = await this.#find(sessionId)
-    if (entry) await this.sessions.setMetadata(sessionId, { ...entry.metadata, ...task })
+    if (!entry) return
+    await this.sessions.setMetadata(sessionId, { ...entry.metadata, ...task })
+    this.#changed()
   }
 
   /**
@@ -111,6 +133,16 @@ export class PiRegistry extends Agent<Env> {
     const metadata = entry.metadata ?? {}
     // Rewriting the same metadata bumps the entry's `updatedAt`.
     await this.sessions.setMetadata(sessionId, !metadata.title && prompt ? { ...metadata, title: titleFromPrompt(prompt) } : metadata)
+    this.#changed()
+  }
+
+  /** The revision is the registry's to move. */
+  override validateStateChange(_next: PiRegistryState, source: Connection | 'server'): void {
+    if (source !== 'server') throw new Error('Registry state is read-only.')
+  }
+
+  #changed(): void {
+    this.setState({ revision: this.state.revision + 1 })
   }
 
   async #find(sessionId: string): Promise<RoutedAgentEntry<SessionMetadata> | undefined> {

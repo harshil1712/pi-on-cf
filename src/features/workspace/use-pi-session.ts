@@ -4,12 +4,8 @@ import { useAgent } from 'agents/react'
 import type { AgentEvent } from '@earendil-works/pi-durable'
 import {
   PI_AGENT_NAME,
-  PI_AGENT_PREFIX,
-  PI_REGISTRY_INSTANCE,
-  PI_REGISTRY_NAME,
   type ModelOption,
   type PiEventsMessage,
-  type PiRegistryContract,
   type PiSessionContract,
   type PiSessionState,
   type SessionSummary,
@@ -17,6 +13,7 @@ import {
   sessionBasePath,
   type WorkspaceFile,
 } from '~/shared/pi-contract'
+import { useSessionRegistry } from '~/features/sessions/session-registry'
 import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from './transcript'
 import { useTaskChanges } from './use-task-changes'
 
@@ -112,11 +109,8 @@ export function usePiSession(sessionId: string) {
     },
     onConnectionError: (failure) => setError(failure.message),
   })
-  const registry = useAgent<PiRegistryContract, unknown>({
-    agent: PI_REGISTRY_NAME,
-    name: PI_REGISTRY_INSTANCE,
-    prefix: PI_AGENT_PREFIX,
-  })
+  const catalog = useSessionRegistry()
+  const registry = catalog.agent
 
   const refreshFiles = useCallback(async () => {
     const request = ++filesRequestRef.current
@@ -220,10 +214,8 @@ export function usePiSession(sessionId: string) {
       if (view.running) {
         await agent.stub.steer(prompt)
       } else {
+        // A first prompt titles the session; the live catalog brings the title.
         await agent.stub.submit(prompt)
-        // A first prompt titles the session. The title is for display only,
-        // so a failed refresh keeps the old summary.
-        registry.stub.getSession(sessionId).then((next) => { if (next) setSummary(next) }, () => {})
       }
     } catch (caught) {
       setInput(prompt)
@@ -295,7 +287,8 @@ export function usePiSession(sessionId: string) {
     setModel: chooseModel,
     setSelectedPath,
     submit,
-    summary,
+    // The live catalog's copy follows titles and pull requests as they change.
+    summary: catalog.sessions.find((session) => session.id === sessionId) ?? summary,
     task,
     transcriptRef,
   }

@@ -75,3 +75,33 @@ describe('sessions started from a prompt', () => {
     expect((await registry().getSession(created.id))?.title).toBeUndefined()
   })
 })
+
+describe('catalog revisions', () => {
+  it('tells open pages when the catalog changes, and refuses their writes', async () => {
+    const response = await routeAgentRequest(new Request('http://localhost/api/agents/pi-registry/singleton', { headers: { Upgrade: 'websocket' } }), env, AGENT_ROUTES)
+    const socket = response!.webSocket!
+    socket.accept()
+    const revisions: number[] = []
+    let refused = false
+    socket.addEventListener('message', (event) => {
+      const data = JSON.parse(String(event.data)) as { type?: string; state?: { revision: number } }
+      if (data.type === 'cf_agent_state' && data.state) revisions.push(data.state.revision)
+      if (data.type === 'cf_agent_state_error') refused = true
+    })
+    await expect.poll(() => revisions.length).toBe(1)
+    const start = revisions[0]!
+
+    const { id } = await registry().createSession()
+    await expect.poll(() => revisions.at(-1)).toBeGreaterThan(start)
+    const created = revisions.at(-1)!
+    await registry().renameSession(id, 'Renamed')
+    await expect.poll(() => revisions.at(-1)).toBeGreaterThan(created)
+    const renamed = revisions.at(-1)!
+    await registry().deleteSession(id)
+    await expect.poll(() => revisions.at(-1)).toBeGreaterThan(renamed)
+
+    socket.send(JSON.stringify({ type: 'cf_agent_state', state: { revision: 0 } }))
+    await expect.poll(() => refused).toBe(true)
+    socket.close()
+  })
+})

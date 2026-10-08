@@ -4,7 +4,7 @@ import { InputArea } from '@cloudflare/kumo/components/input'
 import { Loader } from '@cloudflare/kumo/components/loader'
 import { Select } from '@cloudflare/kumo/components/select'
 import { cn } from '@cloudflare/kumo/utils'
-import { ArrowUpIcon, LockSimpleIcon, StopIcon } from '@phosphor-icons/react'
+import { ArrowUpIcon, CubeIcon, LockSimpleIcon, StopIcon } from '@phosphor-icons/react'
 import type { ModelOption, Repository } from '~/shared/pi-contract'
 import { mentionQueryAt } from '~/shared/repo-mention'
 
@@ -67,7 +67,7 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
   return (
     <>
       {/* The form draws the field, as Kumo's InputGroup does, so the actions sit inside it. */}
-      <form className="relative flex items-end gap-2 rounded-xl bg-kumo-control p-2 ring ring-kumo-line focus-within:ring-[1.5px] focus-within:ring-kumo-focus/50" onSubmit={onSubmit}>
+      <form className="relative flex flex-col gap-1 rounded-xl bg-kumo-control p-2 ring ring-kumo-line focus-within:ring-[1.5px] focus-within:ring-kumo-focus/50" onSubmit={onSubmit}>
         {open && (
           <div
             id="repo-suggestions"
@@ -103,11 +103,13 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
           id="prompt"
           aria-label="Message Pi"
           aria-controls={open ? 'repo-suggestions' : undefined}
-          className="min-h-10 flex-1 bg-transparent px-1.5 ring-0 focus:ring-0"
+          className="min-h-10 bg-transparent px-1.5 ring-0 focus:ring-0"
           value={input}
           onValueChange={onInputChange}
           onChange={(event) => track(event.currentTarget.value, event.currentTarget.selectionStart)}
           onClick={(event) => track(event.currentTarget.value, event.currentTarget.selectionStart)}
+          // Focus given by code, such as a home-page starter that leaves the caret after its `@`, opens the picker too.
+          onFocus={(event) => track(event.currentTarget.value, event.currentTarget.selectionStart)}
           onBlur={() => setMention(null)}
           onKeyDown={(event) => {
             if (open && suggestions.length) {
@@ -142,31 +144,38 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
           maxRows={10}
           disabled={!isReady}
         />
-        <div className="flex gap-1.5">
+        {/* The field's toolbar: the model on the left, the actions on the right. */}
+        <div className="flex items-center gap-1.5">
+          {models?.length ? (
+            <Select
+              aria-label="Model"
+              size="sm"
+              className="w-auto max-w-56 gap-1.5 bg-transparent px-2 text-kumo-subtle shadow-none ring-0 hover:bg-kumo-tint hover:text-kumo-default"
+              items={models.map(({ id, label }) => ({ value: id, label }))}
+              value={model || null}
+              renderValue={(id) => (
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <CubeIcon size={14} className="shrink-0" />
+                  <span className="truncate">{models.find((option) => option.id === id)?.label ?? id}</span>
+                </span>
+              )}
+              onValueChange={(id) => { if (typeof id === 'string' && id !== model) onModelChange?.(id) }}
+              // Pi would switch from its next request; keeping the choice to idle sessions keeps the effect obvious.
+              disabled={!isReady || isRunning}
+              side="top"
+              align="start"
+            />
+          ) : null}
+          <span className="flex-1" />
           {isRunning && (
             <Button type="button" variant="secondary" shape="square" onClick={onAbort} aria-label="Stop" title="Stop" icon={<StopIcon weight="fill" />} />
           )}
           <Button type="submit" variant="primary" shape="square" disabled={!isReady || !input.trim()} aria-label={sendLabel} title={`${sendLabel} (Enter)`} icon={<ArrowUpIcon weight="bold" />} />
         </div>
       </form>
-      <div className={cn('mx-1 mt-1.5 flex items-center gap-2', models?.length ? 'justify-between' : 'justify-center')}>
-        {models?.length ? (
-          <Select
-            aria-label="Model"
-            size="sm"
-            className="min-w-36"
-            items={models.map(({ id, label }) => ({ value: id, label }))}
-            value={model || null}
-            onValueChange={(id) => { if (typeof id === 'string' && id !== model) onModelChange?.(id) }}
-            // Pi would switch from its next request; keeping the choice to idle sessions keeps the effect obvious.
-            disabled={!isReady || isRunning}
-            side="top"
-          />
-        ) : null}
-        <p className="text-xs text-kumo-subtle max-md:hidden">
-          <kbd className="font-medium">Enter</kbd> to send · <kbd className="font-medium">Shift</kbd>+<kbd className="font-medium">Enter</kbd> for a new line
-        </p>
-      </div>
+      <p className="mx-1 mt-1.5 text-center text-xs text-kumo-subtle max-md:hidden">
+        <kbd className="font-medium">Enter</kbd> to send · <kbd className="font-medium">Shift</kbd>+<kbd className="font-medium">Enter</kbd> for a new line
+      </p>
     </>
   )
 }

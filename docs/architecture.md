@@ -11,7 +11,7 @@ Pi on Cloudflare is a TanStack Start application deployed as a Cloudflare Worker
 - One `PiSession` Durable Object per session, owning the Pi conversation and a Cloudflare Computer workspace.
 - A singleton `PiRegistry` Durable Object for the session catalog, on the Agents SDK's `RoutedAgents` (`agents/routing`).
 
-The Worker routes `/api/agents/*` through the Agents SDK and sends other requests to TanStack Start. Sessions are reachable only through the registry: `src/server/agent-routes.ts` refuses direct `/api/agents/pi-session/*` requests. The browser has a session catalog at `/` and a workspace at `/sessions/:sessionId`.
+The Worker routes `/api/agents/*` through the Agents SDK and sends other requests to TanStack Start. Sessions are reachable only through the registry: `src/server/agent-routes.ts` refuses direct `/api/agents/pi-session/*` requests. Every page sits in one app shell (`src/features/shell/app-shell.tsx`): Kumo's `Sidebar` lists the sessions beside the routed page, a home page at `/` starts sessions from a prompt, and each session's workspace is at `/sessions/:sessionId`. The shell holds the app's one registry connection (`SessionRegistryProvider`), which both pages share.
 
 Relevant source:
 
@@ -43,7 +43,7 @@ The session uses Pi's root conversation. The harness factory installs one Pi ext
 
 Tool calls in a round run sequentially. Reads, searches, `write`, and `delete` are marked replay-safe; `edit` and `exec` are reported to the model as interrupted if an eviction cuts them off.
 
-The model comes from `createAI({ binding: env.AI })`. New sessions start on `AI_MODEL` at the `medium` thinking level. The composer's model picker switches a session to any model in the curated list in `src/server/models.ts`, with `AI_MODEL` added when the list lacks it: `setModel` checks the ID against that list, calls pi's `session.setModel`, and records the ID in the Agent state, which the picker shows. Pi uses the new model from its next request. The UI only offers the switch while the session is idle; pi itself would accept it mid-run.
+The model comes from `createAI({ binding: env.AI })`. New sessions start on `AI_MODEL` at the `medium` thinking level. The composer's model picker switches a session to any model in the curated list in `src/server/models.ts`, with `AI_MODEL` added when the list lacks it: `setModel` checks the ID against that list, calls pi's `session.setModel`, and records the ID in the Agent state, which the picker shows. Pi uses the new model from its next request. The UI only offers the switch while the session is idle; pi itself would accept it mid-run. The home page's picker reads the same list, default first, from the registry's `listModels`; `createSession({ prompt, model })` checks the model against it before creating an entry, then sets it on the new session before submitting the prompt.
 
 ### Transport
 
@@ -101,6 +101,8 @@ After a save or delete, `SkillCatalog.reload()` rebuilds the session's sources, 
 The singleton `PiRegistry` keeps the session catalog with the Agents SDK's `RoutedAgents` capability: each entry maps a public session ID to an opaque physical `PiSession` name, with an optional session name as metadata and timestamps. Creating, listing, and renaming touch only the registry's SQLite. Creating a session also calls `joinCatalog` on the new `PiSession`, which stores the entry ID it reports activity under; a `PiSession` touches its entry when it accepts a prompt, which moves it to the top of the list, and the first prompt it accepts titles an entry that has none (`titleFromPrompt` in `src/shared/session-title.ts`). The catalog shows a session's name, else its title, else its repository. The home page starts a session from a prompt: `createSession({ prompt })` submits it to the new session after `joinCatalog`, and a failed submit deletes the entry like a failed join.
 
 Repository sessions also store the repository, the task branch and the pull request in the entry's metadata, so the catalog lists them without waking each session.
+
+The registry's Agent state is a revision that every catalog change bumps: creating, renaming, deleting, titling, touching, and a session's task or pull request. The Agents SDK syncs that state to every open page, which reloads the list when it moves, so the sidebar follows other tabs and running sessions without polling. Clients cannot write it.
 
 Deleting a session hides the entry, condemns the `PiSession` through the Agents SDK's deferred teardown, then removes the row; a failed delete leaves a hidden row and can be retried. The teardown runs `destroy()` in the session's own alarm: Lifecycle disposal stops the session's event watches and its container, deletes its Artifacts repos, closes Pi, and then the Agent wipes Pi's tables and the workspace.
 

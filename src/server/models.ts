@@ -14,9 +14,12 @@ export const MODEL_OPTIONS: readonly ModelOption[] = [
   { id: '@cf/openai/gpt-oss-120b', label: 'gpt-oss 120B' },
 ]
 
-/** The curated list, led by the configured default when the list lacks it. */
+/**
+ * The curated list, led by the configured default, which is added when the
+ * list lacks it. Leading with it lets a page that has no session yet, such as
+ * the home page, preselect it.
+ */
 export function modelOptions(defaultId: string): ModelOption[] {
-  return MODEL_OPTIONS.some(({ id }) => id === defaultId)
-    ? [...MODEL_OPTIONS]
-    : [{ id: defaultId, label: defaultId }, ...MODEL_OPTIONS]
+  const listed = MODEL_OPTIONS.find(({ id }) => id === defaultId) ?? { id: defaultId, label: defaultId }
+  return [listed, ...MODEL_OPTIONS.filter(({ id }) => id !== defaultId)]
 }

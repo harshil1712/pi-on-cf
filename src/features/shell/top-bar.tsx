@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
+import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar'
 import { cn } from '@cloudflare/kumo/utils'
-import { ThemeToggle } from '~/features/theme/theme-toggle'
 
 /** The π mark, the one place the brand orange appears. */
 export function PiMark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
@@ -9,7 +9,7 @@ export function PiMark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
       aria-hidden="true"
       className={cn(
         'grid shrink-0 place-items-center bg-pi-brand leading-none font-bold text-white',
-        size === 'sm' ? 'size-6 rounded-md text-[15px]' : 'size-9 rounded-lg text-[22px]',
+        size === 'sm' ? 'size-6 rounded-md text-[15px]' : 'size-11 rounded-xl text-[26px]',
       )}
     >
       π
@@ -17,15 +17,17 @@ export function PiMark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
   )
 }
 
-/** Shared page header: a leading slot, then actions and the theme menu on the right. */
-export function TopBar({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+/**
+ * Shared page header, as tall as the sidebar's so their borders line up.
+ * It offers the sidebar trigger only when the sidebar is out of view.
+ */
+export function TopBar({ children, actions, bordered = true }: { children?: ReactNode; actions?: ReactNode; bordered?: boolean }) {
+  const { open, isMobile } = useSidebar()
   return (
-    <header className="flex h-13 shrink-0 items-center gap-2.5 border-b border-kumo-hairline bg-kumo-base pr-3 pl-4">
+    <header className={cn('flex h-[58px] shrink-0 items-center gap-2 pr-3 pl-3', bordered && 'border-b border-kumo-line bg-kumo-base')}>
+      {(isMobile || !open) && <Sidebar.Trigger aria-label="Show sessions" title="Sessions" />}
       {children}
-      <div className="ml-auto flex items-center gap-1">
-        <ThemeToggle />
-        {actions}
-      </div>
+      {actions && <div className="ml-auto flex items-center gap-1">{actions}</div>}
     </header>
   )
 }
