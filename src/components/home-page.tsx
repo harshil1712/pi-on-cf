@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button } from '@cloudflare/kumo/components/button'
-import { BugBeetleIcon, BookOpenTextIcon, BroomIcon, GitBranchIcon, PlusIcon, TestTubeIcon, type Icon } from '@phosphor-icons/react'
+import { BugBeetleIcon, BookOpenTextIcon, BroomIcon, GitBranchIcon, TestTubeIcon, type Icon } from '@phosphor-icons/react'
 import { useSessionRegistry } from '~/hooks/use-session-registry'
 import { PiMark } from './pi-mark'
 import { TopBar } from './top-bar'
@@ -31,7 +31,7 @@ export function HomePage() {
   const registry = useSessionRegistry()
   const navigate = useNavigate()
   const [prompt, setPrompt] = useState('')
-  const [busy, setBusy] = useState<'' | 'start' | 'create'>('')
+  const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
   // The server cannot know the visitor's hour, so greet after hydration.
   const [hello, setHello] = useState('')
@@ -51,16 +51,16 @@ export function HomePage() {
   }, [registry.agent.stub])
   const recentRepositories = [...new Set(registry.sessions.flatMap((session) => session.repo ? [session.repo] : []))].slice(0, RECENT_REPOSITORY_LIMIT)
 
-  async function start(firstPrompt?: string) {
-    if (busy) return
-    setBusy(firstPrompt ? 'start' : 'create')
+  async function start(firstPrompt: string) {
+    if (starting) return
+    setStarting(true)
     setError('')
     try {
-      const session = await registry.agent.stub.createSession({ ...(firstPrompt ? { prompt: firstPrompt } : {}), ...(model ? { model } : {}) })
+      const session = await registry.agent.stub.createSession({ prompt: firstPrompt, ...(model ? { model } : {}) })
       await navigate({ to: '/sessions/$sessionId', params: { sessionId: session.id } })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
-      setBusy('')
+      setStarting(false)
     }
   }
 
@@ -87,9 +87,24 @@ export function HomePage() {
             <h1 className="text-[28px] leading-tight font-semibold tracking-tight text-balance md:text-[34px]">
               <span className="text-kumo-subtle">{hello ? `${hello}. ` : ''}</span>What should Pi work on?
             </h1>
-            <p className="mx-auto max-w-130 text-kumo-subtle text-pretty">
-              Pi works in its own cloud workspace. Mention a repository with <kbd className="rounded bg-kumo-recessed px-1 font-mono text-[0.9em] text-kumo-default">@</kbd>, and it reads the code, makes the change, tests it and opens a draft pull request.
-            </p>
+            <section aria-label="Start from" className="mt-8 grid grid-cols-1 gap-2 sm:grid-cols-2 animate-enter [animation-delay:180ms]">
+              {STARTERS.map(({ icon: StarterIcon, title, detail, prompt: text }) => (
+                <button
+                  key={title}
+                  type="button"
+                  onClick={() => compose(text)}
+                  className="group flex cursor-pointer items-start gap-3 rounded-xl bg-kumo-base p-3.5 text-left ring ring-kumo-line transition hover:bg-kumo-tint hover:ring-kumo-fill focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:outline-none"
+                >
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-kumo-recessed text-kumo-subtle transition group-hover:text-kumo-default">
+                    <StarterIcon size={17} />
+                  </span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-sm font-medium">{title}</span>
+                    <span className="text-xs text-kumo-subtle">{detail}</span>
+                  </span>
+                </button>
+              ))}
+            </section>
           </div>
         </div>
 
@@ -97,7 +112,7 @@ export function HomePage() {
           {error && <Banner className="mb-3" variant="error" role="alert" description={error} />}
           <PromptComposer
             input={prompt}
-            isReady={!busy}
+            isReady={!starting}
             isRunning={false}
             onAbort={() => {}}
             onInputChange={setPrompt}
@@ -105,7 +120,7 @@ export function HomePage() {
               event.preventDefault()
               if (prompt.trim()) void start(prompt.trim())
             }}
-            placeholder={busy === 'start' ? 'Starting a session…' : 'Describe a task, or type @ to pick a repository'}
+            placeholder={starting ? 'Starting a session…' : 'Describe a task, or type @ to pick a repository'}
             repositories={listRepositories}
             models={models}
             model={model}
@@ -123,31 +138,6 @@ export function HomePage() {
             ))}
           </section>
         )}
-
-        <section aria-label="Start from" className="mt-8 grid grid-cols-1 gap-2 sm:grid-cols-2 animate-enter [animation-delay:180ms]">
-          {STARTERS.map(({ icon: StarterIcon, title, detail, prompt: text }) => (
-            <button
-              key={title}
-              type="button"
-              onClick={() => compose(text)}
-              className="group flex cursor-pointer items-start gap-3 rounded-xl bg-kumo-base p-3.5 text-left ring ring-kumo-line transition hover:bg-kumo-tint hover:ring-kumo-fill focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:outline-none"
-            >
-              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-kumo-recessed text-kumo-subtle transition group-hover:text-kumo-default">
-                <StarterIcon size={17} />
-              </span>
-              <span className="flex min-w-0 flex-col">
-                <span className="text-sm font-medium">{title}</span>
-                <span className="text-xs text-kumo-subtle">{detail}</span>
-              </span>
-            </button>
-          ))}
-        </section>
-
-        <div className="mt-6 flex justify-center">
-          <Button variant="ghost" size="sm" loading={busy === 'create'} disabled={Boolean(busy)} icon={PlusIcon} onClick={() => void start()}>
-            Start an empty session
-          </Button>
-        </div>
       </div>
     </main>
   )

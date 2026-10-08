@@ -122,13 +122,4 @@ describe('HomePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'octo/site' }))
     await waitFor(() => expect(field().value).toBe('Compare @octo/site '))
   })
-
-  it('starts an empty session', async () => {
-    renderHome()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Start an empty session' }))
-
-    await waitFor(() => expect(mocks.registry.stub.createSession).toHaveBeenCalledWith({}))
-    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/sessions/$sessionId', params: { sessionId: 'created-session' } })
-  })
 })
