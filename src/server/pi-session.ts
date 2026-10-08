@@ -229,7 +229,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   async submit(prompt: string) {
     prompt = validPrompt(prompt)
     const receipt = await this.harness.submit(prompt)
-    this.ctx.waitUntil(this.#touchRegistry(prompt))
+    // Awaited, so a caller that reads the catalog next sees the title a
+    // first prompt gives the session. It never throws.
+    await this.#touchRegistry(prompt)
     this.ctx.waitUntil(this.#syncSkills())
     return { operationId: receipt.operationId, accepted: receipt.accepted }
   }

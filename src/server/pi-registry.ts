@@ -49,10 +49,8 @@ export class PiRegistry extends Agent<Env> {
       // The home page starts a session with its first prompt; a session
       // that cannot take it is no use to the caller either.
       if (input.prompt?.trim()) {
+        // The session titles its entry before `submit` returns.
         await session.submit(input.prompt)
-        // The session reports the prompt after `submit` returns; titling
-        // here too means the caller gets the title back.
-        await this.touchSession(entry.id, input.prompt.trim())
       }
     } catch (error) {
       await this.sessions.delete(entry.id)
