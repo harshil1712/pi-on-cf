@@ -59,6 +59,8 @@ Open `http://localhost:3000`.
 
 `AI_MODEL` selects the model new sessions start with; `AI_GATEWAY_ID` selects the AI Gateway. Both are non-secret variables in `wrangler.jsonc`. The shared file keeps the neutral gateway ID `default`; keep account-specific configuration in an ignored `wrangler.local.jsonc` and select it with `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite commands or `--config wrangler.local.jsonc` for Wrangler.
 
+The session page's model picker switches a session between the Workers AI models curated in `src/server/models.ts`; edit that list to offer others. `AI_MODEL` is always offered, first if the list lacks it. A switch applies from the model's next request, and the picker is disabled while Pi is running.
+
 `GITHUB_TOKEN` is a required secret: a GitHub token that can read and write the contents and pull requests of the repositories sessions work on. A [fine-grained personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) limited to those repositories, with **Contents** and **Pull requests** read and write, is enough. Set it with `npx wrangler secret put GITHUB_TOKEN`, and locally in `.dev.vars`; `wrangler deploy` fails until it is set. Because `wrangler.jsonc` declares `secrets`, `.dev.vars` and `.env` load only the secrets listed there.
 
 `BUCKET` is the app's R2 bucket, `pi-on-cf`. It is a remote binding, so local development reads the real bucket. Create it once with `npx wrangler r2 bucket create pi-on-cf`.

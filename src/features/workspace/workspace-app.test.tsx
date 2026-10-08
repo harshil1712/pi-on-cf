@@ -17,8 +17,10 @@ const mocks = vi.hoisted(() => {
       abort: vi.fn(),
       listChanges: vi.fn(),
       listFiles: vi.fn(),
+      listModels: vi.fn(),
       readChange: vi.fn(),
       readWorkspaceFile: vi.fn(),
+      setModel: vi.fn(),
       steer: vi.fn(),
       submit: vi.fn(),
     },
@@ -96,6 +98,8 @@ describe('WorkspaceApp', () => {
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() })
     mocks.sessionAgent.stub.abort.mockResolvedValue(true)
     mocks.sessionAgent.stub.listFiles.mockResolvedValue([])
+    mocks.sessionAgent.stub.listModels.mockResolvedValue([])
+    mocks.sessionAgent.stub.setModel.mockResolvedValue(undefined)
     mocks.sessionAgent.stub.readWorkspaceFile.mockResolvedValue(fileContent('/workspace/default.ts', ''))
     mocks.sessionAgent.stub.submit.mockResolvedValue({ operationId: 'op-1', accepted: true })
     mocks.sessionAgent.stub.steer.mockResolvedValue({ operationId: 'op-2', accepted: true })
@@ -298,7 +302,7 @@ describe('WorkspaceApp', () => {
     await deliver(snapshot([]))
     expect(screen.queryByText('Changes')).toBeNull()
 
-    act(() => mocks.sessionOptions?.onStateUpdate?.({ task }, 'server'))
+    act(() => mocks.sessionOptions?.onStateUpdate?.({ task, model: 'm' }, 'server'))
 
     expect(await screen.findByText('src/index.ts')).toBeTruthy()
     expect(screen.getByText('octo/demo · pi/12345678')).toBeTruthy()
@@ -310,7 +314,7 @@ describe('WorkspaceApp', () => {
     await waitFor(() => expect(mocks.sessionAgent.stub.readChange).toHaveBeenCalledWith('README.md'))
     expect(screen.queryByRole('link', { name: /#7/ })).toBeNull()
 
-    act(() => mocks.sessionOptions?.onStateUpdate?.({ task: { ...task, pullRequest: { number: 7, url: 'https://github.com/octo/demo/pull/7' } } }, 'server'))
+    act(() => mocks.sessionOptions?.onStateUpdate?.({ task: { ...task, pullRequest: { number: 7, url: 'https://github.com/octo/demo/pull/7' } }, model: 'm' }, 'server'))
     expect(screen.getByRole('link', { name: /#7/ }).getAttribute('href')).toBe('https://github.com/octo/demo/pull/7')
   })
 
@@ -349,10 +353,33 @@ describe('WorkspaceApp', () => {
     expect(screen.queryByText(/No repository matches/)).toBeNull()
   })
 
+  it('shows the session\'s model and switches it', async () => {
+    mocks.sessionAgent.stub.listModels.mockResolvedValue([{ id: 'model-a', label: 'Model A' }, { id: 'model-b', label: 'Model B' }])
+    render(<WorkspaceApp sessionId="session-12345678" />)
+    act(() => mocks.sessionOptions?.onStateUpdate?.({ task: null, model: 'model-a' }, 'server'))
+    await deliver(snapshot([]))
+    const picker = await screen.findByRole('combobox', { name: 'Model' })
+    expect(picker.textContent).toContain('Model A')
+
+    fireEvent.click(picker)
+    // Base UI selects on a click that started on the option, as a mouse's does.
+    const option = await screen.findByRole('option', { name: 'Model B' })
+    fireEvent.pointerDown(option)
+    fireEvent.click(option)
+    await waitFor(() => expect(mocks.sessionAgent.stub.setModel).toHaveBeenCalledWith('model-b'))
+  })
+
+  it('hides the model picker when the session offers no models', async () => {
+    render(<WorkspaceApp sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+    await waitFor(() => expect(mocks.sessionAgent.stub.listModels).toHaveBeenCalled())
+    expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull()
+  })
+
   it('stops suggesting repositories once the session has one', async () => {
     render(<WorkspaceApp sessionId="session-12345678" />)
     await deliver(snapshot([]))
-    act(() => mocks.sessionOptions?.onStateUpdate?.({ task: { repo: 'octo/demo', baseBranch: 'main', baseCommit: 'abc', branch: 'pi/1', dir: '/workspace/demo' } }, 'server'))
+    act(() => mocks.sessionOptions?.onStateUpdate?.({ task: { repo: 'octo/demo', baseBranch: 'main', baseCommit: 'abc', branch: 'pi/1', dir: '/workspace/demo' }, model: 'm' }, 'server'))
     const field = screen.getByLabelText('Message Pi') as HTMLTextAreaElement
     expect(field.placeholder).not.toContain('type @')
 

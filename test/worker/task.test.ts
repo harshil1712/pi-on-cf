@@ -160,9 +160,9 @@ describe('repository sessions', () => {
     const frames: { type?: string; state?: unknown }[] = []
     socket.addEventListener('message', (event) => { frames.push(JSON.parse(String(event.data))) })
     await expect.poll(() => frames.find((frame) => frame.type === 'cf_agent_state')).toBeTruthy()
-    expect(frames.find((frame) => frame.type === 'cf_agent_state')?.state).toEqual({ task })
+    expect(frames.find((frame) => frame.type === 'cf_agent_state')?.state).toEqual({ task, model: 'faux-a' })
 
-    socket.send(JSON.stringify({ type: 'cf_agent_state', state: { task: { ...task, branch: 'main' } } }))
+    socket.send(JSON.stringify({ type: 'cf_agent_state', state: { task: { ...task, branch: 'main' }, model: 'faux-b' } }))
     await expect.poll(() => frames.some((frame) => frame.type === 'cf_agent_state_error')).toBe(true)
     socket.close()
     expect((await pi.promptForTest('section repository')).text).toContain('branch pi/test')

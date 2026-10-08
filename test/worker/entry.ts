@@ -5,6 +5,7 @@ import {
   fauxText,
   fauxToolCall,
   type Message,
+  type Model,
   type Provider,
   type TranscriptContext,
 } from '@earendil-works/pi-ai'
@@ -13,7 +14,7 @@ import type { GitClient } from '@cloudflare/computer/git'
 import type { PiModel } from 'agents/harness/pi'
 import type { SkillSource } from 'agents/skills'
 import { PiRegistry as AppPiRegistry } from '~/server/pi-registry'
-import { PiSession as AppPiSession } from '~/server/pi-session'
+import { PiSession as AppPiSession, type ModelChoice } from '~/server/pi-session'
 import type { SessionTask } from '~/shared/pi-contract'
 import { bucketSkills, builtInSkills } from '~/server/skills'
 
@@ -35,16 +36,18 @@ function textOf(content: Message['content'] | undefined): string {
  * - `tool <name> <json>` calls any tool with the JSON as its arguments.
  * - `catalog` answers with the `skills` prompt section the model sees.
  * - `section <key>` answers with that prompt section.
+ * - `model` answers with the ID of the model asked.
  * - After a tool result it answers `tool said: <result>`.
  * - Anything else is echoed back.
  */
-function script(context: TranscriptContext): AssistantMessage {
+function script(context: TranscriptContext, _options: unknown, _state: unknown, model: Model<string>): AssistantMessage {
   // pi places system-prompt changes positionally, so one can follow the input.
   const last = context.messages.filter((message) => message.role !== 'system').at(-1)
   if (last?.role === 'toolResult') {
     return fauxAssistantMessage([fauxText(`${last.isError ? 'tool failed' : 'tool said'}: ${textOf(last.content)}`)])
   }
   const prompt = last?.role === 'user' ? textOf(last.content) : ''
+  if (prompt === 'model') return fauxAssistantMessage([fauxText(`model: ${model.id}`)])
   const section = prompt === 'catalog' ? 'skills' : /^section (\S+)$/.exec(prompt)?.[1]
   if (section) {
     // Replaying system messages in order yields the current sections.
@@ -79,10 +82,12 @@ function script(context: TranscriptContext): AssistantMessage {
 
 /** The application's PiSession, with pi-ai's faux provider instead of Workers AI. */
 export class PiSession extends AppPiSession {
-  protected override modelSource(): { provider: Provider; default: PiModel } {
-    const faux = fauxProvider({ tokensPerSecond: 500 })
+  /** Two faux models on one provider, so tests can switch between them. */
+  protected override modelSource(): { provider: Provider; default: PiModel; choices: ModelChoice[] } {
+    const faux = fauxProvider({ tokensPerSecond: 500, models: [{ id: 'faux-a' }, { id: 'faux-b' }] })
     faux.setResponses(Array.from({ length: 100 }, () => script))
-    return { provider: faux.provider, default: faux.getModel() }
+    const [a, b] = faux.models
+    return { provider: faux.provider, default: a, choices: [{ model: a, label: 'Faux A' }, { model: b, label: 'Faux B' }] }
   }
 
   /** The app's sources, with the bucket listed on every refresh so tests see changes at once. */
@@ -116,7 +121,7 @@ export class PiSession extends AppPiSession {
     const { oid } = await git.commit({ dir, message: 'base' })
     await git.branch({ dir, name: 'pi/test', checkout: true })
     const task: SessionTask = { repo: 'octo/demo', baseBranch: 'main', baseCommit: oid, branch: 'pi/test', dir }
-    this.setState({ task })
+    this.setState({ ...this.state, task })
     return task
   }
 

@@ -68,6 +68,14 @@ export type SessionTask = {
 /** A PiSession's Agent state, synced to its clients by the Agents SDK. Only the server writes it. */
 export type PiSessionState = {
   task: SessionTask | null
+  /** The ID of the model pi answers with, one of `listModels()`. */
+  model: string
+}
+
+/** A model the session can switch to. */
+export type ModelOption = {
+  id: string
+  label: string
 }
 
 /** One file the task changed since its base commit, uncommitted work included. */
@@ -99,6 +107,8 @@ export interface PiSessionContract {
   readWorkspaceFile(path: string): Promise<WorkspaceFileContent>
   listChanges(): Promise<TaskChange[]>
   readChange(path: string): Promise<string>
+  listModels(): Promise<ModelOption[]>
+  setModel(id: string): Promise<void>
 }
 
 export interface PiRegistryContract {
