@@ -1,0 +1,27 @@
+container/Dockerfile
+  s_746cd0bbda7944::t_70bf8d73eb9256 7-10,23-25
+docs/architecture.md
+  s_746cd0bbda7944::t_1830efa81aa4b8 66
+src/server/pi-session.ts
+  s_746cd0bbda7944::t_10864fd1b417f4 45-52,58,60-61,109,147,149
+test/worker/sessions.test.ts
+  s_746cd0bbda7944::t_12b8b129f13456 178-186
+test/worker/task.test.ts
+  s_746cd0bbda7944::t_40d81983d3e7fa 116-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "64f0f103b5f59c3eaa0f63431519ee7421d3b445",
+  "prompts": {},
+  "sessions": {
+    "s_746cd0bbda7944": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a118a7-4d04-7416-94ff-ad470d2f0257",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
