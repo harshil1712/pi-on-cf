@@ -10,11 +10,14 @@ import {
   type PiEventsMessage,
   type PiRegistryContract,
   type PiSessionContract,
+  type PiSessionState,
   type SessionSummary,
+  type SessionTask,
   sessionBasePath,
   type WorkspaceFile,
 } from '~/shared/pi-contract'
 import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from './transcript'
+import { useTaskChanges } from './use-task-changes'
 
 function isPiEvents(value: unknown): value is PiEventsMessage {
   return Boolean(value && typeof value === 'object' && (value as { type?: unknown }).type === 'pi:events')
@@ -36,6 +39,7 @@ const NORMAL_CLOSURE = 1000
 export function usePiSession(sessionId: string) {
   const [view, setView] = useState<PiView>(EMPTY_VIEW)
   const [summary, setSummary] = useState<SessionSummary | null>(null)
+  const [task, setTask] = useState<SessionTask | null>(null)
   const [input, setInput] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isReady, setIsReady] = useState(false)
@@ -69,10 +73,12 @@ export function usePiSession(sessionId: string) {
     }
   }, [])
 
-  const agent = useAgent<PiSessionContract, unknown>({
+  const agent = useAgent<PiSessionContract, PiSessionState>({
     // The registry routes the socket to the session's Agent.
     agent: PI_AGENT_NAME,
     basePath: sessionBasePath(sessionId),
+    // The task, and the pull request once the agent opens one.
+    onStateUpdate: (state) => setTask(state.task),
     onMessage: (message) => {
       if (typeof message.data !== 'string') return
       let parsed: unknown
@@ -125,6 +131,9 @@ export function usePiSession(sessionId: string) {
   useEffect(() => {
     void refreshFiles()
   }, [refreshFiles, filesVersion])
+
+  const changes = useTaskChanges(agent.stub, task, filesVersion)
+  const listRepositories = useCallback(() => agent.stub.listRepositories(), [agent.stub])
 
   useEffect(() => {
     let ignore = false
@@ -227,6 +236,7 @@ export function usePiSession(sessionId: string) {
   return {
     abort: async () => { try { await agent.stub.abort() } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)) } },
     activeTextId: transcript.activeTextId,
+    changes,
     canDownload: Boolean(selectedPath && selectedPath === fileContentPath && !fileError),
     downloadSelectedFile,
     entries: transcript.entries,
@@ -240,6 +250,8 @@ export function usePiSession(sessionId: string) {
     input,
     isReady,
     isRunning,
+    // Suggestions only make sense until the session has its repository.
+    listRepositories: task ? undefined : listRepositories,
     mobileView,
     queued: view.queued,
     refreshFiles,
@@ -250,6 +262,7 @@ export function usePiSession(sessionId: string) {
     setSelectedPath,
     submit,
     summary,
+    task,
     transcriptRef,
   }
 }

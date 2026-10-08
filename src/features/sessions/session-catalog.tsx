@@ -8,7 +8,7 @@ import { LayerCard } from '@cloudflare/kumo/components/layer-card'
 import { Loader } from '@cloudflare/kumo/components/loader'
 import { Text } from '@cloudflare/kumo/components/text'
 import { cn } from '@cloudflare/kumo/utils'
-import { ChatsCircleIcon, PencilSimpleIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react'
+import { ChatsCircleIcon, GitPullRequestIcon, PencilSimpleIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react'
 import { PiMark, TopBar } from '~/features/shell/top-bar'
 import type { SessionSummary } from '~/shared/pi-contract'
 import { DeleteSessionDialog, RenameSessionDialog } from './session-dialogs'
@@ -26,7 +26,7 @@ function relativeTime(value: string, now: number) {
 }
 
 function displayName(session: SessionSummary) {
-  return session.name?.trim() || `Untitled ${session.id.slice(0, 8)}`
+  return session.name?.trim() || session.repo || `Untitled ${session.id.slice(0, 8)}`
 }
 
 export function SessionCatalog() {
@@ -79,7 +79,7 @@ export function SessionCatalog() {
       <div className="mx-auto w-full max-w-180 px-4 pt-7 pb-12 md:px-5 md:pt-12 md:pb-16">
         <div className="mb-6 flex flex-col gap-1">
           <Text variant="heading" size="lg" as="h1">Sessions</Text>
-          <Text variant="secondary">Each session keeps its own conversation and workspace files.</Text>
+          <Text variant="secondary">Each session keeps its own conversation and workspace. Mention a GitHub repository with @ in the chat, and Pi clones it when it needs the code, to answer questions or to work on a branch and open a pull request.</Text>
         </div>
         <form onSubmit={create} className="mb-8 flex flex-col gap-2 md:flex-row">
           <div className="min-w-0 md:flex-1">
@@ -107,8 +107,14 @@ export function SessionCatalog() {
                     to="/sessions/$sessionId"
                     params={{ sessionId: session.id }}
                   >
-                    <span className={cn('truncate', session.name?.trim() ? 'font-medium' : 'text-kumo-subtle')}>{displayName(session)}</span>
-                    <span className="shrink-0 text-xs text-kumo-subtle"><time dateTime={session.updatedAt}>{relativeTime(session.updatedAt, now)}</time></span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className={cn('truncate', session.name?.trim() || session.repo ? 'font-medium' : 'text-kumo-subtle')}>{displayName(session)}</span>
+                      {session.repo && <span className="truncate text-xs text-kumo-subtle">{session.repo} · {session.branch}</span>}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2 text-xs text-kumo-subtle">
+                      {session.pullRequest && <span className="flex items-center gap-0.5"><GitPullRequestIcon size={12} />#{session.pullRequest.number}</span>}
+                      <time dateTime={session.updatedAt}>{relativeTime(session.updatedAt, now)}</time>
+                    </span>
                   </Link>
                   <div className="flex gap-0.5 transition-opacity md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100" aria-label={`Actions for ${displayName(session)}`}>
                     <Button shape="square" size="sm" variant="ghost" aria-label="Rename session" disabled={Boolean(busy)} onClick={() => setDialog({ action: 'rename', session, open: true })} icon={PencilSimpleIcon} />

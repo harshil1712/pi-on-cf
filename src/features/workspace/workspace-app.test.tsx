@@ -1,16 +1,24 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { AgentEvent, EntryRecord } from '@earendil-works/pi-durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SessionSummary, WorkspaceFile, WorkspaceFileContent } from '~/shared/pi-contract'
+import type { PiSessionState, SessionSummary, SessionTask, WorkspaceFile, WorkspaceFileContent } from '~/shared/pi-contract'
 
-type AgentOptions = { agent: string; onMessage?: (message: MessageEvent) => void; onClose?: (event: CloseEvent) => void }
+type AgentOptions = {
+  agent: string
+  onMessage?: (message: MessageEvent) => void
+  onClose?: (event: CloseEvent) => void
+  onStateUpdate?: (state: PiSessionState, source: 'server' | 'client') => void
+}
 
 const mocks = vi.hoisted(() => {
   const sessionAgent = {
     close: vi.fn(),
     stub: {
       abort: vi.fn(),
+      listChanges: vi.fn(),
       listFiles: vi.fn(),
+      listRepositories: vi.fn(),
+      readChange: vi.fn(),
       readWorkspaceFile: vi.fn(),
       steer: vi.fn(),
       submit: vi.fn(),
@@ -264,6 +272,80 @@ describe('WorkspaceApp', () => {
 
     await waitFor(() => expect(mocks.registryAgent.stub.renameSession).toHaveBeenCalledWith('session-12345678', 'Renamed'))
     expect(await screen.findByRole('button', { name: 'Renamed' })).toBeTruthy()
+  })
+
+  it('shows a repository task, its changes and its pull request', async () => {
+    const task: SessionTask = { repo: 'octo/demo', baseBranch: 'main', baseCommit: 'abc', branch: 'pi/12345678', dir: '/workspace/demo' }
+    mocks.sessionAgent.stub.listChanges.mockResolvedValue([
+      { path: 'src/index.ts', status: 'M', insertions: 3, deletions: 1 },
+      { path: 'README.md', status: 'A', insertions: 10, deletions: 0 },
+    ])
+    mocks.sessionAgent.stub.readChange.mockImplementation(async (path: string) => `diff --git a/${path} b/${path}\n+changed ${path}\n`)
+    render(<WorkspaceApp sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+    expect(screen.queryByText('Changes')).toBeNull()
+
+    act(() => mocks.sessionOptions?.onStateUpdate?.({ task }, 'server'))
+
+    expect(await screen.findByText('src/index.ts')).toBeTruthy()
+    expect(screen.getByText('octo/demo · pi/12345678')).toBeTruthy()
+    // The first change is selected, and its diff requested, after the list renders.
+    await waitFor(() => expect(mocks.sessionAgent.stub.readChange).toHaveBeenCalledWith('src/index.ts'))
+    expect(await screen.findByText(/\+changed src\/index\.ts/, { selector: 'pre.sr-only code' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /README\.md/ }))
+    await waitFor(() => expect(mocks.sessionAgent.stub.readChange).toHaveBeenCalledWith('README.md'))
+    expect(screen.queryByRole('link', { name: /#7/ })).toBeNull()
+
+    act(() => mocks.sessionOptions?.onStateUpdate?.({ task: { ...task, pullRequest: { number: 7, url: 'https://github.com/octo/demo/pull/7' } } }, 'server'))
+    expect(screen.getByRole('link', { name: /#7/ }).getAttribute('href')).toBe('https://github.com/octo/demo/pull/7')
+  })
+
+  it('suggests repositories after @ and inserts the one chosen', async () => {
+    mocks.sessionAgent.stub.listRepositories.mockResolvedValue([
+      { repo: 'octo/demo', private: true },
+      { repo: 'octo/other', private: false, description: 'The other one' },
+      { repo: 'acme/site', private: false },
+    ])
+    render(<WorkspaceApp sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+    const field = screen.getByLabelText('Message Pi') as HTMLTextAreaElement
+    expect(field.placeholder).toContain('type @')
+
+    fireEvent.change(field, { target: { value: 'Fix the docs in @oct' } })
+    expect(await screen.findByRole('button', { name: /octo\/demo/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /octo\/other/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /acme\/site/ })).toBeNull()
+
+    fireEvent.keyDown(field, { key: 'ArrowDown' })
+    expect(screen.getByRole('button', { name: /octo\/other/ }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(field.value).toBe('Fix the docs in @octo/other ')
+    expect(mocks.sessionAgent.stub.submit).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /octo\/demo/ })).toBeNull()
+
+    // Loaded once, at the first @.
+    fireEvent.change(field, { target: { value: 'Fix the docs in @octo/other and @ac' } })
+    fireEvent.click(await screen.findByRole('button', { name: /acme\/site/ }))
+    expect(field.value).toBe('Fix the docs in @octo/other and @acme/site ')
+    expect(mocks.sessionAgent.stub.listRepositories).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(field, { target: { value: '@zzz' } })
+    expect(await screen.findByText(/No repository matches/)).toBeTruthy()
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(screen.queryByText(/No repository matches/)).toBeNull()
+  })
+
+  it('stops suggesting repositories once the session has one', async () => {
+    render(<WorkspaceApp sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+    act(() => mocks.sessionOptions?.onStateUpdate?.({ task: { repo: 'octo/demo', baseBranch: 'main', baseCommit: 'abc', branch: 'pi/1', dir: '/workspace/demo' } }, 'server'))
+    const field = screen.getByLabelText('Message Pi') as HTMLTextAreaElement
+    expect(field.placeholder).not.toContain('type @')
+
+    fireEvent.change(field, { target: { value: 'compare with @oct' } })
+    expect(mocks.sessionAgent.stub.listRepositories).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Repositories')).toBeNull()
   })
 
   it('switches between the mobile Chat and Files views', async () => {

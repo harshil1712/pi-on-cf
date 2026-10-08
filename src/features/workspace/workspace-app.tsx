@@ -5,9 +5,10 @@ import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button, buttonVariants } from '@cloudflare/kumo/components/button'
 import { Tabs } from '@cloudflare/kumo/components/tabs'
 import { cn } from '@cloudflare/kumo/utils'
-import { ArrowLeftIcon, PencilSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
+import { ArrowLeftIcon, GitBranchIcon, GitPullRequestIcon, PencilSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
 import { RenameSessionDialog } from '~/features/sessions/session-dialogs'
 import { TopBar } from '~/features/shell/top-bar'
+import { ChangesBrowser } from './components/changes-browser'
 import { PromptComposer } from './components/prompt-composer'
 import { TranscriptView } from './components/transcript-view'
 import { WorkspaceBrowser } from './components/workspace-browser'
@@ -27,14 +28,21 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
   const session = usePiSession(sessionId)
   const [filesOpen, setFilesOpen] = useState(true)
   const [renameOpen, setRenameOpen] = useState(false)
-  const name = session.summary?.name || `Untitled ${sessionId.slice(0, 8)}`
+  const [panel, setPanel] = useState<'files' | 'changes'>('changes')
+  const { task } = session
+  const name = session.summary?.name || session.summary?.repo || `Untitled ${sessionId.slice(0, 8)}`
   const status = STATUS[!session.isReady ? 'connecting' : session.isRunning ? 'running' : 'ready']
   const chatView = session.mobileView === 'chat'
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden">
       <TopBar
-        actions={
+        actions={<>
+          {task?.pullRequest && (
+            <a href={task.pullRequest.url} target="_blank" rel="noreferrer" className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
+              <GitPullRequestIcon size={14} />#{task.pullRequest.number}
+            </a>
+          )}
           <Button
             className="max-md:hidden"
             variant={filesOpen ? 'secondary' : 'ghost'}
@@ -43,9 +51,11 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
             aria-pressed={filesOpen}
             icon={<SidebarSimpleIcon mirrored />}
           >
-            Files{session.files.length > 0 && ` · ${session.files.length}`}
+            {task
+              ? <>Changes{session.changes.changes.length > 0 && ` · ${session.changes.changes.length}`}</>
+              : <>Files{session.files.length > 0 && ` · ${session.files.length}`}</>}
           </Button>
-        }
+        </>}
       >
         <Link to="/" className={buttonVariants({ variant: 'ghost', shape: 'square', size: 'base' })} aria-label="Back to sessions" title="All sessions">
           <ArrowLeftIcon size={18} />
@@ -63,6 +73,11 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
             <span className="truncate">{name}</span>
             <PencilSimpleIcon size={13} aria-hidden="true" className="shrink-0 text-kumo-subtle opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
           </Button>
+          {task && (
+            <span className="flex min-w-0 items-center gap-1 truncate text-xs text-kumo-subtle max-md:hidden" title={`${task.repo} · ${task.branch} from ${task.baseBranch}`}>
+              <GitBranchIcon size={13} className="shrink-0" />{task.repo} · {task.branch}
+            </span>
+          )}
           <Badge variant={status.variant} appearance="dot" className="max-md:ring-0">
             <span className="max-md:sr-only">{status.label}</span>
             {session.queued > 0 && <span>· {session.queued} queued</span>}
@@ -86,7 +101,7 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
           <TranscriptView activeTextId={session.activeTextId} entries={session.entries} isRunning={session.isRunning} onScroll={session.handleTranscriptScroll} onTryOperation={() => { session.setInput('Create /workspace/hello.ts with a Worker that returns “Hello from Pi”.'); document.getElementById('prompt')?.focus() }} transcriptRef={session.transcriptRef} />
           <div className="mx-auto w-full max-w-200 shrink-0 px-3 pt-2 pb-3 md:px-5 md:pb-4">
             {session.error && <Banner className="mb-2" variant="error" role="alert" description={session.error} />}
-            <PromptComposer input={session.input} isReady={session.isReady} isRunning={session.isRunning} onAbort={() => void session.abort()} onInputChange={session.setInput} onSubmit={session.submit} />
+            <PromptComposer input={session.input} isReady={session.isReady} isRunning={session.isRunning} onAbort={() => void session.abort()} onInputChange={session.setInput} onSubmit={session.submit} repositories={session.listRepositories} />
           </div>
         </div>
         <div className={cn(
@@ -94,7 +109,27 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
           !filesOpen && 'md:hidden',
           chatView && 'max-md:hidden',
         )}>
-          <WorkspaceBrowser canDownload={session.canDownload} fileContent={session.fileContent} fileError={session.fileError} files={session.files} filesError={session.filesError} filesLoading={session.filesLoading} onDownload={session.downloadSelectedFile} onRefresh={() => void session.refreshFiles()} onSelectPath={session.setSelectedPath} selectedPath={session.selectedPath} />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {task && (
+              <div className="shrink-0 border-b border-kumo-hairline px-3 py-1.5">
+                <Tabs
+                  size="sm"
+                  variant="segmented"
+                  tabs={[
+                    { value: 'changes', label: <>Changes<span className="ml-1 text-kumo-subtle">{session.changes.changes.length}</span></> },
+                    { value: 'files', label: <>Files<span className="ml-1 text-kumo-subtle">{session.files.length}</span></> },
+                  ]}
+                  value={panel}
+                  onValueChange={(value) => setPanel(value as 'files' | 'changes')}
+                />
+              </div>
+            )}
+            {task && panel === 'changes' ? (
+              <ChangesBrowser changes={session.changes.changes} diff={session.changes.diff} diffError={session.changes.diffError} error={session.changes.error} loading={session.changes.loading} onRefresh={() => void session.changes.refresh()} onSelectPath={session.changes.setSelectedPath} selectedPath={session.changes.selectedPath} task={task} />
+            ) : (
+              <WorkspaceBrowser canDownload={session.canDownload} fileContent={session.fileContent} fileError={session.fileError} files={session.files} filesError={session.filesError} filesLoading={session.filesLoading} onDownload={session.downloadSelectedFile} onRefresh={() => void session.refreshFiles()} onSelectPath={session.setSelectedPath} selectedPath={session.selectedPath} />
+            )}
+          </div>
         </div>
       </section>
 

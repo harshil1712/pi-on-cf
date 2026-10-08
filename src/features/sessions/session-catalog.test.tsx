@@ -71,6 +71,18 @@ describe('SessionCatalog', () => {
     expect(mocks.navigate).toHaveBeenCalledWith({ to: '/sessions/$sessionId', params: { sessionId: 'created-session' } })
   })
 
+  it('lists a session\'s repository, branch and pull request', async () => {
+    mocks.registry.stub.listSessions.mockResolvedValue([
+      session({ name: undefined, repo: 'octo/demo', branch: 'pi/12345678', pullRequest: { number: 7, url: 'https://github.com/octo/demo/pull/7' } }),
+    ])
+    render(<SessionCatalog />)
+
+    expect(await screen.findByText('octo/demo · pi/12345678')).toBeTruthy()
+    expect(screen.getByText('octo/demo', { selector: '.font-medium' })).toBeTruthy()
+    expect(screen.getByText('#7')).toBeTruthy()
+    expect(screen.queryByLabelText('Repository')).toBeNull()
+  })
+
   it('routes rename and delete actions through the registry', async () => {
     render(<SessionCatalog />)
     await screen.findByText('Edge cache prototype')

@@ -1,10 +1,13 @@
 import { Agent, callable } from 'agents'
 import { type RoutedAgentEntry, RoutedAgents } from 'agents/routing'
-import { PI_SESSIONS_ROUTE, type SessionSummary } from '~/shared/pi-contract'
+import { PI_SESSIONS_ROUTE, type PullRequest, type SessionSummary } from '~/shared/pi-contract'
 import type { PiSession } from './pi-session'
 
 type SessionMetadata = {
   name?: string
+  repo?: string
+  branch?: string
+  pullRequest?: PullRequest
 }
 
 const MAX_NAME_LENGTH = 120
@@ -71,6 +74,12 @@ export class PiRegistry extends Agent<Env> {
     if (!await this.sessions.delete(sessionId)) throw new Error(`Session not found: ${sessionId}`)
   }
 
+  /** Called by a PiSession when it clones its repository and when it opens a pull request. */
+  async setTask(sessionId: string, task: { repo: string; branch: string; pullRequest?: PullRequest }): Promise<void> {
+    const entry = await this.#find(sessionId)
+    if (entry) await this.sessions.setMetadata(sessionId, { ...entry.metadata, ...task })
+  }
+
   /** Called by a PiSession when it accepts a prompt: moves the entry to the top. */
   async touchSession(sessionId: string): Promise<void> {
     const entry = await this.#find(sessionId)
@@ -93,6 +102,8 @@ function summary(entry: RoutedAgentEntry<SessionMetadata>): SessionSummary {
   return {
     id: entry.id,
     ...(entry.metadata?.name ? { name: entry.metadata.name } : {}),
+    ...(entry.metadata?.repo ? { repo: entry.metadata.repo, branch: entry.metadata.branch } : {}),
+    ...(entry.metadata?.pullRequest ? { pullRequest: entry.metadata.pullRequest } : {}),
     createdAt: new Date(entry.createdAt).toISOString(),
     updatedAt: new Date(entry.updatedAt).toISOString(),
   }

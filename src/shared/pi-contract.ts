@@ -37,20 +37,67 @@ export type WorkspaceFileContent = WorkspaceFile & {
   content: string
 }
 
+export type PullRequest = {
+  number: number
+  url: string
+}
+
+/** A repository the session can work on, for `@` suggestions. */
+export type Repository = {
+  /** `owner/name` */
+  repo: string
+  private: boolean
+  description?: string
+}
+
+/** The GitHub repository a session cloned, when the model called `clone_repository`. */
+export type SessionTask = {
+  /** `owner/name` */
+  repo: string
+  /** The branch the task starts from and its pull request targets. */
+  baseBranch: string
+  /** The commit the task started from; changes are measured against it. */
+  baseCommit: string
+  /** The branch the agent's work is pushed to. */
+  branch: string
+  /** Where the clone lives in the workspace. */
+  dir: string
+  pullRequest?: PullRequest
+}
+
+/** A PiSession's Agent state, synced to its clients by the Agents SDK. Only the server writes it. */
+export type PiSessionState = {
+  task: SessionTask | null
+}
+
+/** One file the task changed since its base commit, uncommitted work included. */
+export type TaskChange = {
+  path: string
+  status: 'A' | 'M' | 'D'
+  insertions: number
+  deletions: number
+}
+
 export type SessionSummary = {
   id: string
   name?: string
+  repo?: string
+  branch?: string
+  pullRequest?: PullRequest
   createdAt: string
   updatedAt: string
 }
 
 export interface PiSessionContract {
-  readonly state: unknown
+  readonly state: PiSessionState
   submit(prompt: string): Promise<{ operationId: string; accepted: boolean }>
   steer(prompt: string): Promise<{ operationId: string; accepted: boolean }>
   abort(): void
   listFiles(): Promise<WorkspaceFile[]>
   readWorkspaceFile(path: string): Promise<WorkspaceFileContent>
+  listRepositories(): Promise<Repository[]>
+  listChanges(): Promise<TaskChange[]>
+  readChange(path: string): Promise<string>
 }
 
 export interface PiRegistryContract {

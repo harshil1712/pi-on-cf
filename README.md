@@ -1,6 +1,6 @@
 # Pi on Cloudflare
 
-A Worker-native coding agent: Pi's durable harness running inside Cloudflare Durable Objects, with a Cloudflare Computer workspace per session.
+A Worker-native cloud coding agent: Pi's durable harness running inside Cloudflare Durable Objects, with a Cloudflare Computer workspace per session. Mention a GitHub repository and Pi clones it when it needs the code, works on its own branch, and opens a draft pull request.
 
 > [!WARNING]
 > This is a single-user prototype with no application-level authentication or authorization. Anyone who can reach a deployment can use its AI binding and read, change, or delete its sessions and workspace files. Do not expose it to the public Internet without protecting the entire Worker with Cloudflare Access or another authentication layer.
@@ -11,6 +11,7 @@ A Worker-native coding agent: Pi's durable harness running inside Cloudflare Dur
 - `agents/harness/pi` (`PiHarness`) hosts pi-durable in the `PiSession` Durable Object and wakes it through the Agents SDK Lifecycle after eviction.
 - `agents/models/pi-ai` (`createAI`) gives Pi Workers AI and AI Gateway over the `AI` binding.
 - `@cloudflare/computer` provides the durable workspace at `/workspace`, with Worker Shell, Worker JavaScript, and a Durable Object-scheduled Linux container as `exec` backends. Its `createPiTools` supplies the model's tools.
+- A session can work on a GitHub repository: the model clones it with `clone_repository` when it needs the code, through Computer's git, then works on a `pi/` branch and opens a draft pull request with `create_pull_request`. The task syncs to the browser as the Agent's state.
 - Pi's agent events stream to the browser over the Agents SDK WebSocket: a snapshot on connect, then one batch per commit.
 - A singleton `PiRegistry` Durable Object keeps the session catalog with the Agents SDK's `RoutedAgents`, and is the only route to a session.
 - TanStack Start renders the UI with [Cloudflare Kumo](https://github.com/cloudflare/kumo) as its component library.
@@ -58,7 +59,15 @@ Open `http://localhost:3000`.
 
 `AI_MODEL` selects the model new sessions start with; `AI_GATEWAY_ID` selects the AI Gateway. Both are non-secret variables in `wrangler.jsonc`. The shared file keeps the neutral gateway ID `default`; keep account-specific configuration in an ignored `wrangler.local.jsonc` and select it with `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite commands or `--config wrangler.local.jsonc` for Wrangler.
 
+`GITHUB_TOKEN` is a required secret: a GitHub token that can read and write the contents and pull requests of the repositories sessions work on. A [fine-grained personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) limited to those repositories, with **Contents** and **Pull requests** read and write, is enough. Set it with `npx wrangler secret put GITHUB_TOKEN`, and locally in `.dev.vars`; `wrangler deploy` fails until it is set. Because `wrangler.jsonc` declares `secrets`, `.dev.vars` and `.env` load only the secrets listed there.
+
 `BUCKET` is the app's R2 bucket, `pi-on-cf`. It is a remote binding, so local development reads the real bucket. Create it once with `npx wrangler r2 bucket create pi-on-cf`.
+
+## Repositories
+
+Mention a repository in the chat: type `@` and pick one of yours, or write `@owner/name`, optionally `@owner/name#branch` for a base branch other than the default. Pi decides whether it needs the code. To answer from the code or change it, it calls `clone_repository`, which clones the repository into `/workspace/<name>`, shallow and on one branch, and checks out `pi/<session>`; a question it can answer without the code clones nothing. A session clones one repository. The repository's `AGENTS.md` goes into the system prompt, up to 16 KiB.
+
+When you ask for changes, Pi commits with git like any developer, then calls `create_pull_request`, which pushes the task branch and opens a draft pull request into the base branch, or updates the one already open. The token is passed to Computer's git for the clone and that push only, so the git the agent runs has no credentials and cannot push anything itself. The session page shows the branch, a Changes panel with every file changed since the base commit, and a link to the pull request.
 
 ## Skills
 

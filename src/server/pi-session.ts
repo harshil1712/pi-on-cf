@@ -17,9 +17,20 @@ import { Agent, type AgentStaticOptions, callable, type Connection, getAgentByNa
 import { PiHarness, type PiModel } from 'agents/harness/pi'
 import { createAI } from 'agents/models/pi-ai'
 import type { SkillSource } from 'agents/skills'
-import { PI_REGISTRY_INSTANCE, type PiEventsMessage, type WorkspaceFile, type WorkspaceFileContent } from '~/shared/pi-contract'
+import {
+  PI_REGISTRY_INSTANCE,
+  type PiEventsMessage,
+  type PiSessionState,
+  type Repository,
+  type SessionTask,
+  type TaskChange,
+  type WorkspaceFile,
+  type WorkspaceFileContent,
+} from '~/shared/pi-contract'
+import { listRepositories } from './github'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
+import { cloneTask, createTaskTools, listChanges, readChange, taskSection } from './task'
 import { createWorkspaceTools } from './workspace-tools'
 import { WORKSPACE_ROOT, workspacePath } from './workspace-root'
 
@@ -32,7 +43,7 @@ import { WORKSPACE_ROOT, workspacePath } from './workspace-root'
 const CONTAINER_LOCAL_PATHS = ['**/node_modules', '**/.wrangler', '**/.venv', '**/__pycache__']
 
 const PREAMBLE = [
-  'You are Pi, a coding agent running natively on Cloudflare Workers.',
+  'You are Pi, a coding agent running natively on Cloudflare Workers. You work on your own: finish the task, check your work, and report what you did.',
   `Your durable workspace is ${WORKSPACE_ROOT}. Paths are absolute and the same in every tool and backend.`,
   'Use read, write, edit, delete, ls, find and grep for files.',
   'exec runs commands on one of three backends: shell is a fast just-bash environment with text utilities and git; javascript runs an ES module in an isolated Worker with node:fs/promises, ws:git and ws:artifacts; container is a Linux machine with Node.js, npm and network access.',
@@ -56,7 +67,7 @@ const CATALOG_ENTRY_KEY = 'pi-on-cf:catalog-entry'
  * because `withWorkspace` builds the Workspace in its constructor, where
  * base-class fields exist and subclass fields do not.
  */
-class PiSessionHost extends withWorkspaceContainer(class extends Agent<Env> {}) {
+class PiSessionHost extends withWorkspaceContainer(class extends Agent<Env, PiSessionState> {}) {
   readonly container = new ContainerBackend({
     id: 'container',
     container: () => this,
@@ -86,7 +97,8 @@ function workspaceOptions(self: PiSessionHost): WorkspaceOptions {
     ],
     git: createGitClient(),
     defaultGitIdentity: { name: 'Pi', email: 'pi@cloudflare.invalid' },
-    artifacts: env.ARTIFACTS ? { binding: env.ARTIFACTS } : undefined,
+    // Scoped to this session, so its repos can be found and deleted with it.
+    artifacts: env.ARTIFACTS ? { binding: env.ARTIFACTS, sessionId: ctx.id.toString() } : undefined,
     observer: createCloudflareObserver({ tracing }),
   }
 }
@@ -103,6 +115,8 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
    */
   static override options: AgentStaticOptions = { sendIdentityOnConnect: false }
 
+  override initialState: PiSessionState = { task: null }
+
   readonly model = this.modelSource()
   readonly registry = createRegistry()
   readonly skills = new SkillCatalog(() => this.skillSources())
@@ -111,7 +125,10 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
       const workspace = await getWorkspace(this)
       this.registry.install({
         name: 'pi-on-cf',
-        sections: [{ key: 'preamble', render: () => PREAMBLE, tag: false }],
+        sections: [
+          { key: 'preamble', render: () => PREAMBLE, tag: false },
+          taskSection(() => this.state.task, () => getWorkspace(this)),
+        ],
         tools: [...createWorkspaceTools({
           workspace,
           shell: {
@@ -121,6 +138,15 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
               javascript: { description: 'ES module run in an isolated Worker. Export a default async function; its JSON-compatible return value is the result. Top-level await of I/O is not allowed.' },
               container: { description: 'Linux container with Node.js, npm and network access.' },
             },
+          },
+        }), ...createTaskTools({
+          workspace,
+          task: () => this.state.task,
+          token: () => this.githubToken(),
+          openRepository: (input) => this.#openRepository(input),
+          onPullRequest: async (pullRequest) => {
+            const { task } = this.state
+            if (task) await this.#setTask({ ...task, pullRequest })
           },
         }), ...createSkillTools({
           bucket: this.env.BUCKET,
@@ -172,6 +198,11 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
    */
   protected skillSources(): SkillSource[] {
     return [builtInSkills, bucketSkills(this.env.BUCKET)]
+  }
+
+  /** The token that clones, pushes and opens pull requests. Tests override this. */
+  protected githubToken(): string | undefined {
+    return this.env.GITHUB_TOKEN || undefined
   }
 
   override fetch(request: Request): Promise<Response> {
@@ -240,6 +271,26 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   }
 
   @callable()
+  async listRepositories(): Promise<Repository[]> {
+    const token = this.githubToken()
+    if (!token) throw new Error('Set the GITHUB_TOKEN secret to work on GitHub repositories.')
+    return listRepositories(token)
+  }
+
+  @callable()
+  async listChanges(): Promise<TaskChange[]> {
+    const { task } = this.state
+    return task ? listChanges(await getWorkspace(this), task) : []
+  }
+
+  @callable()
+  async readChange(path: string): Promise<string> {
+    const { task } = this.state
+    if (!task) throw new Error('This session has no repository.')
+    return readChange(await getWorkspace(this), task, path)
+  }
+
+  @callable()
   async readWorkspaceFile(path: string): Promise<WorkspaceFileContent> {
     path = workspacePath(path)
     const workspace = await getWorkspace(this)
@@ -248,12 +299,43 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     return { path, content, size: stat.size, mtime: new Date(stat.mtime).toISOString() }
   }
 
+  /** The task, its branch and pull request, are the server's to change. */
+  override validateStateChange(_next: PiSessionState, source: Connection | 'server'): void {
+    if (source !== 'server') throw new Error('Session state is read-only.')
+  }
+
   /**
    * Called by the registry once, at creation: the catalog entry ID this
    * session reports its activity under.
    */
   async joinCatalog(entryId: string): Promise<void> {
     await this.ctx.storage.put(CATALOG_ENTRY_KEY, entryId)
+  }
+
+  /**
+   * Clone a repository as this session's task, when the model calls
+   * `clone_repository`. Pi runs a round's tool calls in order, so two clones
+   * cannot race.
+   */
+  async #openRepository(input: { repo: string; baseBranch?: string }): Promise<SessionTask> {
+    const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY) ?? this.ctx.id.toString()
+    const task = await cloneTask(await getWorkspace(this), this.githubToken(), { ...input, branch: `pi/${entryId.slice(0, 8)}` })
+    await this.#setTask(task)
+    return task
+  }
+
+  /** Set the task, and copy what the catalog lists to the registry. */
+  async #setTask(task: SessionTask): Promise<void> {
+    this.setState({ task })
+    // The catalog's copy is for display: failing to update it must not fail the caller.
+    try {
+      const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY)
+      if (!entryId) return
+      const registry = await getAgentByName(this.env.PiRegistry, PI_REGISTRY_INSTANCE)
+      await registry.setTask(entryId, { repo: task.repo, branch: task.branch, ...(task.pullRequest ? { pullRequest: task.pullRequest } : {}) })
+    } catch (error) {
+      console.error('Could not update the session registry', error)
+    }
   }
 
   /**
@@ -270,6 +352,16 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
       await this.ctx.container.destroy().catch((error: unknown) => {
         console.error('Could not stop the session container', error)
       })
+    }
+    // Artifacts repos live outside the object's storage, so the wipe misses them.
+    if (this.env.ARTIFACTS) {
+      try {
+        const { artifacts } = await getWorkspace(this)
+        const repos = await artifacts.list() as { name: string }[]
+        await Promise.all(repos.map((repo) => artifacts.delete(repo.name)))
+      } catch (error) {
+        console.error('Could not delete the session\'s Artifacts repos', error)
+      }
     }
   }
 

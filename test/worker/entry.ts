@@ -8,10 +8,13 @@ import {
   type Provider,
   type TranscriptContext,
 } from '@earendil-works/pi-ai'
+import { getWorkspace } from '@cloudflare/computer'
+import type { GitClient } from '@cloudflare/computer/git'
 import type { PiModel } from 'agents/harness/pi'
 import type { SkillSource } from 'agents/skills'
 import { PiRegistry as AppPiRegistry } from '~/server/pi-registry'
 import { PiSession as AppPiSession } from '~/server/pi-session'
+import type { SessionTask } from '~/shared/pi-contract'
 import { bucketSkills, builtInSkills } from '~/server/skills'
 
 export { ComputerTest } from './computer-test'
@@ -31,6 +34,7 @@ function textOf(content: Message['content'] | undefined): string {
  * - `resource <name> <path>` calls `read_skill_resource`.
  * - `tool <name> <json>` calls any tool with the JSON as its arguments.
  * - `catalog` answers with the `skills` prompt section the model sees.
+ * - `section <key>` answers with that prompt section.
  * - After a tool result it answers `tool said: <result>`.
  * - Anything else is echoed back.
  */
@@ -41,13 +45,14 @@ function script(context: TranscriptContext): AssistantMessage {
     return fauxAssistantMessage([fauxText(`${last.isError ? 'tool failed' : 'tool said'}: ${textOf(last.content)}`)])
   }
   const prompt = last?.role === 'user' ? textOf(last.content) : ''
-  if (prompt === 'catalog') {
+  const section = prompt === 'catalog' ? 'skills' : /^section (\S+)$/.exec(prompt)?.[1]
+  if (section) {
     // Replaying system messages in order yields the current sections.
-    let catalog: string | null = null
+    let text: string | null = null
     for (const message of context.messages) {
-      if (message.role === 'system' && message.sections && 'skills' in message.sections) catalog = message.sections.skills ?? null
+      if (message.role === 'system' && message.sections && section in message.sections) text = message.sections[section] ?? null
     }
-    return fauxAssistantMessage([fauxText(`catalog: ${catalog ?? 'none'}`)])
+    return fauxAssistantMessage([fauxText(`${prompt === 'catalog' ? 'catalog' : section}: ${text ?? 'none'}`)])
   }
   const tool = /^tool (\S+) (\{[\s\S]*\})$/.exec(prompt)
   if (tool) {
@@ -83,6 +88,36 @@ export class PiSession extends AppPiSession {
   /** The app's sources, with the bucket listed on every refresh so tests see changes at once. */
   protected override skillSources(): SkillSource[] {
     return [builtInSkills, bucketSkills(this.env.BUCKET, { refreshIntervalMs: 0 })]
+  }
+
+  /** Tests set a token with `useGitHubTokenForTest`; none unless the test environment has one. */
+  protected override githubToken(): string | undefined {
+    return this.#token ?? (this.env.GITHUB_TOKEN || undefined)
+  }
+
+  #token: string | undefined
+
+  useGitHubTokenForTest(token: string | undefined): void {
+    this.#token = token
+  }
+
+  /**
+   * What `clone_repository` leaves, without GitHub: a repository at
+   * /workspace/demo with one commit of `files`, on the task branch.
+   */
+  async setTaskForTest(files: Record<string, string>): Promise<SessionTask> {
+    const workspace = await getWorkspace(this)
+    const git = workspace.git as GitClient
+    const dir = '/workspace/demo'
+    await workspace.fs.mkdir(dir, { recursive: true })
+    for (const [path, content] of Object.entries(files)) await workspace.fs.writeFile(`${dir}/${path}`, content)
+    await git.init({ dir })
+    await git.add({ dir, paths: Object.keys(files) })
+    const { oid } = await git.commit({ dir, message: 'base' })
+    await git.branch({ dir, name: 'pi/test', checkout: true })
+    const task: SessionTask = { repo: 'octo/demo', baseBranch: 'main', baseCommit: oid, branch: 'pi/test', dir }
+    this.setState({ task })
+    return task
   }
 
   /** Sync skills with the bucket now; `true` when the catalog changed. */
