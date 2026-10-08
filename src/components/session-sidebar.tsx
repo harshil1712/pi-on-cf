@@ -6,11 +6,11 @@ import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar'
 import { useKumoToastManager } from '@cloudflare/kumo/components/toast'
 import { cn } from '@cloudflare/kumo/utils'
 import { ChatsCircleIcon, DotsThreeIcon, GitPullRequestIcon, NotePencilIcon, PencilSimpleIcon, TrashIcon } from '@phosphor-icons/react'
-import { PiMark } from '~/features/shell/top-bar'
-import { ThemeToggle } from '~/features/theme/theme-toggle'
-import type { SessionSummary } from '~/shared/pi-contract'
+import { PiMark } from './pi-mark'
+import { ThemeToggle } from './theme-toggle'
+import type { SessionSummary } from '~/contract'
 import { DeleteSessionDialog, RenameSessionDialog } from './session-dialogs'
-import { displayName, useSessionRegistry } from './session-registry'
+import { displayName, useSessionRegistry } from '~/hooks/use-session-registry'
 
 const DAY = 24 * 60 * 60 * 1000
 

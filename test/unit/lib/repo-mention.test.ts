@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mentionQueryAt } from './repo-mention'
+import { mentionQueryAt } from '~/lib/repo-mention'
 
 describe('mentionQueryAt', () => {
   it('reads the @query being typed before the caret', () => {

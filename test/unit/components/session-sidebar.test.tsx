@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SessionSummary } from '~/shared/pi-contract'
+import type { SessionSummary } from '~/contract'
 
 type RegistryOptions = { onStateUpdate?: (state: { revision: number }, source: 'server' | 'client') => void }
 
@@ -29,8 +29,8 @@ vi.mock('@tanstack/react-router', () => ({
 
 import { Sidebar } from '@cloudflare/kumo/components/sidebar'
 import { Toasty } from '@cloudflare/kumo/components/toast'
-import { SessionRegistryProvider } from './session-registry'
-import { SessionSidebar } from './session-sidebar'
+import { SessionRegistryProvider } from '~/hooks/use-session-registry'
+import { SessionSidebar } from '~/components/session-sidebar'
 
 const hour = 60 * 60 * 1000
 const session = (overrides: Partial<SessionSummary> & { id: string }, ago = 0): SessionSummary => {

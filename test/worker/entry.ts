@@ -16,7 +16,7 @@ import type { PiModel } from 'agents/harness/pi'
 import type { SkillSource } from 'agents/skills'
 import { PiRegistry as AppPiRegistry } from '~/server/pi-registry'
 import { PiSession as AppPiSession, type ModelChoice } from '~/server/pi-session'
-import type { ModelOption, SessionTask } from '~/shared/pi-contract'
+import type { ModelOption, SessionTask } from '~/contract'
 import { bucketSkills, builtInSkills } from '~/server/skills'
 
 export { ComputerTest } from './computer-test'

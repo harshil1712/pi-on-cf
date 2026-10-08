@@ -3,7 +3,7 @@ import { Collapsible } from '@cloudflare/kumo/components/collapsible'
 import { Loader } from '@cloudflare/kumo/components/loader'
 import { cn } from '@cloudflare/kumo/utils'
 import { ArrowCounterClockwiseIcon, BrainIcon, CaretRightIcon, ScissorsIcon, WarningCircleIcon, WrenchIcon } from '@phosphor-icons/react'
-import type { TranscriptEntry } from '../transcript'
+import type { TranscriptEntry } from '~/lib/transcript'
 
 function toolArgumentSummary(args: unknown) {
   if (!args || typeof args !== 'object') return ''

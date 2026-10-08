@@ -5,7 +5,7 @@ import { Loader } from '@cloudflare/kumo/components/loader'
 import { Tabs } from '@cloudflare/kumo/components/tabs'
 import { cn } from '@cloudflare/kumo/utils'
 import { CheckIcon, CopyIcon, DownloadSimpleIcon, FileTextIcon, FolderOpenIcon } from '@phosphor-icons/react'
-import type { WorkspaceFile } from '~/shared/pi-contract'
+import type { WorkspaceFile } from '~/contract'
 import { CODE_VIEWER } from './code-viewer'
 
 // Shiki and the Markdown renderer load on demand, outside the main bundle.

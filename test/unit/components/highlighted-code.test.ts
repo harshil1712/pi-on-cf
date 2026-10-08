@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { languageForPath, parseFrontmatter } from './highlighted-code'
+import { languageForPath, parseFrontmatter } from '~/components/highlighted-code'
 
 describe('languageForPath', () => {
   it.each([

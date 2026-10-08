@@ -3,10 +3,11 @@ import { useNavigate } from '@tanstack/react-router'
 import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button } from '@cloudflare/kumo/components/button'
 import { BugBeetleIcon, BookOpenTextIcon, BroomIcon, GitBranchIcon, PlusIcon, TestTubeIcon, type Icon } from '@phosphor-icons/react'
-import { useSessionRegistry } from '~/features/sessions/session-registry'
-import { PiMark, TopBar } from '~/features/shell/top-bar'
-import { PromptComposer } from '~/features/workspace/components/prompt-composer'
-import type { ModelOption } from '~/shared/pi-contract'
+import { useSessionRegistry } from '~/hooks/use-session-registry'
+import { PiMark } from './pi-mark'
+import { TopBar } from './top-bar'
+import { PromptComposer } from './prompt-composer'
+import type { ModelOption } from '~/contract'
 
 /**
  * Ways into a task. Each leaves the caret after `@`, so the repository

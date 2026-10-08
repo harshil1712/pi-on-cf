@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MODEL_OPTIONS, modelOptions } from './models'
+import { MODEL_OPTIONS, modelOptions } from '~/server/models'
 
 describe('modelOptions', () => {
   it('leads with the default, so a page with no session can preselect it', () => {

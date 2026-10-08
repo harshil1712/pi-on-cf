@@ -11,12 +11,12 @@ Pi on Cloudflare is a TanStack Start application deployed as a Cloudflare Worker
 - One `PiSession` Durable Object per session, owning the Pi conversation and a Cloudflare Computer workspace.
 - A singleton `PiRegistry` Durable Object for the session catalog, on the Agents SDK's `RoutedAgents` (`agents/routing`).
 
-The Worker routes `/api/agents/*` through the Agents SDK and sends other requests to TanStack Start. Sessions are reachable only through the registry: `src/server/agent-routes.ts` refuses direct `/api/agents/pi-session/*` requests. Every page sits in one app shell (`src/features/shell/app-shell.tsx`): Kumo's `Sidebar` lists the sessions beside the routed page, a home page at `/` starts sessions from a prompt, and each session's workspace is at `/sessions/:sessionId`. The shell holds the app's one registry connection (`SessionRegistryProvider`), which both pages share.
+The Worker routes `/api/agents/*` through the Agents SDK and sends other requests to TanStack Start. Sessions are reachable only through the registry: `src/server/agent-routes.ts` refuses direct `/api/agents/pi-session/*` requests. Every page sits in one app shell (`src/components/app-shell.tsx`): Kumo's `Sidebar` lists the sessions beside the routed page, a home page at `/` starts sessions from a prompt, and each session's workspace is at `/sessions/:sessionId`. The shell holds the app's one registry connection (`SessionRegistryProvider`), which both pages share.
 
 Relevant source:
 
 - `src/server.ts`
-- `src/shared/pi-contract.ts`
+- `src/contract.ts`
 - `src/server/pi-session.ts`
 - `src/server/pi-registry.ts`
 - `src/server/agent-routes.ts`
@@ -51,7 +51,7 @@ The browser connects to `/api/agents/pi-registry/singleton/sessions/{id}`, which
 
 Commands are `@callable` methods: `submit`, `steer`, `abort`, `listFiles`, `readWorkspaceFile`, `listChanges`, `readChange`, `listModels`, and `setModel`. `submit` resolves once Pi has durably accepted the prompt, before the model runs.
 
-Each WebSocket connection gets its own `session.events()` watch. The first frame is a `snapshot`; each later frame is one batch of Pi agent events per commit. The client folds them with the reducer in `src/features/workspace/transcript.ts`. Watches live in memory, so `onStart` re-watches every connection that outlived the previous isolate and sends a fresh snapshot. A reconnecting browser always starts from the current state, including an in-flight answer.
+Each WebSocket connection gets its own `session.events()` watch. The first frame is a `snapshot`; each later frame is one batch of Pi agent events per commit. The client folds them with the reducer in `src/lib/transcript.ts`. Watches live in memory, so `onStart` re-watches every connection that outlived the previous isolate and sends a fresh snapshot. A reconnecting browser always starts from the current state, including an in-flight answer.
 
 ### Workspace
 
@@ -98,7 +98,7 @@ After a save or delete, `SkillCatalog.reload()` rebuilds the session's sources, 
 
 ## PiRegistry
 
-The singleton `PiRegistry` keeps the session catalog with the Agents SDK's `RoutedAgents` capability: each entry maps a public session ID to an opaque physical `PiSession` name, with an optional session name as metadata and timestamps. Creating, listing, and renaming touch only the registry's SQLite. Creating a session also calls `joinCatalog` on the new `PiSession`, which stores the entry ID it reports activity under; a `PiSession` touches its entry when it accepts a prompt, which moves it to the top of the list, and the first prompt it accepts titles an entry that has none (`titleFromPrompt` in `src/shared/session-title.ts`). The catalog shows a session's name, else its title, else its repository. The home page starts a session from a prompt: `createSession({ prompt })` submits it to the new session after `joinCatalog`, and a failed submit deletes the entry like a failed join.
+The singleton `PiRegistry` keeps the session catalog with the Agents SDK's `RoutedAgents` capability: each entry maps a public session ID to an opaque physical `PiSession` name, with an optional session name as metadata and timestamps. Creating, listing, and renaming touch only the registry's SQLite. Creating a session also calls `joinCatalog` on the new `PiSession`, which stores the entry ID it reports activity under; a `PiSession` touches its entry when it accepts a prompt, which moves it to the top of the list, and the first prompt it accepts titles an entry that has none (`titleFromPrompt` in `src/server/session-title.ts`). The catalog shows a session's name, else its title, else its repository. The home page starts a session from a prompt: `createSession({ prompt })` submits it to the new session after `joinCatalog`, and a failed submit deletes the entry like a failed join.
 
 Repository sessions also store the repository, the task branch and the pull request in the entry's metadata, so the catalog lists them without waking each session.
 

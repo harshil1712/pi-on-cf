@@ -6,8 +6,8 @@ import { Loader } from '@cloudflare/kumo/components/loader'
 import { cn } from '@cloudflare/kumo/utils'
 import { Streamdown } from 'streamdown'
 import { LINK_SAFETY } from './link-safety'
-import { PiMark } from '~/features/shell/top-bar'
-import type { TranscriptEntry } from '../transcript'
+import { PiMark } from './pi-mark'
+import type { TranscriptEntry } from '~/lib/transcript'
 import { ActivityCard } from './activity-card'
 
 const HighlightedMarkdown = lazy(() => import('./highlighted-code').then((module) => ({ default: module.HighlightedMarkdown })))

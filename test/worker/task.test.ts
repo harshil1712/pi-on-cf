@@ -3,7 +3,7 @@ import { routeAgentRequest } from 'agents'
 import { describe, expect, it } from 'vitest'
 import { AGENT_ROUTES } from '~/server/agent-routes'
 import { parseRepo } from '~/server/github'
-import { sessionBasePath } from '~/shared/pi-contract'
+import { sessionBasePath } from '~/contract'
 import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from './entry'
 
 const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>

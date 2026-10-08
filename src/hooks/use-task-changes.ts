@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PiSessionContract, SessionTask, TaskChange } from '~/shared/pi-contract'
+import type { PiSessionContract, SessionTask, TaskChange } from '~/contract'
 
 type ChangesStub = Pick<PiSessionContract, 'listChanges' | 'readChange'>
 

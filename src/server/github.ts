@@ -1,4 +1,4 @@
-import type { PullRequest, Repository } from '~/shared/pi-contract'
+import type { PullRequest, Repository } from '~/contract'
 
 /** A GitHub repository, `owner/name`. */
 export type RepoRef = { owner: string; name: string }

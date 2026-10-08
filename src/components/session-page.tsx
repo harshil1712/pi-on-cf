@@ -5,16 +5,16 @@ import { Button, buttonVariants } from '@cloudflare/kumo/components/button'
 import { Tabs } from '@cloudflare/kumo/components/tabs'
 import { cn } from '@cloudflare/kumo/utils'
 import { GitBranchIcon, GitPullRequestIcon, PencilSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
-import { RenameSessionDialog } from '~/features/sessions/session-dialogs'
-import { TopBar } from '~/features/shell/top-bar'
-import { ChangesBrowser } from './components/changes-browser'
-import { PromptComposer } from './components/prompt-composer'
-import { TranscriptView } from './components/transcript-view'
-import { WorkspaceBrowser } from './components/workspace-browser'
-import { usePiSession } from './use-pi-session'
+import { RenameSessionDialog } from './session-dialogs'
+import { TopBar } from './top-bar'
+import { ChangesBrowser } from './changes-browser'
+import { PromptComposer } from './prompt-composer'
+import { TranscriptView } from './transcript-view'
+import { WorkspaceBrowser } from './workspace-browser'
+import { usePiSession } from '~/hooks/use-pi-session'
 
-export function WorkspaceApp({ sessionId }: { sessionId: string }) {
-  return <WorkspaceSession key={sessionId} sessionId={sessionId} />
+export function SessionPage({ sessionId }: { sessionId: string }) {
+  return <SessionView key={sessionId} sessionId={sessionId} />
 }
 
 const STATUS = {
@@ -23,7 +23,7 @@ const STATUS = {
   ready: { label: 'Ready', variant: 'success' },
 } as const
 
-function WorkspaceSession({ sessionId }: { sessionId: string }) {
+function SessionView({ sessionId }: { sessionId: string }) {
   const session = usePiSession(sessionId)
   const [filesOpen, setFilesOpen] = useState(true)
   const [renameOpen, setRenameOpen] = useState(false)

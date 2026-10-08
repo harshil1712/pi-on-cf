@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { AgentEvent, EntryRecord } from '@earendil-works/pi-durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PiSessionState, SessionSummary, SessionTask, WorkspaceFile, WorkspaceFileContent } from '~/shared/pi-contract'
+import type { PiSessionState, SessionSummary, SessionTask, WorkspaceFile, WorkspaceFileContent } from '~/contract'
 
 type AgentOptions = {
   agent: string
@@ -45,11 +45,11 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 import { Sidebar } from '@cloudflare/kumo/components/sidebar'
-import { SessionRegistryProvider } from '~/features/sessions/session-registry'
-import { WorkspaceApp } from './workspace-app'
+import { SessionRegistryProvider } from '~/hooks/use-session-registry'
+import { SessionPage } from '~/components/session-page'
 
 /** The session page as the app shell hosts it: inside the sidebar and the shared registry. */
-function renderWorkspace(ui: React.ReactElement) {
+function renderSession(ui: React.ReactElement) {
   return render(<Sidebar.Provider><SessionRegistryProvider>{ui}</SessionRegistryProvider></Sidebar.Provider>)
 }
 
@@ -90,7 +90,7 @@ async function deliver(...events: AgentEvent[]) {
   })
 }
 
-describe('WorkspaceApp', () => {
+describe('SessionPage', () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
@@ -121,7 +121,7 @@ describe('WorkspaceApp', () => {
   })
 
   it('connects to the session through the registry and renders its pi snapshot', async () => {
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
 
     expect(mocks.useAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'PiSession', basePath: 'api/agents/pi-registry/singleton/sessions/session-12345678' }))
     expect(mocks.useAgent).not.toHaveBeenCalledWith(expect.objectContaining({ agent: 'PiSession', name: expect.anything() }))
@@ -136,7 +136,7 @@ describe('WorkspaceApp', () => {
   })
 
   it('submits prompts durably and follows the run through pi events', async () => {
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
 
     const input = screen.getByLabelText('Message Pi') as HTMLTextAreaElement
@@ -177,7 +177,7 @@ describe('WorkspaceApp', () => {
       renderFrame = callback
       return 1
     })
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
 
     act(() => {
       emit(snapshot([], true), { type: 'message_start', message: { role: 'assistant', content: [], api: 'faux', provider: 'faux', model: 'faux', usage, stopReason: 'stop', timestamp: 0 } } as AgentEvent)
@@ -193,7 +193,7 @@ describe('WorkspaceApp', () => {
 
   it('shows unanswered submissions and failed submits as errors', async () => {
     mocks.sessionAgent.stub.submit.mockRejectedValueOnce(new Error('A prompt is required.'))
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
 
     fireEvent.change(screen.getByLabelText('Message Pi'), { target: { value: 'Do work' } })
@@ -206,7 +206,7 @@ describe('WorkspaceApp', () => {
   })
 
   it('explains a failed session startup instead of loading forever', async () => {
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
 
     act(() => {
       mocks.sessionOptions?.onMessage?.(new MessageEvent('message', { data: JSON.stringify({ error: 'Error: pi could not open\n    at open (pi.js:1:1)' }) }))
@@ -223,7 +223,7 @@ describe('WorkspaceApp', () => {
   })
 
   it('reports a lost connection until pi events resume', async () => {
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
 
     act(() => mocks.sessionOptions?.onClose?.(new CloseEvent('close', { code: 1006 })))
@@ -238,7 +238,7 @@ describe('WorkspaceApp', () => {
 
   it('refreshes workspace files when a tool finishes', async () => {
     mocks.sessionAgent.stub.listFiles.mockResolvedValueOnce([]).mockResolvedValueOnce([file('/workspace/a.ts')])
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await waitFor(() => expect(mocks.sessionAgent.stub.listFiles).toHaveBeenCalledTimes(1))
 
     await deliver(snapshot([], true), { type: 'tool_execution_end', toolCallId: 'call-1', toolName: 'write' } as AgentEvent)
@@ -253,7 +253,7 @@ describe('WorkspaceApp', () => {
     mocks.sessionAgent.stub.listFiles.mockResolvedValue([file('/workspace/a.ts'), file('/workspace/b.ts')])
     mocks.sessionAgent.stub.readWorkspaceFile.mockReturnValueOnce(firstRead.promise).mockReturnValueOnce(secondRead.promise)
 
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await waitFor(() => expect(mocks.sessionAgent.stub.readWorkspaceFile).toHaveBeenCalledWith('/workspace/a.ts'))
     expect((screen.getByRole('button', { name: 'Download file' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: /b\.ts/i }))
@@ -269,7 +269,7 @@ describe('WorkspaceApp', () => {
 
   it('stops connecting to a session the registry does not hold', async () => {
     mocks.registryAgent.stub.getSession.mockResolvedValue(null)
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
 
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('This session does not exist'))
     expect(mocks.sessionAgent.close).toHaveBeenCalledOnce()
@@ -279,7 +279,7 @@ describe('WorkspaceApp', () => {
   })
 
   it('renames the session through the registry', async () => {
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Current session' }))
     const dialog = await screen.findByRole('dialog', { name: 'Rename session' })
@@ -292,7 +292,7 @@ describe('WorkspaceApp', () => {
 
   it('follows the live catalog: a first prompt\'s title appears when the registry moves', async () => {
     mocks.registryAgent.stub.getSession.mockResolvedValue(summary({ name: undefined }))
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
     expect(await screen.findByRole('button', { name: 'Untitled session-' })).toBeTruthy()
 
@@ -311,7 +311,7 @@ describe('WorkspaceApp', () => {
       { path: 'README.md', status: 'A', insertions: 10, deletions: 0 },
     ])
     mocks.sessionAgent.stub.readChange.mockImplementation(async (path: string) => `diff --git a/${path} b/${path}\n+changed ${path}\n`)
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
     expect(screen.queryByText('Changes')).toBeNull()
 
@@ -337,7 +337,7 @@ describe('WorkspaceApp', () => {
       { repo: 'octo/other', private: false, description: 'The other one' },
       { repo: 'acme/site', private: false },
     ])
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
     const field = screen.getByLabelText('Message Pi') as HTMLTextAreaElement
     expect(field.placeholder).toContain('type @')
@@ -368,7 +368,7 @@ describe('WorkspaceApp', () => {
 
   it('shows the session\'s model and switches it', async () => {
     mocks.sessionAgent.stub.listModels.mockResolvedValue([{ id: 'model-a', label: 'Model A' }, { id: 'model-b', label: 'Model B' }])
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     act(() => mocks.sessionOptions?.onStateUpdate?.({ task: null, model: 'model-a' }, 'server'))
     await deliver(snapshot([]))
     const picker = await screen.findByRole('combobox', { name: 'Model' })
@@ -383,14 +383,14 @@ describe('WorkspaceApp', () => {
   })
 
   it('hides the model picker when the session offers no models', async () => {
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
     await waitFor(() => expect(mocks.sessionAgent.stub.listModels).toHaveBeenCalled())
     expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull()
   })
 
   it('stops suggesting repositories once the session has one', async () => {
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
     act(() => mocks.sessionOptions?.onStateUpdate?.({ task: { repo: 'octo/demo', baseBranch: 'main', baseCommit: 'abc', branch: 'pi/1', dir: '/workspace/demo' }, model: 'm' }, 'server'))
     const field = screen.getByLabelText('Message Pi') as HTMLTextAreaElement
@@ -407,7 +407,7 @@ describe('WorkspaceApp', () => {
       role: 'assistant', api: 'faux', provider: 'faux', model: 'faux', usage, stopReason: 'stop', timestamp: 0,
       content: [{ type: 'text', text: 'Opened [pull request #4](https://github.com/octo/demo/pull/4). See [the docs](https://example.com/docs).' }],
     }] } as unknown as EntryRecord
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([userEntry('open a PR'), reply]))
 
     fireEvent.click(await screen.findByRole('button', { name: 'pull request #4' }))
@@ -425,7 +425,7 @@ describe('WorkspaceApp', () => {
   })
 
   it('switches between the mobile Chat and Files views', async () => {
-    renderWorkspace(<WorkspaceApp sessionId="session-12345678" />)
+    renderSession(<SessionPage sessionId="session-12345678" />)
     const chatTab = screen.getByRole('tab', { name: 'Chat' })
     const filesTab = screen.getByRole('tab', { name: /Files/ })
     expect(chatTab.getAttribute('aria-selected')).toBe('true')

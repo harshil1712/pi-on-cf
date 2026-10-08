@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { titleFromPrompt } from './session-title'
+import { titleFromPrompt } from '~/server/session-title'
 
 describe('titleFromPrompt', () => {
   it('keeps a short prompt as it is', () => {

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SessionSummary } from '~/shared/pi-contract'
+import type { SessionSummary } from '~/contract'
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -24,8 +24,8 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 import { Sidebar } from '@cloudflare/kumo/components/sidebar'
-import { SessionRegistryProvider } from '~/features/sessions/session-registry'
-import { HomePage } from './home-page'
+import { SessionRegistryProvider } from '~/hooks/use-session-registry'
+import { HomePage } from '~/components/home-page'
 
 const now = '2026-07-28T12:00:00.000Z'
 const session = (overrides: Partial<SessionSummary> = {}): SessionSummary => ({

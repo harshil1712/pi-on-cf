@@ -7,17 +7,17 @@ export default defineConfig({
   test: {
     projects: [
       {
-        // Browser-side units, colocated with the code under src/.
+        // Browser units under test/unit, mirroring src/.
         extends: true,
         test: {
           name: 'unit',
           environment: 'jsdom',
-          include: ['src/**/*.test.{ts,tsx}'],
-          setupFiles: ['./test/setup.ts'],
+          include: ['test/unit/**/*.test.{ts,tsx}'],
+          setupFiles: ['./test/unit/setup.ts'],
         },
       },
       {
-        // Durable Objects and Computer, in workerd.
+        // Worker code: Durable Objects, Computer, and server modules, in workerd.
         extends: true,
         plugins: [
           agents(),

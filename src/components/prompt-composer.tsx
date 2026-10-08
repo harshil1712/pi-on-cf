@@ -5,8 +5,8 @@ import { Loader } from '@cloudflare/kumo/components/loader'
 import { Select } from '@cloudflare/kumo/components/select'
 import { cn } from '@cloudflare/kumo/utils'
 import { ArrowUpIcon, CubeIcon, LockSimpleIcon, StopIcon } from '@phosphor-icons/react'
-import type { ModelOption, Repository } from '~/shared/pi-contract'
-import { mentionQueryAt } from '~/shared/repo-mention'
+import type { ModelOption, Repository } from '~/contract'
+import { mentionQueryAt } from '~/lib/repo-mention'
 
 const SUGGESTION_LIMIT = 8
 

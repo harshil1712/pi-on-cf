@@ -12,9 +12,9 @@ import {
   type SessionTask,
   sessionBasePath,
   type WorkspaceFile,
-} from '~/shared/pi-contract'
-import { useSessionRegistry } from '~/features/sessions/session-registry'
-import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from './transcript'
+} from '~/contract'
+import { useSessionRegistry } from './use-session-registry'
+import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from '~/lib/transcript'
 import { useTaskChanges } from './use-task-changes'
 
 function isPiEvents(value: unknown): value is PiEventsMessage {

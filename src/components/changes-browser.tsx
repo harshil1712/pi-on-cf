@@ -4,7 +4,7 @@ import { Empty } from '@cloudflare/kumo/components/empty'
 import { Loader } from '@cloudflare/kumo/components/loader'
 import { cn } from '@cloudflare/kumo/utils'
 import { GitDiffIcon } from '@phosphor-icons/react'
-import type { SessionTask, TaskChange } from '~/shared/pi-contract'
+import type { SessionTask, TaskChange } from '~/contract'
 import { CODE_VIEWER } from './code-viewer'
 
 const HighlightedFile = lazy(() => import('./highlighted-code').then((module) => ({ default: module.HighlightedFile })))

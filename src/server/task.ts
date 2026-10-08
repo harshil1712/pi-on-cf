@@ -2,7 +2,7 @@ import type { WorkspaceClient } from '@cloudflare/computer'
 import type { GitClient } from '@cloudflare/computer/git'
 import { Type } from '@earendil-works/pi-ai'
 import type { PromptSection, ToolRegistration } from '@earendil-works/pi-durable'
-import type { PullRequest, SessionTask, TaskChange } from '~/shared/pi-contract'
+import type { PullRequest, SessionTask, TaskChange } from '~/contract'
 import { cloneUrl, defaultBranch, gitAuth, gitAuthHeaders, parseRepo, repoSlug, upsertPullRequest } from './github'
 import { WORKSPACE_ROOT } from './workspace-root'
 

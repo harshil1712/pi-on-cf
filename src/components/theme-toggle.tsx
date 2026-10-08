@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@cloudflare/kumo/components/button'
 import { DropdownMenu } from '@cloudflare/kumo/components/dropdown'
 import { MonitorIcon, MoonIcon, SunIcon } from '@phosphor-icons/react'
-import { applyThemePreference, readThemePreference, storeThemePreference, type ThemePreference } from './theme'
+import { applyThemePreference, readThemePreference, storeThemePreference, type ThemePreference } from '~/lib/theme'
 
 const OPTIONS = [
   { value: 'system', label: 'System', icon: MonitorIcon },

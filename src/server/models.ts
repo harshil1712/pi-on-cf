@@ -1,4 +1,4 @@
-import type { ModelOption } from '~/shared/pi-contract'
+import type { ModelOption } from '~/contract'
 
 /**
  * The Workers AI models a session can switch to. Curated rather than the

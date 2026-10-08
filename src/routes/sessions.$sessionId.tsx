@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { WorkspaceApp } from '~/features/workspace/workspace-app'
+import { SessionPage } from '~/components/session-page'
 
 export const Route = createFileRoute('/sessions/$sessionId')({
   component: SessionRoute,
@@ -7,5 +7,5 @@ export const Route = createFileRoute('/sessions/$sessionId')({
 
 function SessionRoute() {
   const { sessionId } = Route.useParams()
-  return <WorkspaceApp sessionId={sessionId} />
+  return <SessionPage sessionId={sessionId} />
 }

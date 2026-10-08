@@ -7,7 +7,7 @@ import {
   type PiRegistryContract,
   type PiRegistryState,
   type SessionSummary,
-} from '~/shared/pi-contract'
+} from '~/contract'
 
 type SessionRegistry = {
   agent: ReturnType<typeof useAgent<PiRegistryContract, PiRegistryState>>

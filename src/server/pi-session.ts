@@ -26,7 +26,7 @@ import {
   type TaskChange,
   type WorkspaceFile,
   type WorkspaceFileContent,
-} from '~/shared/pi-contract'
+} from '~/contract'
 import { modelOptions } from './models'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'

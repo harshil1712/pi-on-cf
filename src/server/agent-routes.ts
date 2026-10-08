@@ -1,5 +1,5 @@
 import type { AgentOptions } from 'agents'
-import { PI_AGENT_PREFIX } from '~/shared/pi-contract'
+import { PI_AGENT_PREFIX } from '~/contract'
 
 /**
  * Sessions are reachable only through the registry, which resolves a
