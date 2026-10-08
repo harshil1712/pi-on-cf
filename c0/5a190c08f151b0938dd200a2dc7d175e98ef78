@@ -1,0 +1,25 @@
+README.md
+  s_9db2b475b80bc7::t_e5e9d59ae54cf5 25
+src/lib/theme.ts
+  s_9db2b475b80bc7::t_950f16254b8f47 3
+src/lib/transcript.ts
+  s_9db2b475b80bc7::t_8b61db6d36d856 11,32
+src/server/skill-tools.ts
+  s_9db2b475b80bc7::t_689413c9f5d42d 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c05a190c08f151b0938dd200a2dc7d175e98ef78",
+  "prompts": {},
+  "sessions": {
+    "s_9db2b475b80bc7": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a11b91-4a2f-76cd-a15d-7aa0676fad2e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
