@@ -75,7 +75,8 @@ function WorkspaceSession({ sessionId }: { sessionId: string }) {
           </Button>
           {task && (
             <span className="flex min-w-0 items-center gap-1 truncate text-xs text-kumo-subtle max-md:hidden" title={`${task.repo} · ${task.branch} from ${task.baseBranch}`}>
-              <GitBranchIcon size={13} className="shrink-0" />{task.repo} · {task.branch}
+              {/* An unnamed session is titled with its repository, so the branch is enough here. */}
+              <GitBranchIcon size={13} className="shrink-0" />{name === task.repo ? task.branch : `${task.repo} · ${task.branch}`}
             </span>
           )}
           <Badge variant={status.variant} appearance="dot" className="max-md:ring-0">

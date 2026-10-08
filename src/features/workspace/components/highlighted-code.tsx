@@ -1,6 +1,7 @@
 import { code, createCodePlugin } from '@streamdown/code'
 import type { BundledLanguage } from 'shiki'
 import { Streamdown } from 'streamdown'
+import { LINK_SAFETY } from './link-safety'
 import { CODE_VIEWER } from './code-viewer'
 
 const workspaceCode = createCodePlugin({ themes: ['github-light', 'github-dark'] })
@@ -88,7 +89,7 @@ export function parseFrontmatter(content: string): Frontmatter {
 
 export function HighlightedMarkdown({ children, active }: { children: string; active: boolean }) {
   return (
-    <Streamdown caret={active ? 'block' : undefined} controls={{ code: { download: false } }} isAnimating={active} plugins={{ code }}>
+    <Streamdown caret={active ? 'block' : undefined} controls={{ code: { download: false } }} isAnimating={active} linkSafety={LINK_SAFETY} plugins={{ code }}>
       {children}
     </Streamdown>
   )
@@ -120,7 +121,7 @@ export function MarkdownFile({ content }: { content: string }) {
           ))}
         </dl>
       )}
-      <Streamdown mode="static" controls={{ code: { download: false } }} plugins={{ code: workspaceCode }}>
+      <Streamdown mode="static" controls={{ code: { download: false } }} linkSafety={LINK_SAFETY} plugins={{ code: workspaceCode }}>
         {body}
       </Streamdown>
     </div>

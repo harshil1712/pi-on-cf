@@ -23,6 +23,7 @@
   --color-border: var(--color-kumo-hairline);
   --color-sidebar: var(--color-kumo-elevated);
   --color-primary: var(--text-color-kumo-default);
+  --color-primary-foreground: var(--color-kumo-base);
 }
 
 @theme {

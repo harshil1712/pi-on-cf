@@ -348,6 +348,29 @@ describe('WorkspaceApp', () => {
     expect(screen.queryByLabelText('Repositories')).toBeNull()
   })
 
+  it('opens GitHub links at once and asks before any other', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const reply = { id: 2, conversationId: 1, kind: 'pi.assistant', model: [{
+      role: 'assistant', api: 'faux', provider: 'faux', model: 'faux', usage, stopReason: 'stop', timestamp: 0,
+      content: [{ type: 'text', text: 'Opened [pull request #4](https://github.com/octo/demo/pull/4). See [the docs](https://example.com/docs).' }],
+    }] } as unknown as EntryRecord
+    render(<WorkspaceApp sessionId="session-12345678" />)
+    await deliver(snapshot([userEntry('open a PR'), reply]))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'pull request #4' }))
+    await waitFor(() => expect(open).toHaveBeenCalledWith('https://github.com/octo/demo/pull/4', '_blank', 'noreferrer'))
+    expect(screen.queryByText('Open external link?')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'the docs' }))
+    expect(await screen.findByText('Open external link?')).toBeTruthy()
+    expect(screen.getByText('https://example.com/docs')).toBeTruthy()
+    expect(open).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Open link' }))
+    expect(open).toHaveBeenLastCalledWith('https://example.com/docs', '_blank', 'noreferrer')
+    await waitFor(() => expect(screen.queryByText('Open external link?')).toBeNull())
+    open.mockRestore()
+  })
+
   it('switches between the mobile Chat and Files views', async () => {
     render(<WorkspaceApp sessionId="session-12345678" />)
     const chatTab = screen.getByRole('tab', { name: 'Chat' })

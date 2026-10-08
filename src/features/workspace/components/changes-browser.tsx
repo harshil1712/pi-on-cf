@@ -9,6 +9,9 @@ import { CODE_VIEWER } from './code-viewer'
 
 const HighlightedFile = lazy(() => import('./highlighted-code').then((module) => ({ default: module.HighlightedFile })))
 
+/** jsdiff's `Index:` and `====` preamble repeats the file name the list already shows. */
+const withoutPreamble = (diff: string) => diff.replace(/^Index: .*\n=+\n/, '')
+
 const STATUS_CLASS = { A: 'text-kumo-success', M: 'text-kumo-warning', D: 'text-kumo-danger' } as const
 
 type ChangesBrowserProps = {
@@ -62,8 +65,8 @@ export function ChangesBrowser(props: ChangesBrowserProps) {
       {changes.length > 0 && selectedPath && (
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
           {diffError ? <p className="px-3.5 py-3 text-sm text-kumo-danger" role="alert">{diffError}</p> : (
-            <Suspense fallback={<pre className={CODE_VIEWER}><code>{diff}</code></pre>}>
-              <HighlightedFile content={diff} path={`${selectedPath}.diff`} />
+            <Suspense fallback={<pre className={CODE_VIEWER}><code>{withoutPreamble(diff)}</code></pre>}>
+              <HighlightedFile content={withoutPreamble(diff)} path={`${selectedPath}.diff`} />
             </Suspense>
           )}
         </div>

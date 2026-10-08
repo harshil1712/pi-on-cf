@@ -5,6 +5,7 @@ import { Empty } from '@cloudflare/kumo/components/empty'
 import { Loader } from '@cloudflare/kumo/components/loader'
 import { cn } from '@cloudflare/kumo/utils'
 import { Streamdown } from 'streamdown'
+import { LINK_SAFETY } from './link-safety'
 import { PiMark } from '~/features/shell/top-bar'
 import type { TranscriptEntry } from '../transcript'
 import { ActivityCard } from './activity-card'
@@ -75,11 +76,11 @@ const TranscriptRow = memo(function TranscriptRow({ active, entry, isRunning }: 
         entry.role === 'user' ? 'max-w-[85%] rounded-2xl bg-kumo-tint px-3.5 py-2 whitespace-pre-wrap' : 'message-markdown',
       )}>
         {entry.role === 'assistant' && entry.text ? entry.text.includes('```') ? (
-          <Suspense fallback={<Streamdown>{entry.text}</Streamdown>}>
+          <Suspense fallback={<Streamdown linkSafety={LINK_SAFETY}>{entry.text}</Streamdown>}>
             <HighlightedMarkdown active={active}>{entry.text}</HighlightedMarkdown>
           </Suspense>
         ) : (
-          <Streamdown caret={active ? 'block' : undefined} isAnimating={active}>{entry.text}</Streamdown>
+          <Streamdown caret={active ? 'block' : undefined} isAnimating={active} linkSafety={LINK_SAFETY}>{entry.text}</Streamdown>
         ) : entry.text || (isRunning && active ? <span className="inline-block h-[15px] w-2 animate-blink rounded-xs bg-kumo-subtle align-text-bottom" /> : '')}
       </div>
     </article>
