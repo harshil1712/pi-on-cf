@@ -1,0 +1,97 @@
+README.md
+  s_9db2b475b80bc7::t_409cf4d5e194f1 32-36,38-39,49
+docs/architecture.md
+  s_9db2b475b80bc7::t_88e13e102e9f13 14,19,54,101
+src/components/activity-card.tsx
+  s_9db2b475b80bc7::t_f06b42335edd00 6
+src/components/app-shell.tsx
+  s_9db2b475b80bc7::t_19c2d37919dbd4 6-7
+src/components/changes-browser.tsx
+  s_9db2b475b80bc7::t_35d362c3bd41e6 7
+src/components/home-page.tsx
+  s_9db2b475b80bc7::t_afb1f20bef1ca4 6-10
+src/components/pi-mark.tsx
+  s_9db2b475b80bc7::t_664166d628ef53 1-16
+src/components/prompt-composer.tsx
+  s_9db2b475b80bc7::t_a6033e3f4b071e 8-9
+src/components/session-page.tsx
+  s_9db2b475b80bc7::t_423f16d5d7034c 8-14,16-17,26
+src/components/session-sidebar.tsx
+  s_9db2b475b80bc7::t_bf0034d03a9c49 9-11,13
+src/components/theme-toggle.tsx
+  s_9db2b475b80bc7::t_bc35b67a83a739 5
+src/components/transcript-view.tsx
+  s_9db2b475b80bc7::t_6dd2b016c5d430 9-10
+src/components/workspace-browser.tsx
+  s_9db2b475b80bc7::t_8faba9b9ae2748 8
+src/hooks/use-pi-session.ts
+  s_9db2b475b80bc7::t_eb0a788425db2d 15-17
+src/hooks/use-session-registry.tsx
+  s_9db2b475b80bc7::t_6d7d96514e3faa 10
+src/hooks/use-task-changes.ts
+  s_9db2b475b80bc7::t_86ebc5c11740ff 2
+src/routes/__root.tsx
+  s_9db2b475b80bc7::t_bb995a74375b26 3-4
+src/routes/index.tsx
+  s_9db2b475b80bc7::t_b37172f4431a1e 2
+src/routes/sessions.$sessionId.tsx
+  s_9db2b475b80bc7::t_8847b8e7584a3e 2,10
+src/server/agent-routes.ts
+  s_9db2b475b80bc7::t_ddab661d21daaa 2
+src/server/github.ts
+  s_9db2b475b80bc7::t_65ac37c6607f6c 1
+src/server/models.ts
+  s_9db2b475b80bc7::t_f26b180112d5d8 1
+src/server/pi-registry.ts
+  s_9db2b475b80bc7::t_0ac5f9c6e8ec11 3-4
+src/server/pi-session.ts
+  s_9db2b475b80bc7::t_3928da6c4cf817 29
+src/server/task.ts
+  s_9db2b475b80bc7::t_b158f21d432154 5
+test/unit/components/highlighted-code.test.ts
+  s_9db2b475b80bc7::t_26d84078f617b7 2
+test/unit/components/home-page.test.tsx
+  s_9db2b475b80bc7::t_15b2fcb20efb98 3,27-28
+test/unit/components/session-page.test.tsx
+  s_9db2b475b80bc7::t_698ce6cbdc4944 4,48-49,52,93,124,139,180,196,209,226,241,256,272,282,295,314,340,371,386,393,410,428
+test/unit/components/session-sidebar.test.tsx
+  s_9db2b475b80bc7::t_eed537ecd00aee 3,32-33
+test/unit/components/transcript-view.test.tsx
+  s_9db2b475b80bc7::t_673ed4d609a5df 3
+test/unit/lib/repo-mention.test.ts
+  s_9db2b475b80bc7::t_408db57c97c3d9 2
+test/unit/lib/transcript.test.ts
+  s_9db2b475b80bc7::t_dc0a93f1ec81ca 4
+test/worker/catalog.test.ts
+  s_9db2b475b80bc7::t_81323d2c5b91e6 5
+test/worker/entry.ts
+  s_9db2b475b80bc7::t_89ec2ce2935072 19
+test/worker/model-options.test.ts
+  s_9db2b475b80bc7::t_1dc88fd976556c 2
+test/worker/models.test.ts
+  s_9db2b475b80bc7::t_a8c4f581a19506 5
+test/worker/session-title.test.ts
+  s_9db2b475b80bc7::t_a6bd11c6cc8b7c 2
+test/worker/sessions.test.ts
+  s_9db2b475b80bc7::t_9129f228459749 5
+test/worker/task.test.ts
+  s_9db2b475b80bc7::t_ac3594c79912cc 6
+vitest.config.ts
+  s_9db2b475b80bc7::t_ce67671864c255 10,15-16,20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9e12cdb00d2f4364080e51725566ccf6a0f303ec",
+  "prompts": {},
+  "sessions": {
+    "s_9db2b475b80bc7": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a11b91-4a2f-76cd-a15d-7aa0676fad2e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
