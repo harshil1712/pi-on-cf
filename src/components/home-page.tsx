@@ -93,7 +93,7 @@ export function HomePage() {
                   key={title}
                   type="button"
                   onClick={() => compose(text)}
-                  className="group flex cursor-pointer items-start gap-3 rounded-xl bg-kumo-base p-3.5 text-left ring ring-kumo-line transition hover:bg-kumo-tint hover:ring-kumo-fill focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:outline-none"
+                  className="group flex cursor-pointer items-start gap-3 rounded-xl bg-kumo-base p-3.5 text-left ring ring-kumo-line transition hover:bg-kumo-tint hover:ring-kumo-fill active:bg-kumo-tint active:ring-kumo-fill focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:outline-none"
                 >
                   <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-kumo-recessed text-kumo-subtle transition group-hover:text-kumo-default">
                     <StarterIcon size={17} />

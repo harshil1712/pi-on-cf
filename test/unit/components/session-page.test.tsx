@@ -317,8 +317,10 @@ describe('SessionPage', () => {
 
     act(() => mocks.sessionOptions?.onStateUpdate?.({ task, model: 'm' }, 'server'))
 
-    expect(await screen.findByText('src/index.ts')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /src\/index\.ts/ })).toBeTruthy()
     expect(screen.getByText('octo/demo · pi/12345678')).toBeTruthy()
+    // The mobile Files tab points out that changes wait behind it.
+    expect(screen.getByRole('tab', { name: 'Files' }).textContent).toContain('2 changes')
     // The first change is selected, and its diff requested, after the list renders.
     await waitFor(() => expect(mocks.sessionAgent.stub.readChange).toHaveBeenCalledWith('src/index.ts'))
     expect(await screen.findByText(/\+changed src\/index\.ts/, { selector: 'pre.sr-only code' })).toBeTruthy()

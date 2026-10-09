@@ -43,7 +43,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
             </a>
           )}
           <Button
-            className="max-md:hidden"
+            className="hidden md:flex"
             variant={filesOpen ? 'secondary' : 'ghost'}
             size="sm"
             onClick={() => setFilesOpen((open) => !open)}
@@ -70,41 +70,56 @@ function SessionView({ sessionId }: { sessionId: string }) {
             <PencilSimpleIcon size={13} aria-hidden="true" className="shrink-0 text-kumo-subtle opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
           </Button>
           {task && (
-            <span className="flex min-w-0 items-center gap-1 truncate text-xs text-kumo-subtle max-md:hidden" title={`${task.repo} · ${task.branch} from ${task.baseBranch}`}>
+            <span className="hidden min-w-0 items-center gap-1 truncate text-xs text-kumo-subtle md:flex" title={`${task.repo} · ${task.branch} from ${task.baseBranch}`}>
               {/* An unnamed session is titled with its repository, so the branch is enough here. */}
               <GitBranchIcon size={13} className="shrink-0" />{name === task.repo ? task.branch : `${task.repo} · ${task.branch}`}
             </span>
           )}
           <Badge variant={status.variant} appearance="dot" className="max-md:ring-0">
-            <span className="max-md:sr-only">{status.label}</span>
+            {/* On a phone the badge is just its dot; the label stays for screen readers. */}
+            <span className="sr-only md:not-sr-only">{status.label}</span>
             {session.queued > 0 && <span>· {session.queued} queued</span>}
           </Badge>
         </div>
       </TopBar>
 
-      <section className="flex min-h-0 flex-1 max-md:flex-col">
+      {/* Mobile: the views stack, Chat before Files; desktop: they sit side by side. */}
+      <section className="flex min-h-0 flex-1 flex-col md:flex-row">
         <nav className="shrink-0 border-b border-kumo-hairline bg-kumo-base px-3 py-1.5 md:hidden" aria-label="Workspace view">
           <Tabs
             tabs={[
               { value: 'chat', label: 'Chat', render: <button id="chat-tab" aria-label="Chat" aria-controls="chat-panel" /> },
-              { value: 'files', label: <>Files<span className="ml-1 text-kumo-subtle">{session.files.length}</span></>, render: <button id="files-tab" aria-label="Files" aria-controls="files-panel" /> },
+              {
+                value: 'files',
+                label: <>
+                  Files<span className="ml-1 text-kumo-subtle">{session.files.length}</span>
+                  {/* Pi's changes wait behind the Files tab, so a dot points them out. */}
+                  {task && session.changes.changes.length > 0 && (
+                    <>
+                      <span aria-hidden className="ml-1.5 inline-block size-1.5 rounded-full bg-kumo-warning" />
+                      <span className="sr-only">, {session.changes.changes.length} changes</span>
+                    </>
+                  )}
+                </>,
+                render: <button id="files-tab" aria-label="Files" aria-controls="files-panel" />,
+              },
             ]}
             value={session.mobileView}
             onValueChange={(value) => session.setMobileView(value as 'chat' | 'files')}
             activateOnFocus
           />
         </nav>
-        <div id="chat-panel" className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !chatView && 'max-md:hidden')} role="tabpanel" aria-label="Chat" aria-labelledby="chat-tab">
+        <div id="chat-panel" className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !chatView && 'hidden md:flex')} role="tabpanel" aria-label="Chat" aria-labelledby="chat-tab">
           <TranscriptView activeTextId={session.activeTextId} entries={session.entries} isRunning={session.isRunning} onScroll={session.handleTranscriptScroll} onTryOperation={() => { session.setInput('Create /workspace/hello.ts with a Worker that returns “Hello from Pi”.'); document.getElementById('prompt')?.focus() }} transcriptRef={session.transcriptRef} />
-          <div className="mx-auto w-full max-w-200 shrink-0 px-3 pt-2 pb-3 md:px-5 md:pb-4">
+          <div className="mx-auto w-full max-w-200 shrink-0 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-5 md:pb-4">
             {session.error && <Banner className="mb-2" variant="error" role="alert" description={session.error} />}
             <PromptComposer input={session.input} isReady={session.isReady} isRunning={session.isRunning} onAbort={() => void session.abort()} onInputChange={session.setInput} onSubmit={session.submit} repositories={session.listRepositories} models={session.models} model={session.model} onModelChange={(id) => void session.setModel(id)} />
           </div>
         </div>
         <div className={cn(
-          'flex min-h-0 min-w-0 bg-kumo-base max-md:flex-1 md:w-[clamp(320px,34vw,480px)] md:border-l md:border-kumo-hairline',
+          'flex min-h-0 min-w-0 flex-1 bg-kumo-base md:w-[clamp(320px,34vw,480px)] md:flex-none md:border-l md:border-kumo-hairline',
           !filesOpen && 'md:hidden',
-          chatView && 'max-md:hidden',
+          chatView && 'hidden md:flex',
         )}>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {task && (

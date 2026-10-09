@@ -13,6 +13,8 @@ Pi on Cloudflare is a TanStack Start application deployed as a Cloudflare Worker
 
 The Worker routes `/api/agents/*` through the Agents SDK and sends other requests to TanStack Start. Sessions are reachable only through the registry: `src/server/agent-routes.ts` refuses direct `/api/agents/pi-session/*` requests. Every page sits in one app shell (`src/components/app-shell.tsx`): Kumo's `Sidebar` lists the sessions beside the routed page, a home page at `/` starts sessions from a prompt, and each session's workspace is at `/sessions/:sessionId`. The shell holds the app's one registry connection (`SessionRegistryProvider`), which both pages share.
 
+The UI is written mobile-first: the layout below `md` is the baseline and `md:`/`lg:` utilities add the desktop arrangement, never the other way around. On a phone the sidebar becomes an offcanvas sheet, the session page stacks Chat and Files behind tabs (a dot on the Files tab points out pending changes), and tapping a file or change opens its preview or diff full-screen with a back button, instead of the desktop's shared panel. The viewport meta and the `useKeyboardAwareHeight` hook keep the composer above the soft keyboard, safe-area padding keeps it off the notch, and the web manifest with generated icons (`scripts/generate-icons.mjs`) makes the app installable.
+
 Relevant source:
 
 - `src/server.ts`

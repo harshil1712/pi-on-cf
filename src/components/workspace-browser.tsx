@@ -4,7 +4,7 @@ import { Empty } from '@cloudflare/kumo/components/empty'
 import { Loader } from '@cloudflare/kumo/components/loader'
 import { Tabs } from '@cloudflare/kumo/components/tabs'
 import { cn } from '@cloudflare/kumo/utils'
-import { CheckIcon, CopyIcon, DownloadSimpleIcon, FileTextIcon, FolderOpenIcon } from '@phosphor-icons/react'
+import { ArrowLeftIcon, CheckIcon, CopyIcon, DownloadSimpleIcon, FileTextIcon, FolderOpenIcon } from '@phosphor-icons/react'
 import type { WorkspaceFile } from '~/contract'
 import { CODE_VIEWER } from './code-viewer'
 
@@ -44,6 +44,9 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
   // Markdown opens rendered; the choice carries over to the next Markdown file.
   const [markdownView, setMarkdownView] = useState<'preview' | 'source'>('preview')
   const [copied, setCopied] = useState(false)
+  // A tap on a file opens it full-screen on a phone, with this as the way back.
+  // Desktops share the panel between the list and the preview instead.
+  const [drilled, setDrilled] = useState(false)
   const markdown = isMarkdownPath(selectedPath)
   const showPreview = markdown && markdownView === 'preview'
 
@@ -72,7 +75,8 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
         </span>
         <RefreshButton size="sm" variant="ghost" onClick={onRefresh} loading={filesLoading} aria-label="Refresh files" title="Refresh files" />
       </header>
-      <div className={cn('min-h-18 overflow-y-auto p-1', files.length > 0 ? 'max-h-2/5 shrink border-b border-kumo-hairline' : 'flex-1')} aria-label="Workspace files">
+      {/* Mobile: the list fills the panel until a file is tapped. Desktop: it caps itself so the preview fits below. */}
+      <div className={cn('min-h-18 flex-1 overflow-y-auto p-1', files.length > 0 && 'md:max-h-2/5 md:shrink md:border-b md:border-kumo-hairline', drilled && 'hidden md:block')} aria-label="Workspace files">
         {filesLoading && files.length === 0 && <div className="flex items-center justify-center gap-2 px-3 py-5 text-sm text-kumo-subtle"><Loader size="sm" />Loading files…</div>}
         {filesError && <p className="px-3.5 py-3 text-sm text-kumo-danger" role="alert">{filesError}</p>}
         {!filesLoading && !filesError && files.length === 0 && (
@@ -83,9 +87,9 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
           const selected = selectedPath === file.path
           return (
             <button
-              className={cn('flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left', selected ? 'bg-kumo-fill' : 'hover:bg-kumo-tint')}
+              className={cn('flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2.5 text-left md:py-1.5', selected ? 'bg-kumo-fill' : 'hover:bg-kumo-tint active:bg-kumo-fill')}
               key={file.path}
-              onClick={() => onSelectPath(file.path)}
+              onClick={() => { setDrilled(true); onSelectPath(file.path) }}
               aria-pressed={selected}
               title={file.path}
             >
@@ -100,10 +104,20 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
           )
         })}
       </div>
-      {files.length > 0 && <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+      {files.length > 0 && <div className={cn('min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden', drilled ? 'grid' : 'hidden md:grid')}>
         {selectedPath ? (
           <>
-            <header className="flex h-10 min-w-0 items-center justify-between gap-2 border-b border-kumo-hairline pr-2 pl-3.5">
+            <header className="flex h-10 min-w-0 items-center justify-between gap-2 border-b border-kumo-hairline pr-2 pl-1.5 md:pl-3.5">
+              <Button
+                className="md:hidden"
+                shape="square"
+                size="sm"
+                variant="ghost"
+                aria-label="Back to files"
+                title="Back to files"
+                icon={<ArrowLeftIcon />}
+                onClick={() => { setDrilled(false); onSelectPath('') }}
+              />
               <span className="min-w-0 truncate text-left font-mono text-xs text-kumo-subtle [direction:rtl]" title={selectedPath}><bdi>{selectedPath}</bdi></span>
               <div className="flex shrink-0 items-center gap-0.5">
                 {markdown && (

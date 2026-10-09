@@ -12,8 +12,12 @@ export const Route = createRootRoute({
       },
       {
         name: 'viewport',
-        content: 'width=device-width, initial-scale=1',
+        // viewport-fit: notches; resizes-content: Chrome shrinks the page, not just the visual viewport, when the keyboard opens.
+        content: 'width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content',
       },
+      // The browser chrome follows the page's canvas colour, which Kumo switches with the colour scheme.
+      { name: 'theme-color', media: '(prefers-color-scheme: light)', content: '#fbfbfb' },
+      { name: 'theme-color', media: '(prefers-color-scheme: dark)', content: '#030303' },
       {
         title: 'Pi on Cloudflare',
       },
@@ -22,6 +26,20 @@ export const Route = createRootRoute({
       {
         rel: 'stylesheet',
         href: appCss,
+      },
+      {
+        rel: 'manifest',
+        href: '/manifest.webmanifest',
+      },
+      {
+        rel: 'apple-touch-icon',
+        href: '/apple-touch-icon.png',
+      },
+      {
+        rel: 'icon',
+        type: 'image/png',
+        sizes: '192x192',
+        href: '/icon-192.png',
       },
     ],
   }),
