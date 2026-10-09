@@ -112,10 +112,6 @@ openssl pkcs8 -topk8 -nocrypt -in <downloaded>.pem -out pi-app.pem
 
 **Install the App** ([Installing your own GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)): in the App's settings, click **Install App**, then **Install** next to your account. Choose **Only select repositories** and pick the repositories Pi may work on. Repeat for each organization you own.
 
-**Let GitHub reach the webhook.** With Cloudflare Access in front of the Worker, add an Access application for the path `/webhooks/github` with a **Bypass** policy for everyone. GitHub's signature is the only check on that path, and the endpoint answers only signed deliveries.
-
-To test webhooks locally, press **t + Enter** in `npm run dev`. The Vite plugin opens a Cloudflare Quick Tunnel and prints a `https://<random>.trycloudflare.com` URL; while testing, set the App's webhook URL to that URL followed by `/webhooks/github`. The URL changes every time the tunnel starts. The App's **Advanced** settings list recent deliveries, with a **Redeliver** button.
-
 **Find the bot's user ID:**
 
 ```bash
@@ -129,6 +125,30 @@ npx wrangler secret put GITHUB_APP_PRIVATE_KEY < pi-app.pem
 ```
 
 Locally, in `.dev.vars` or `.env`, wrap the key's lines in double quotes: `GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----` on the first line, through `-----END PRIVATE KEY-----"`.
+
+### Let GitHub reach the webhook
+
+GitHub delivers webhooks to `/webhooks/github` without any credentials Cloudflare Access understands, so with Access in front of the Worker, Access answers each delivery with a redirect to its login page and the delivery fails. Exempt that one path, and keep Access on everything else:
+
+1. In the [Cloudflare One dashboard](https://one.dash.cloudflare.com/), go to **Access controls → Applications → Add an application → Self-hosted**.
+2. Add a public hostname with your Worker's domain, such as `pi-on-cf.<subdomain>.workers.dev`, and the path `webhooks/github`. Use the exact path, without a wildcard, so nothing else is exposed.
+3. Add a policy with the action **Bypass** and an **Include** rule of **Everyone**, then save.
+
+When two Access applications cover the same root path, the [more specific one takes precedence](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/) and inherits nothing from the other, so this application turns Access off for the webhook path only. GitHub cannot send the service-token headers that [Service Auth](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/#service-auth) needs, so the action must be Bypass. Access does not log bypassed requests; the Worker's logs still record them. GitHub's signature, checked against `GITHUB_WEBHOOK_SECRET`, is the only check on that path, and the endpoint ignores anything without a valid one. To narrow the policy further, include only the `hooks` IP ranges from `https://api.github.com/meta` instead of Everyone; GitHub changes those ranges from time to time.
+
+Check that the Worker, not Access, answers the path:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://<your Worker>/webhooks/github -d '{}'
+```
+
+`401` means the Worker answered and refused the unsigned request. `302` means Access is still redirecting it.
+
+Then, in the App's settings under **General → Webhook**, set **Webhook URL** to `https://<your Worker>/webhooks/github` and **Webhook secret** to the value of the deployment's `GITHUB_WEBHOOK_SECRET`; a mismatch makes every delivery fail with `401`. The App's **Advanced** settings list recent deliveries with the Worker's response, and a **Redeliver** button.
+
+### Test webhooks locally
+
+GitHub cannot reach `localhost`. Press **t + Enter** in `npm run dev`: the Vite plugin opens a Cloudflare Quick Tunnel and prints a `https://<random>.trycloudflare.com` URL. While testing, set the App's webhook URL to that URL followed by `/webhooks/github`, with the webhook secret from `.dev.vars` or `.env`. The URL changes every time the tunnel starts, and one App has one webhook URL, so point it back at production when you are done.
 
 ## Repositories
 
@@ -166,11 +186,13 @@ A shared skill instructs every session, including its container with network acc
 
 ## Production
 
-Protect the entire Worker with Cloudflare Access or another authentication layer before deploying. The application does not enforce this itself.
+Protect the entire Worker with Cloudflare Access or another authentication layer before deploying. The application does not enforce this itself. Exempt only `/webhooks/github`, as [Let GitHub reach the webhook](#let-github-reach-the-webhook) describes, so GitHub's deliveries reach the Worker.
 
 ```bash
 npm run deploy
 ```
+
+After the first deploy, set the GitHub App's webhook URL to the deployed Worker, and check with the `curl` above that the Worker answers the webhook path with `401`.
 
 Do not publish the working directory as an archive. Publish from a clean clone so ignored `.wrangler`, `dist`, and `node_modules` content cannot be included accidentally.
 
