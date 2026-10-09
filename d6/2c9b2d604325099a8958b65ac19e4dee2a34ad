@@ -1,0 +1,29 @@
+docs/architecture.md
+  s_6b7a5fbc69fca6::t_17a96a446a0d57 16
+docs/m3-plan.md
+  s_6b7a5fbc69fca6::t_1caceb1a55f78c 1-246
+src/components/session-page.tsx
+  s_6b7a5fbc69fca6::t_1b2d7f5e2253f4 35,38-40,49,56,75,80-82,88-90,95-98,102,106,108,113-123,152-162
+src/components/workspace-browser.tsx
+  s_6b7a5fbc69fca6::t_b50f5c176a367f 73,76
+src/hooks/use-pi-session.ts
+  s_6b7a5fbc69fca6::t_08ac09ec5ad7d4 57
+test/unit/components/session-page.test.tsx
+  s_6b7a5fbc69fca6::t_afd860fce556dd 322-324,430,433,439
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d62c9b2d604325099a8958b65ac19e4dee2a34ad",
+  "prompts": {},
+  "sessions": {
+    "s_6b7a5fbc69fca6": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a12140-89d7-7165-9bc8-bef9e5d04732",
+        "model": "kimi-k3"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
