@@ -20,3 +20,6 @@ wrangler.*.local.jsonc
 # OS and tooling
 .DS_Store
 todos.json
+# Plans being drafted, kept out of git (docs/*.md ships published notes only)
+/docs/m*-plan.md
+/docs/tools-plan.md
