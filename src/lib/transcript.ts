@@ -6,7 +6,10 @@ export type TranscriptEntry =
   | { id: string; type: 'message'; role: 'user' | 'assistant'; text: string }
   | { id: string; type: 'reasoning'; text: string; status: 'running' | 'complete' }
   | { id: string; type: 'summary'; kind: 'compaction' | 'reset'; text: string; status: 'complete' }
-  | { id: string; type: 'tool'; callId: string; name: string; args: unknown; result?: unknown; status: 'running' | 'complete' | 'error' }
+  | { id: string; type: 'tool'; callId: string; name: string; args: unknown; result?: unknown; images?: TranscriptImage[]; status: 'running' | 'complete' | 'error' }
+
+/** An image a tool returns, as a data URL the card can show. */
+export type TranscriptImage = { alt: string; src: string }
 
 /** A tool call pi is running now, with its retained output. */
 type RunningTool = { name: string; output: string }
@@ -140,13 +143,27 @@ export function messageText(message: Pick<Message, 'content'> | undefined): stri
 }
 
 /** The active transcript as display rows, with the streaming message last. */
+type ToolResultRow = { text: string; isError: boolean; images: TranscriptImage[] }
+
+/** A tool result's text apart from its images: the browser tool's screenshot comes back as both. */
+function toolResult(message: Extract<Message, { role: 'toolResult' }>): ToolResultRow {
+  if (!Array.isArray(message.content)) return { text: messageText(message), isError: message.isError, images: [] }
+  const texts: string[] = []
+  const images: TranscriptImage[] = []
+  for (const part of message.content) {
+    if (part.type === 'text') texts.push(part.text)
+    else if (part.type === 'image') {
+      images.push({ alt: texts[0]?.trim().split('\n')[0] || 'Screenshot', src: part.data.startsWith('data:') ? part.data : `data:${part.mimeType};base64,${part.data}` })
+    }
+  }
+  return { text: texts.join(''), isError: message.isError, images }
+}
+
 export function transcriptEntries(view: PiView): { entries: TranscriptEntry[]; activeTextId: string } {
-  const results = new Map<string, { text: string; isError: boolean }>()
+  const results = new Map<string, ToolResultRow>()
   for (const entry of view.entries) {
     const message = entry.model?.[0]
-    if (message?.role === 'toolResult') {
-      results.set(message.toolCallId, { text: messageText(message), isError: message.isError })
-    }
+    if (message?.role === 'toolResult') results.set(message.toolCallId, toolResult(message))
   }
 
   const rows: TranscriptEntry[] = []
@@ -178,7 +195,7 @@ function assistantRows(
   message: AssistantMessage,
   id: string,
   view: PiView,
-  results: Map<string, { text: string; isError: boolean }>,
+  results: Map<string, ToolResultRow>,
   streaming: boolean,
 ): TranscriptEntry[] {
   return message.content.flatMap((part, index): TranscriptEntry[] => {
@@ -197,6 +214,7 @@ function assistantRows(
         name: part.name,
         args: part.arguments,
         result: result?.text ?? (running?.output || undefined),
+        images: result && result.images.length > 0 ? result.images : undefined,
         status: result ? (result.isError ? 'error' : 'complete') : view.running ? 'running' : 'error',
       }]
     }

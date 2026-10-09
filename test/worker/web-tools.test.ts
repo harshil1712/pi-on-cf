@@ -43,4 +43,9 @@ describe('web tools', () => {
     expect(await pi.webToolNamesForTest({ BROWSER: {} })).toEqual(['browser'])
     expect(await pi.webToolNamesForTest({ AI: true, BROWSER: {} })).toEqual(['web_fetch', 'browser'])
   })
+
+  it('has no browser tabs without a BROWSER binding', async () => {
+    const { id } = await registry().createSession()
+    expect(await (await session(id)).browserLiveView()).toBeNull()
+  })
 })

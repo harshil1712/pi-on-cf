@@ -103,6 +103,15 @@ export type SessionSummary = {
   updatedAt: string
 }
 
+/** One of the tabs in the session's browser, as Live View offers it. */
+export type BrowserTabView = {
+  /** The embeddable Live View URL for the tab. */
+  url: string
+  /** What the tab is showing now. */
+  pageUrl?: string
+  title?: string
+}
+
 export interface PiSessionContract {
   readonly state: PiSessionState
   submit(prompt: string): Promise<{ operationId: string; accepted: boolean }>
@@ -114,6 +123,8 @@ export interface PiSessionContract {
   readChange(path: string): Promise<string>
   listModels(): Promise<ModelOption[]>
   setModel(id: string): Promise<void>
+  /** The session's browser tabs to watch live, or null when this deployment has no browser. */
+  browserLiveView(): Promise<BrowserTabView[] | null>
 }
 
 /** The registry's Agent state: a revision every catalog change bumps, so pages know to reload the list. */

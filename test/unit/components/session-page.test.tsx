@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
     close: vi.fn(),
     stub: {
       abort: vi.fn(),
+      browserLiveView: vi.fn(),
       listChanges: vi.fn(),
       listFiles: vi.fn(),
       listModels: vi.fn(),
@@ -109,6 +110,7 @@ describe('SessionPage', () => {
     })
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() })
     mocks.sessionAgent.stub.abort.mockResolvedValue(true)
+    mocks.sessionAgent.stub.browserLiveView.mockResolvedValue(null)
     mocks.sessionAgent.stub.listFiles.mockResolvedValue([])
     mocks.sessionAgent.stub.listModels.mockResolvedValue([])
     mocks.sessionAgent.stub.setModel.mockResolvedValue(undefined)
@@ -169,6 +171,29 @@ describe('SessionPage', () => {
     await deliver({ type: 'run_end', inputs: [] }, { type: 'inbox_update', items: [] } as unknown as AgentEvent)
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
     expect(screen.queryByText(/queued/)).toBeNull()
+  })
+
+  it('offers the browser tabs Live View shows, minted when the probe and the click ask', async () => {
+    mocks.sessionAgent.stub.browserLiveView.mockResolvedValue([
+      { url: 'https://browser.run/live/abc', pageUrl: 'https://example.com', title: 'Example' },
+      { url: 'https://browser.run/live/def', pageUrl: 'about:blank' },
+    ])
+    renderSession(<SessionPage sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+
+    const button = await screen.findByRole('button', { name: "Pi's browser" })
+    fireEvent.click(button)
+    expect((await screen.findByRole('link', { name: /Example/ })).getAttribute('href')).toBe('https://browser.run/live/abc')
+    expect(screen.getByText('about:blank')).toBeTruthy()
+    // Once when the page probes, once when the click mints fresh URLs.
+    await waitFor(() => expect(mocks.sessionAgent.stub.browserLiveView).toHaveBeenCalledTimes(2))
+  })
+
+  it('hides the browser when the deployment has none and says so with a fresh probe', async () => {
+    renderSession(<SessionPage sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+    await waitFor(() => expect(mocks.sessionAgent.stub.browserLiveView).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: "Pi's browser" })).toBeNull()
   })
 
   it('batches pi events into one animation-frame update', async () => {

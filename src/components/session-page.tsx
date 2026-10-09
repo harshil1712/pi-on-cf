@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Badge } from '@cloudflare/kumo/components/badge'
 import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button, buttonVariants } from '@cloudflare/kumo/components/button'
+import { Popover } from '@cloudflare/kumo/components/popover'
 import { Tabs } from '@cloudflare/kumo/components/tabs'
 import { cn } from '@cloudflare/kumo/utils'
-import { GitBranchIcon, GitPullRequestIcon, PencilSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
+import { ArrowsOutSimpleIcon, GitBranchIcon, GitPullRequestIcon, GlobeIcon, PencilSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
+import type { BrowserTabView } from '~/contract'
 import { RenameSessionDialog } from './session-dialogs'
 import { TopBar } from './top-bar'
 import { ChangesBrowser } from './changes-browser'
@@ -28,6 +30,19 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const [filesOpen, setFilesOpen] = useState(true)
   const [renameOpen, setRenameOpen] = useState(false)
   const [panel, setPanel] = useState<'files' | 'changes'>('changes')
+  // The browser's Live View tabs: the probe says whether the deployment runs a browser at all,
+  // each click mints fresh URLs because they only watch for about five minutes.
+  const [browserTabs, setBrowserTabs] = useState<BrowserTabView[] | null>(null)
+  const [browserOpen, setBrowserOpen] = useState(false)
+  const { browserLiveView, isReady } = session
+  useEffect(() => {
+    if (!isReady) return
+    void browserLiveView().then((tabs) => { if (tabs) setBrowserTabs(tabs) }).catch(() => {})
+  }, [isReady, browserLiveView])
+  const openBrowser = async () => {
+    setBrowserTabs((await browserLiveView()) ?? browserTabs)
+    setBrowserOpen(true)
+  }
   const { task } = session
   const name = session.summary?.name || session.summary?.title || session.summary?.repo || `Untitled ${sessionId.slice(0, 8)}`
   const status = STATUS[!session.isReady ? 'connecting' : session.isRunning ? 'running' : 'ready']
@@ -40,6 +55,34 @@ function SessionView({ sessionId }: { sessionId: string }) {
     <main className="@container flex min-h-0 flex-1 flex-col overflow-hidden">
       <TopBar
         actions={<>
+          {browserTabs !== null && (
+            <Popover open={browserOpen} onOpenChange={setBrowserOpen}>
+              <Popover.Trigger render={
+                <Button variant="ghost" size="sm" icon={<GlobeIcon />} onClick={() => void openBrowser()} aria-label="Pi's browser" title="Pi's browser" />
+              } />
+              <Popover.Content side="bottom" align="end" className="w-80 p-2">
+                <span className="block px-2 pt-1 pb-1.5 text-xs font-medium text-kumo-subtle">Pi's browser tabs</span>
+                {browserTabs.length === 0 ? (
+                  <p className="px-2 pb-1 text-sm text-kumo-subtle">No tab is open yet. Ask Pi to look at a page with its browser tool, then watch here.</p>
+                ) : (
+                  <ul>
+                    {browserTabs.map((tab, index) => (
+                      <li key={index}>
+                        <a href={tab.url} target="_blank" rel="noreferrer" className="flex items-start justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-kumo-tint">
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{tab.title || 'Untitled'}</span>
+                            <span className="block truncate text-xs text-kumo-subtle">{tab.pageUrl}</span>
+                          </span>
+                          <ArrowsOutSimpleIcon size={14} className="mt-1 shrink-0 text-kumo-subtle" aria-hidden="true" />
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <span className="block px-2 pt-1.5 text-xs text-kumo-subtle">Watch live for about five minutes; ask again after that.</span>
+              </Popover.Content>
+            </Popover>
+          )}
           {task?.pullRequest && (
             <a href={task.pullRequest.url} target="_blank" rel="noreferrer" className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
               <GitPullRequestIcon size={14} />#{task.pullRequest.number}

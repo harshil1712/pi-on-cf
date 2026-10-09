@@ -29,6 +29,31 @@ describe('messageText', () => {
 })
 
 describe('pi event reducer', () => {
+  it('keeps a screenshot a tool returns as an image, apart from its text', () => {
+    const view = reducePiEvents(EMPTY_VIEW, [snapshot([
+      user('Look at a page'),
+      entry('pi.assistant', assistant([{ type: 'toolCall', id: 'call-9', name: 'browser', arguments: { task: 'look' } }])),
+      entry('pi.tool-result', { role: 'toolResult', toolCallId: 'call-9', toolName: 'browser', content: [
+        { type: 'text', text: 'Screenshot of example.com' },
+        { type: 'image', data: 'QUJD', mimeType: 'image/png' },
+      ], isError: false, timestamp: 0 }),
+    ])])
+    const tool = transcriptEntries(view).entries.find((row) => row.type === 'tool' && row.name === 'browser')
+    expect(tool && 'result' in tool ? tool.result : '').toBe('Screenshot of example.com')
+    expect(tool && 'images' in tool ? tool.images : []).toEqual([{ alt: 'Screenshot of example.com', src: 'data:image/png;base64,QUJD' }])
+  })
+
+  it('passes a data URL through and falls back to a generic alt', () => {
+    const view = reducePiEvents(EMPTY_VIEW, [snapshot([
+      entry('pi.assistant', assistant([{ type: 'toolCall', id: 'call-8', name: 'browser', arguments: {} }])),
+      entry('pi.tool-result', { role: 'toolResult', toolCallId: 'call-8', toolName: 'browser', content: [
+        { type: 'image', data: 'data:image/jpeg;base64,AAAA', mimeType: 'image/jpeg' },
+      ], isError: false, timestamp: 0 }),
+    ])])
+    const tool = transcriptEntries(view).entries.find((row) => row.type === 'tool' && row.name === 'browser')
+    expect(tool && 'images' in tool ? tool.images : []).toEqual([{ alt: 'Screenshot', src: 'data:image/jpeg;base64,AAAA' }])
+  })
+
   it('projects a snapshot into reasoning, tool calls, and responses', () => {
     const view = reducePiEvents(EMPTY_VIEW, [snapshot([
       user('Create a file'),

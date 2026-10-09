@@ -256,9 +256,13 @@ export function usePiSession(sessionId: string) {
     shouldAutoScrollRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48
   }
 
+  // The browser's Live View tabs, or null when this deployment runs no browser.
+  const browserLiveView = useCallback(() => agent.stub.browserLiveView(), [agent.stub])
+
   return {
     abort: async () => { try { await agent.stub.abort() } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)) } },
     activeTextId: transcript.activeTextId,
+    browserLiveView,
     changes,
     canDownload: Boolean(selectedPath && selectedPath === fileContentPath && !fileError),
     downloadSelectedFile,

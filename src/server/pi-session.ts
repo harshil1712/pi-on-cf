@@ -21,6 +21,7 @@ import { createAI } from 'agents/models/pi-ai'
 import type { SkillSource } from 'agents/skills'
 import {
   PI_REGISTRY_INSTANCE,
+  type BrowserTabView,
   type ModelOption,
   type PiEventsMessage,
   type PiSessionState,
@@ -330,6 +331,14 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     if (!choice) throw new Error(`Unknown model: ${id}`)
     await this.harness.session().setModel(choice.model)
     this.setState({ ...this.state, model: id })
+  }
+
+  /** The browser's tabs for the app to watch live; no tabs without a browser, null without a binding. */
+  @callable()
+  async browserLiveView(): Promise<BrowserTabView[] | null> {
+    if (!this.browser) return null
+    const view = await this.browser.liveView()
+    return (view?.targets ?? []).filter((target) => target.type === 'page').map(({ url, title, pageUrl }) => ({ url, title, pageUrl }))
   }
 
   @callable()
