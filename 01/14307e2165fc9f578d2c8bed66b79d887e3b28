@@ -1,0 +1,23 @@
+README.md
+  s_6675b6f1de10b1::t_e642c7b506e41b 81-82
+worker-configuration.d.ts
+  s_6675b6f1de10b1::t_117a0a3de7e0f9 2,10
+wrangler.jsonc
+  s_6675b6f1de10b1::t_a0ae422eed1044 13,87-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0114307e2165fc9f578d2c8bed66b79d887e3b28",
+  "prompts": {},
+  "sessions": {
+    "s_6675b6f1de10b1": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a11c32-2ea6-76cd-a15d-7aa8c4a8eac5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
