@@ -1,0 +1,31 @@
+src/components/session-page.tsx
+  s_6b7a5fbc69fca6::t_586273ec8b5196 1,5,8-9,33-45,58-85
+src/contract.ts
+  s_6b7a5fbc69fca6::t_835ec727f8bde6 106-114,126-127
+src/hooks/use-pi-session.ts
+  s_6b7a5fbc69fca6::t_b4f74bfe5c2792 259-261,265
+src/server/pi-session.ts
+  s_6b7a5fbc69fca6::t_d9cbaf0cba7b5a 24,336-343
+test/unit/components/activity-card.test.tsx
+  s_6b7a5fbc69fca6::t_f010242664a30a 1-16
+test/unit/components/session-page.test.tsx
+  s_6b7a5fbc69fca6::t_6ac67336c6fa09 19,113,176-198
+test/unit/lib/transcript.test.ts
+  s_6b7a5fbc69fca6::t_40c1d94ff3fa1e 32-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "70aa4aaef05262bd3fb6833501080d3f0613e932",
+  "prompts": {},
+  "sessions": {
+    "s_6b7a5fbc69fca6": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a12140-89d7-7165-9bc8-bef9e5d04732",
+        "model": "kimi-k3"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
