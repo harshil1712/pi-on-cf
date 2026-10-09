@@ -30,6 +30,8 @@ export const Route = createRootRoute({
       {
         rel: 'manifest',
         href: '/manifest.webmanifest',
+        // Browsers fetch the manifest without cookies unless asked, and Access answers a request without its cookie with a login redirect.
+        crossOrigin: 'use-credentials',
       },
       {
         rel: 'apple-touch-icon',

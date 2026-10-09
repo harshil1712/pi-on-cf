@@ -31,7 +31,9 @@ export function ChangesBrowser(props: ChangesBrowserProps) {
   const { changes, diff, diffError, error, loading, onRefresh, onSelectPath, selectedPath, task } = props
   // A tap on a file opens its diff full-screen on a phone, with this as the way back.
   // Desktops share the panel between the list and the diff instead.
-  const [drilled, setDrilled] = useState(false)
+  const [drilledIn, setDrilled] = useState(false)
+  // A change that disappears from the list (or an empty list) drops the phone back to the list.
+  const drilled = drilledIn && Boolean(selectedPath)
   const back = () => { setDrilled(false); onSelectPath('') }
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Changes" aria-busy={loading}>

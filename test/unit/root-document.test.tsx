@@ -36,6 +36,8 @@ describe('the root document', () => {
   it('offers an installable app whose files all exist', () => {
     const manifestLink = links.find((link) => link.rel === 'manifest')
     expect(manifestLink?.href).toBe('/manifest.webmanifest')
+    // Behind Access, a manifest fetched without cookies gets the login redirect instead.
+    expect(manifestLink?.crossOrigin).toBe('use-credentials')
 
     const manifest = JSON.parse(readFileSync(join(publicDir, 'manifest.webmanifest'), 'utf8')) as {
       display: string

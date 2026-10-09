@@ -17,8 +17,10 @@ export function useKeyboardAwareHeight() {
       frame ??= requestAnimationFrame(() => {
         frame = null
         // A collapsing URL bar hides behind a small delta; a keyboard is tall.
+        // Pinch-zoom shrinks the visual viewport too, but leaves the layout alone.
         const covered = window.innerHeight - viewport.height - viewport.offsetTop
-        document.documentElement.style.setProperty('--app-height', covered > 120 ? `${viewport.height}px` : '')
+        const keyboard = covered > 120 && viewport.scale <= 1.01
+        document.documentElement.style.setProperty('--app-height', keyboard ? `${viewport.height}px` : '')
       })
     }
     viewport.addEventListener('resize', sync)
