@@ -46,7 +46,9 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
   const [copied, setCopied] = useState(false)
   // A tap on a file opens it full-screen on a phone, with this as the way back.
   // Desktops share the panel between the list and the preview instead.
-  const [drilled, setDrilled] = useState(false)
+  const [drilledIn, setDrilled] = useState(false)
+  // A file that disappears from the list (or an empty list) drops the phone back to the list.
+  const drilled = drilledIn && Boolean(selectedPath)
   const markdown = isMarkdownPath(selectedPath)
   const showPreview = markdown && markdownView === 'preview'
 

@@ -4,9 +4,10 @@ import { useKeyboardAwareHeight } from '~/hooks/use-keyboard-aware-height'
 
 /** A stand-in for the parts of window.visualViewport the hook reads and listens to. */
 function stubVisualViewport(height: number, offsetTop = 0) {
-  const viewport = new EventTarget() as EventTarget & { height: number; offsetTop: number }
+  const viewport = new EventTarget() as EventTarget & { height: number; offsetTop: number; scale: number }
   viewport.height = height
   viewport.offsetTop = offsetTop
+  viewport.scale = 1
   Object.defineProperty(window, 'visualViewport', { configurable: true, writable: true, value: viewport })
   return viewport
 }
@@ -48,6 +49,17 @@ describe('useKeyboardAwareHeight', () => {
     // A delta this small is a collapsing URL bar, not a keyboard: back to 100dvh.
     viewport.height = window.innerHeight - 40
     viewport.offsetTop = 0
+    viewport.dispatchEvent(new Event('resize'))
+    await settle()
+    expect(appHeight()).toBe('')
+  })
+
+  it('leaves the height alone while the page is pinch-zoomed', async () => {
+    const viewport = stubVisualViewport(window.innerHeight)
+    render(<Probe />)
+    // Zoomed in to 2x, the visible viewport is half the layout's height, with no keyboard at all.
+    viewport.height = window.innerHeight / 2
+    viewport.scale = 2
     viewport.dispatchEvent(new Event('resize'))
     await settle()
     expect(appHeight()).toBe('')
