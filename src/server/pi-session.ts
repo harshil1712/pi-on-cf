@@ -28,7 +28,7 @@ import {
   type WorkspaceFileContent,
 } from '~/contract'
 import { reduceRunStatus, type RunStatus } from '~/lib/run-status'
-import { parseRepo } from './github'
+import { type GitHubThread, parseRepo } from './github'
 import { botIdentity, repoToken } from './github-app'
 import { modelOptions } from './models'
 import { createSkillTools } from './skill-tools'
@@ -73,6 +73,8 @@ const FILE_LIST_EXCLUDE = ['**/node_modules', '**/.git']
 
 /** Storage key of this session's catalog entry ID, set by the registry. */
 const CATALOG_ENTRY_KEY = 'pi-on-cf:catalog-entry'
+/** Storage key of the GitHub issue a mention started the session from. */
+const THREAD_KEY = 'pi-on-cf:github-thread'
 /** Storage key of the run status last reported to the registry. */
 const RUN_STATUS_KEY = 'pi-on-cf:run-status'
 
@@ -162,6 +164,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
             const { task } = this.state
             if (task) await this.#setTask({ ...task, pullRequest })
           },
+          thread: () => this.ctx.storage.get<GitHubThread>(THREAD_KEY),
         }), ...createSkillTools({
           bucket: this.env.BUCKET,
           workspace,
@@ -359,6 +362,11 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
    */
   async joinCatalog(entryId: string): Promise<void> {
     await this.ctx.storage.put(CATALOG_ENTRY_KEY, entryId)
+  }
+
+  /** Called by the registry when a mention on a GitHub issue starts this session, so Pi can answer there. */
+  async setThread(thread: GitHubThread): Promise<void> {
+    await this.ctx.storage.put(THREAD_KEY, thread)
   }
 
   /**

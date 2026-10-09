@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { installationRepositories, nextPage } from '~/server/github'
+import { commentOnIssue, installationRepositories, nextPage, reactToComment } from '~/server/github'
 
 const API = 'https://api.github.com'
 
@@ -50,5 +50,34 @@ describe('installationRepositories', () => {
     const fetch = serve(Array.from({ length: 8 }, (_, i) => [repo(i)]))
     expect(await installationRepositories('t')).toHaveLength(5)
     expect(fetch).toHaveBeenCalledTimes(5)
+  })
+})
+
+describe('comments and reactions', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  function record() {
+    const calls: { method: string; url: string; body: unknown }[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      calls.push({ method: init?.method ?? 'GET', url: input instanceof Request ? input.url : input.toString(), body: JSON.parse(init?.body as string) })
+      return Response.json({ html_url: 'https://github.com/octo/demo/issues/5#issuecomment-1' }, { status: 201 })
+    })
+    return calls
+  }
+
+  it('comments on an issue or pull request through the issues API', async () => {
+    const calls = record()
+    expect(await commentOnIssue('t', { owner: 'octo', name: 'demo' }, 5, 'Done.')).toBe('https://github.com/octo/demo/issues/5#issuecomment-1')
+    expect(calls).toEqual([{ method: 'POST', url: `${API}/repos/octo/demo/issues/5/comments`, body: { body: 'Done.' } }])
+  })
+
+  it('reacts to issue comments and review comments at their own paths', async () => {
+    const calls = record()
+    await reactToComment('t', { owner: 'octo', name: 'demo' }, { id: 1 }, 'eyes')
+    await reactToComment('t', { owner: 'octo', name: 'demo' }, { id: 2, review: {} }, 'confused')
+    expect(calls).toEqual([
+      { method: 'POST', url: `${API}/repos/octo/demo/issues/comments/1/reactions`, body: { content: 'eyes' } },
+      { method: 'POST', url: `${API}/repos/octo/demo/pulls/comments/2/reactions`, body: { content: 'confused' } },
+    ])
   })
 })

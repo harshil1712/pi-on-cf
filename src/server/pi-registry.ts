@@ -2,7 +2,9 @@ import { Agent, callable, type Connection } from 'agents'
 import { type RoutedAgentEntry, RoutedAgents } from 'agents/routing'
 import { type ModelOption, PI_SESSIONS_ROUTE, type PiRegistryState, type PullRequest, type Repository, type RunStatus, type SessionSummary } from '~/contract'
 import { titleFromPrompt } from './session-title'
-import { listRepositories } from './github-app'
+import { type GitHubThread, parseRepo, reactToComment } from './github'
+import { listRepositories, repoToken } from './github-app'
+import { followUpPrompt, type GitHubMention, issuePrompt } from './github-webhook'
 import { modelOptions } from './models'
 import type { PiSession } from './pi-session'
 
@@ -15,6 +17,8 @@ type SessionMetadata = {
   pullRequest?: PullRequest
   /** Absent while idle. */
   status?: Exclude<RunStatus, 'idle'>
+  /** The GitHub issue a mention started the session from. */
+  thread?: GitHubThread
 }
 
 const MAX_NAME_LENGTH = 120
@@ -48,15 +52,20 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
   @callable()
   async createSession(input: { name?: string; prompt?: string; model?: string } = {}): Promise<SessionSummary> {
     const name = cleanName(input.name)
+    return this.#create(name ? { name } : {}, input)
+  }
+
+  async #create(metadata: SessionMetadata, input: { prompt?: string; model?: string; thread?: GitHubThread }): Promise<SessionSummary> {
     // Checked here, before there is an entry to undo, so a bad model never reaches a session.
     if (input.model && !this.listModels().some(({ id }) => id === input.model)) throw new Error(`Unknown model: ${input.model}`)
-    const entry = await this.sessions.create({ metadata: name ? { name } : {} })
+    const entry = await this.sessions.create({ metadata })
     // The session reports activity under its entry ID, which only the
     // registry knows. Without it the entry is unusable, so undo the create.
     try {
       const session = await this.sessions.get(entry.id)
       if (!session) throw new Error(`Session not found: ${entry.id}`)
       await session.joinCatalog(entry.id)
+      if (input.thread) await session.setThread(input.thread)
       // Before the prompt, so pi answers it with the model the home page chose.
       if (input.model) await session.setModel(input.model)
       // The home page starts a session with its first prompt; a session
@@ -101,6 +110,52 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
   @callable()
   async listRepositories(): Promise<Repository[]> {
     return listRepositories(this.env)
+  }
+
+  /**
+   * Called by the webhook endpoint for a trusted mention of the App's bot.
+   * Queued, so GitHub gets its answer at once and a failure is retried;
+   * keyed by the delivery, so a delivery GitHub repeats while the first
+   * still waits replaces it instead of running twice.
+   */
+  async receiveGitHubMention(mention: GitHubMention, deliveryId: string): Promise<void> {
+    await this.queue('handleGitHubMention', mention, { id: `github:${deliveryId}` })
+  }
+
+  /**
+   * A mention on an issue or pull request a session works on goes to that
+   * session; one on an issue without a session starts one. Pull requests Pi
+   * did not open are not supported yet. The comment gets 👀 when Pi takes it,
+   * and 😕 when it cannot.
+   */
+  async handleGitHubMention(mention: GitHubMention): Promise<void> {
+    const repo = mention.repo.toLowerCase()
+    const entries = await this.sessions.list()
+    const entry = entries.find(({ metadata }) => metadata?.repo?.toLowerCase() === repo && metadata.pullRequest?.number === mention.number)
+      ?? entries.find(({ metadata }) => metadata?.thread?.repo.toLowerCase() === repo && metadata.thread.number === mention.number)
+    if (entry) {
+      await this.#react(mention, 'eyes')
+      const session = await this.sessions.get(entry.id)
+      if (session) await session.submit(followUpPrompt(mention))
+      return
+    }
+    if (mention.kind !== 'issue') {
+      await this.#react(mention, 'confused')
+      return
+    }
+    await this.#react(mention, 'eyes')
+    const thread = { repo: mention.repo, number: mention.number }
+    await this.#create({ title: `${mention.repo}#${mention.number}: ${mention.title}`, thread }, { prompt: issuePrompt(mention), thread })
+  }
+
+  /** Reactions only tell you Pi saw the comment; failing one must not stop the work. */
+  async #react(mention: GitHubMention, content: 'eyes' | 'confused'): Promise<void> {
+    try {
+      const repo = parseRepo(mention.repo)
+      await reactToComment(await repoToken(this.env, repo), repo, mention.comment, content)
+    } catch (error) {
+      console.warn('Could not react to the GitHub comment', error)
+    }
   }
 
   /** The models a session can use, the default first, for the home page's picker. Tests override this. */

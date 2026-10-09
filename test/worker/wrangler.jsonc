@@ -8,7 +8,9 @@
     "AI_GATEWAY_ID": "test",
     "AI_MODEL": "@cf/zai-org/glm-5.2",
     "GITHUB_APP_SLUG": "pi-test",
-    "GITHUB_APP_BOT_ID": "1"
+    "GITHUB_APP_BOT_ID": "1",
+    "GITHUB_OWNERS": "octo",
+    "GITHUB_WEBHOOK_SECRET": "test-webhook-secret"
   },
   "durable_objects": {
     "bindings": [

@@ -65,7 +65,7 @@ Open `http://localhost:3000`.
 
 The model picker in the composer chooses between the Workers AI models curated in `src/server/models.ts`; edit that list to offer others. `AI_MODEL` is always offered, and listed first. On the home page it picks the model a new session starts on; in a session it switches the model from the next request, and is disabled while Pi is running.
 
-Sessions reach GitHub as a GitHub App, set up as described in [GitHub App](#github-app). Its five settings are declared as required secrets in `wrangler.jsonc`, so `wrangler deploy` fails until each is set. Only the private key is sensitive, but all five are per deployment. Set them with `npx wrangler secret put <NAME>`, and locally in `.dev.vars`. Because `wrangler.jsonc` declares `secrets`, `.dev.vars` and `.env` load only the secrets listed there.
+Sessions reach GitHub as a GitHub App, set up as described in [GitHub App](#github-app). Its six settings are declared as required secrets in `wrangler.jsonc`, so `wrangler deploy` fails until each is set. Only the private key and the webhook secret are sensitive, but all six are per deployment. Set them with `npx wrangler secret put <NAME>`, and locally in `.dev.vars`. Because `wrangler.jsonc` declares `secrets`, `.dev.vars` and `.env` load only the secrets listed there.
 
 | Secret | Value |
 |---|---|
@@ -73,7 +73,8 @@ Sessions reach GitHub as a GitHub App, set up as described in [GitHub App](#gith
 | `GITHUB_APP_PRIVATE_KEY` | The App's private key, converted to PKCS#8. |
 | `GITHUB_APP_SLUG` | The App's URL name, as in `github.com/apps/<slug>`. |
 | `GITHUB_APP_BOT_ID` | The user ID of the App's bot, `<slug>[bot]`. |
-| `GITHUB_OWNERS` | The accounts whose installations Pi uses, comma-separated: your user and your orgs. |
+| `GITHUB_OWNERS` | The accounts whose installations Pi uses, comma-separated: your user and your orgs. Only these users can direct Pi from GitHub. |
+| `GITHUB_WEBHOOK_SECRET` | The App's webhook secret, which GitHub signs every delivery with. |
 
 `BUCKET` is the app's R2 bucket, `pi-on-cf`. It is a remote binding, so local development reads the real bucket. Create it once with `npx wrangler r2 bucket create pi-on-cf`.
 
@@ -87,7 +88,7 @@ Pi clones, pushes and opens pull requests with short-lived tokens from a GitHub 
 2. Under **GitHub App name**, enter a name of up to 34 characters. GitHub lowercases it and replaces spaces with `-` to make the slug, which the bot is named after.
 3. Under **Homepage URL**, enter your Worker's URL or this repository's.
 4. Leave **Callback URL**, **Setup URL**, **Request user authorization (OAuth) during installation** and **Enable Device Flow** as they are: Pi acts as the App, never on behalf of a user.
-5. Under **Webhook**, clear **Active** for now.
+5. Under **Webhook**, keep **Active** selected. Set **Webhook URL** to `https://<your Worker>/webhooks/github`, and **Webhook secret** to a random string, such as the output of `openssl rand -hex 32`; it is `GITHUB_WEBHOOK_SECRET`.
 6. Under **Permissions**, in **Repository permissions**, choose:
    - **Contents**: Read and write
    - **Pull requests**: Read and write
@@ -95,7 +96,9 @@ Pi clones, pushes and opens pull requests with short-lived tokens from a GitHub 
    - **Checks**, **Actions** and **Commit statuses**: Read-only
    - **Workflows**: Read and write, only to let Pi change files in `.github/workflows`
 
-   **Metadata** becomes Read-only by itself. Pi needs only Contents and Pull requests today; the rest are for answering reviews and fixing CI. Added later, they would wait for every installation's owner to approve them.
+   **Metadata** becomes Read-only by itself. Pi needs only Contents, Pull requests and Issues today; the rest are for answering reviews and fixing CI. Added later, they would wait for every installation's owner to approve them.
+
+   Under **Subscribe to events**, select **Issue comment** and **Pull request review comment**, so Pi hears when you mention it.
 7. Under **Where can this GitHub App be installed?**, choose **Any account**, so you can install it on your organizations as well as your account. Anyone can then install it, but Pi ignores installations on accounts outside `GITHUB_OWNERS`.
 8. Click **Create GitHub App**, and note the **App ID** on the page that opens.
 
@@ -106,6 +109,10 @@ openssl pkcs8 -topk8 -nocrypt -in <downloaded>.pem -out pi-app.pem
 ```
 
 **Install the App** ([Installing your own GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)): in the App's settings, click **Install App**, then **Install** next to your account. Choose **Only select repositories** and pick the repositories Pi may work on. Repeat for each organization you own.
+
+**Let GitHub reach the webhook.** With Cloudflare Access in front of the Worker, add an Access application for the path `/webhooks/github` with a **Bypass** policy for everyone. GitHub's signature is the only check on that path, and the endpoint answers only signed deliveries.
+
+To test webhooks locally, press **t + Enter** in `npm run dev`. The Vite plugin opens a Cloudflare Quick Tunnel and prints a `https://<random>.trycloudflare.com` URL; while testing, set the App's webhook URL to that URL followed by `/webhooks/github`. The URL changes every time the tunnel starts. The App's **Advanced** settings list recent deliveries, with a **Redeliver** button.
 
 **Find the bot's user ID:**
 
@@ -126,6 +133,16 @@ Locally, in `.dev.vars` or `.env`, wrap the key's lines in double quotes: `GITHU
 Mention a repository in the chat: type `@` and pick one from the App's installations, or write `@owner/name`, optionally `@owner/name#branch` for a base branch other than the default. Pi decides whether it needs the code. To answer from the code or change it, it calls `clone_repository`, which clones the repository into `/workspace/<name>` with its history, on one branch, and checks out `pi/<session>`; a question it can answer without the code clones nothing. Pi can clone only repositories the App is installed on. A session clones one repository. The repository's `AGENTS.md` goes into the system prompt, up to 16 KiB.
 
 When you ask for changes, Pi commits with git like any developer, then calls `create_pull_request`, which pushes the task branch and opens a draft pull request into the base branch, or updates the one already open. The token is passed to Computer's git for the clone and that push only, so the git the agent runs has no credentials and cannot push anything itself. The session page shows the branch, a Changes panel with every file changed since the base commit, and a link to the pull request.
+
+## Mentions
+
+Mention the App's bot, `@<slug>`, in a comment on GitHub to give Pi work there. Only users in `GITHUB_OWNERS` can; Pi ignores everyone else and bots, itself included.
+
+- **On an issue**, the mention starts a session with the issue and your comment. Pi works on it like any task: it can clone the repository, open a pull request that fixes the issue, and answer on the issue with `comment_on_github`. A later mention on the same issue goes to the same session.
+- **On a pull request a session opened**, including in a review comment on the diff, the mention goes to that session, which makes the change, updates the pull request, and answers there.
+- **On any other pull request**, Pi reacts with 😕 and does nothing yet.
+
+Pi reacts to the comment with 👀 when it takes the work. The webhook endpoint answers GitHub at once and queues the mention on the registry, which retries it if it fails. An issue's description by a user outside `GITHUB_OWNERS` goes into the prompt marked as information, not instructions.
 
 ## Skills
 

@@ -3,7 +3,7 @@ import type { GitClient } from '@cloudflare/computer/git'
 import { Type } from '@earendil-works/pi-ai'
 import type { PromptSection, ToolRegistration } from '@earendil-works/pi-durable'
 import type { PullRequest, SessionTask, TaskChange } from '~/contract'
-import { cloneUrl, defaultBranch, gitAuth, gitAuthHeaders, parseRepo, repoSlug, upsertPullRequest } from './github'
+import { cloneUrl, commentOnIssue, defaultBranch, type GitHubThread, gitAuth, gitAuthHeaders, parseRepo, repoSlug, upsertPullRequest } from './github'
 import { WORKSPACE_ROOT } from './workspace-root'
 
 /** Devin's limit for an injected AGENTS.md; longer files are cut, and the agent can read the rest. */
@@ -80,16 +80,23 @@ type TaskToolsOptions = {
   /** Clone the repository and make it the session's task. */
   openRepository: (input: { repo: string; baseBranch?: string }) => Promise<SessionTask>
   onPullRequest: (pullRequest: PullRequest) => Promise<void>
+  /** The GitHub issue a mention started the session from, if any. */
+  thread: () => Promise<GitHubThread | undefined>
 }
 
 /**
  * `clone_repository`, which the model calls when it needs a repository's
- * code, and `create_pull_request`, the only way its work leaves the workspace.
+ * code, `create_pull_request`, the only way its work leaves the workspace,
+ * and `comment_on_github`, to answer on the session's issue or pull request.
  */
-export function createTaskTools({ workspace, task, token, openRepository, onPullRequest }: TaskToolsOptions): ToolRegistration[] {
+export function createTaskTools({ workspace, task, token, openRepository, onPullRequest, thread }: TaskToolsOptions): ToolRegistration[] {
   const cloneParameters = Type.Object({
     repo: Type.String({ description: 'The repository, as owner/name.' }),
     baseBranch: Type.Optional(Type.String({ description: 'The branch to start from. Defaults to the repository\'s default branch.' })),
+  })
+  const commentParameters = Type.Object({
+    body: Type.String({ description: 'The comment, in Markdown.' }),
+    on: Type.Optional(Type.Union([Type.Literal('pull_request'), Type.Literal('issue')], { description: 'Where to post: the session\'s pull request, or the issue it started from. Defaults to the pull request when there is one.' })),
   })
   const parameters = Type.Object({
     title: Type.String({ description: 'The pull request title.' }),
@@ -149,6 +156,27 @@ export function createTaskTools({ workspace, task, token, openRepository, onPull
         return success(`${pullRequest.created ? 'Opened draft' : 'Updated'} pull request #${pullRequest.number}: ${pullRequest.url}`)
       } catch (error) {
         return failure(`Pushed ${current.branch}, but the pull request failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    },
+  }, {
+    name: 'comment_on_github',
+    description: 'Post a comment on GitHub, on this session\'s pull request or on the issue it started from. Use it to answer whoever mentioned you there.',
+    parameters: commentParameters as unknown as ToolRegistration['parameters'],
+    // The default, `unsafe`: an interrupted call is not run again, so a comment is never posted twice.
+    async execute(args) {
+      const { body, on } = args as { body: string; on?: 'pull_request' | 'issue' }
+      const current = task()
+      const issue = await thread()
+      const pullRequest = current?.pullRequest ? { repo: current.repo, number: current.pullRequest.number } : undefined
+      const target = on === 'issue' ? issue : on === 'pull_request' ? pullRequest : pullRequest ?? issue
+      if (!target) {
+        return failure(on ? `This session has no ${on === 'issue' ? 'issue' : 'pull request'} to comment on.` : 'This session has no GitHub issue or pull request to comment on.')
+      }
+      try {
+        const url = await commentOnIssue(await token(target.repo), parseRepo(target.repo), target.number, body)
+        return success(`Commented on ${target.repo}#${target.number}: ${url}`)
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : String(error))
       }
     },
   }]

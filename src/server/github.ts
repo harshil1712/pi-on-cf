@@ -6,6 +6,9 @@ type Schema = components['schemas']
 /** A GitHub repository, `owner/name`. */
 export type RepoRef = { owner: string; name: string }
 
+/** A GitHub issue or pull request, by its repository as owner/name and its number. */
+export type GitHubThread = { repo: string; number: number }
+
 const NAME = /^[A-Za-z0-9_.-]+$/
 
 /** Accepts `owner/name` or an `https://github.com/owner/name` URL, with or without `.git`. */
@@ -121,6 +124,17 @@ export async function installationRepositories(token: string): Promise<(Reposito
     ...(repo.description ? { description: repo.description } : {}),
     pushedAt: repo.pushed_at ?? '',
   }))
+}
+
+/** Post a comment on an issue or pull request; returns its URL. */
+export async function commentOnIssue(token: string, repo: RepoRef, number: number, body: string): Promise<string> {
+  return (await github<Schema['issue-comment']>(token, `/repos/${repoSlug(repo)}/issues/${number}/comments`, { method: 'POST', body: { body } })).html_url
+}
+
+/** React to an issue comment, or to a review comment on a pull request's diff. */
+export async function reactToComment(token: string, repo: RepoRef, comment: { id: number; review?: object }, content: 'eyes' | 'confused'): Promise<void> {
+  const path = comment.review ? 'pulls/comments' : 'issues/comments'
+  await github(token, `/repos/${repoSlug(repo)}/${path}/${comment.id}/reactions`, { method: 'POST', body: { content } })
 }
 
 const pullRequest = (data: Pick<Schema['pull-request'], 'number' | 'html_url'>): PullRequest => ({ number: data.number, url: data.html_url })

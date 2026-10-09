@@ -25,14 +25,20 @@ function appAuth(config: GitHubAppConfig) {
 }
 
 /**
- * Whether an installation is on one of the accounts in `GITHUB_OWNERS`.
- * The App must be public to install on more than one account, so anyone
- * can install it; their installations are ignored.
+ * Whether `login` is one of the accounts in `GITHUB_OWNERS`: the accounts
+ * whose installations Pi uses, and the only users who can direct it from
+ * GitHub.
  */
-function owned(config: GitHubAppConfig, installation: Installation): boolean {
-  const owners = config.GITHUB_OWNERS.split(',').map((owner) => owner.trim().toLowerCase())
-  return owners.includes(installationOwner(installation).toLowerCase())
+export function isOwner(config: Pick<Env, 'GITHUB_OWNERS'>, login: string | undefined): boolean {
+  if (!login) return false
+  return (config.GITHUB_OWNERS ?? '').split(',').some((owner) => owner.trim().toLowerCase() === login.toLowerCase())
 }
+
+/**
+ * Whether an installation is on an account in `GITHUB_OWNERS`. A public App
+ * can be installed by anyone; their installations are ignored.
+ */
+const owned = (config: GitHubAppConfig, installation: Installation) => isOwner(config, installationOwner(installation))
 
 /**
  * An installation token that can reach `repo` and nothing else, to clone,
