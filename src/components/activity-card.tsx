@@ -54,8 +54,8 @@ export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type
     // Tool calls, reasoning, and checkpoints are quiet single-line rows tucked under the message above.
     <Collapsible.Root className="activity group/activity -mt-3 mb-5 animate-enter [.activity+&]:-mt-4.5" open={open} onOpenChange={setOpen}>
       <Collapsible.Trigger className={cn(
-        '-ml-1.5 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-kumo-tint',
-        error ? 'text-kumo-danger' : 'text-kumo-subtle hover:text-kumo-default',
+        '-ml-1.5 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-kumo-tint active:bg-kumo-fill',
+        error ? 'text-kumo-danger' : 'text-kumo-subtle hover:text-kumo-default active:text-kumo-default',
       )}>
         <span className="flex shrink-0">{icon}</span>
         <span className="shrink-0 font-medium">{label}</span>

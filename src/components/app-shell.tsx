@@ -4,6 +4,7 @@ import { Sidebar } from '@cloudflare/kumo/components/sidebar'
 import { Toasty } from '@cloudflare/kumo/components/toast'
 import { type LinkComponentProps, LinkProvider } from '@cloudflare/kumo/utils'
 import { SessionRegistryProvider } from '~/hooks/use-session-registry'
+import { useKeyboardAwareHeight } from '~/hooks/use-keyboard-aware-height'
 import { SessionSidebar } from './session-sidebar'
 
 /** Kumo's links, the sidebar's included, navigate through the router. */
@@ -14,14 +15,16 @@ RouterLink.displayName = 'RouterLink'
 
 /** Every page: the sessions sidebar beside the routed page. */
 export function AppShell() {
+  // The shell renders the height this hook tracks, so the composer stays above iOS's keyboard.
+  useKeyboardAwareHeight()
   return (
     <LinkProvider component={RouterLink}>
       <Toasty>
         <SessionRegistryProvider>
           {/* A fixed height lets the sidebar fill it; each page scrolls inside. */}
-          <Sidebar.Provider collapsible="offcanvas" className="h-dvh overflow-hidden">
+          <Sidebar.Provider collapsible="offcanvas" className="h-[var(--app-height,100dvh)] overflow-hidden">
             <SessionSidebar />
-            <div className="flex h-dvh min-w-0 flex-1 flex-col">
+            <div className="flex h-[var(--app-height,100dvh)] min-w-0 flex-1 flex-col">
               <Outlet />
             </div>
           </Sidebar.Provider>

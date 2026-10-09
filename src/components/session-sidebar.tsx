@@ -147,7 +147,7 @@ export function SessionSidebar() {
             </Sidebar.Group>
           ))}
         </Sidebar.Content>
-        <Sidebar.Footer className="flex items-center justify-between px-3 py-2">
+        <Sidebar.Footer className="flex items-center justify-between px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <span className="text-xs text-kumo-subtle">Pi on Cloudflare</span>
           <ThemeToggle />
         </Sidebar.Footer>

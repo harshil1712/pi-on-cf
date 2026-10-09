@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEventHandler } from 'react'
+import { useCallback, useRef, useState, type FormEventHandler } from 'react'
 import { Button } from '@cloudflare/kumo/components/button'
 import { InputArea } from '@cloudflare/kumo/components/input'
 import { Loader } from '@cloudflare/kumo/components/loader'
@@ -35,6 +35,8 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
   const [reposError, setReposError] = useState('')
   const [active, setActive] = useState(0)
   const loading = useRef(false)
+  // The highlighted suggestion stays in view as the arrow keys move it, in a popover that scrolls.
+  const activeRef = useCallback((node: HTMLButtonElement | null) => { node?.scrollIntoView({ block: 'nearest' }) }, [])
 
   const query = mention?.query.toLowerCase() ?? ''
   const suggestions = mention && repos ? repos.filter(({ repo }) => repo.toLowerCase().includes(query)).slice(0, SUGGESTION_LIMIT) : []
@@ -72,7 +74,7 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
           <div
             id="repo-suggestions"
             aria-label="Repositories"
-            className="absolute right-0 bottom-full left-0 mb-2 max-h-72 overflow-y-auto rounded-lg bg-kumo-base p-1 shadow-lg ring ring-kumo-line"
+            className="absolute right-0 bottom-full left-0 mb-2 max-h-[min(18rem,40dvh)] overflow-y-auto rounded-lg bg-kumo-base p-1 shadow-lg ring ring-kumo-line"
           >
             {/* The field keeps focus, so the highlighted repository is announced here. */}
             <output className="sr-only" aria-live="polite">{suggestions[active] ? `${suggestions[active].repo}, ${active + 1} of ${suggestions.length}` : ''}</output>
@@ -85,7 +87,8 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
                 tabIndex={-1}
                 key={repo}
                 aria-pressed={index === active}
-                className={cn('flex w-full cursor-pointer items-baseline gap-2 rounded-md px-2.5 py-1.5 text-left text-sm', index === active ? 'bg-kumo-fill' : 'hover:bg-kumo-tint')}
+                ref={index === active ? activeRef : undefined}
+                className={cn('flex w-full cursor-pointer items-baseline gap-2 rounded-md px-2.5 py-2.5 text-left text-sm sm:py-1.5', index === active ? 'bg-kumo-fill' : 'hover:bg-kumo-tint active:bg-kumo-fill')}
                 // Keep focus in the field, so the caret stays where the mention is.
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => choose(repo)}
@@ -150,7 +153,7 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
             <Select
               aria-label="Model"
               size="sm"
-              className="w-auto max-w-56 gap-1.5 bg-transparent px-2 text-kumo-subtle shadow-none ring-0 hover:bg-kumo-tint hover:text-kumo-default"
+              className="w-auto max-w-40 gap-1.5 bg-transparent px-2 text-kumo-subtle shadow-none ring-0 hover:bg-kumo-tint hover:text-kumo-default sm:max-w-56"
               items={models.map(({ id, label }) => ({ value: id, label }))}
               value={model || null}
               renderValue={(id) => (
@@ -173,7 +176,7 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
           <Button type="submit" variant="primary" shape="square" disabled={!isReady || !input.trim()} aria-label={sendLabel} title={`${sendLabel} (Enter)`} icon={<ArrowUpIcon weight="bold" />} />
         </div>
       </form>
-      <p className="mx-1 mt-1.5 text-center text-xs text-kumo-subtle max-md:hidden">
+      <p className="mx-1 mt-1.5 hidden text-center text-xs text-kumo-subtle md:block">
         <kbd className="font-medium">Enter</kbd> to send · <kbd className="font-medium">Shift</kbd>+<kbd className="font-medium">Enter</kbd> for a new line
       </p>
     </>
