@@ -54,7 +54,7 @@ export function usePiSession(sessionId: string) {
   const [filesError, setFilesError] = useState('')
   const [fileError, setFileError] = useState('')
   const [filesVersion, setFilesVersion] = useState(0)
-  const [mobileView, setMobileView] = useState<'chat' | 'files'>('chat')
+  const [mobileView, setMobileView] = useState<'chat' | 'workspace'>('chat')
   const transcriptRef = useRef<HTMLDivElement>(null)
   const filesRequestRef = useRef(0)
   const pendingEventsRef = useRef<AgentEvent[]>([])

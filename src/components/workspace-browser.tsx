@@ -70,10 +70,10 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
   }
 
   return (
-    <section id="files-panel" className="flex min-h-0 min-w-0 flex-1 flex-col" role="tabpanel" aria-label="Files" aria-busy={filesLoading}>
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Files" aria-busy={filesLoading}>
       <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-kumo-hairline pr-2 pl-3.5">
         <span className="text-sm font-semibold">
-          Workspace{files.length > 0 && <span className="ml-1.5 font-normal text-kumo-subtle">{files.length} {files.length === 1 ? 'file' : 'files'}</span>}
+          Files{files.length > 0 && <span className="ml-1.5 font-normal text-kumo-subtle">{files.length} {files.length === 1 ? 'file' : 'files'}</span>}
         </span>
         <RefreshButton size="sm" variant="ghost" onClick={onRefresh} loading={filesLoading} aria-label="Refresh files" title="Refresh files" />
       </header>

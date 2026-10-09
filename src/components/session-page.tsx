@@ -32,9 +32,12 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const name = session.summary?.name || session.summary?.title || session.summary?.repo || `Untitled ${sessionId.slice(0, 8)}`
   const status = STATUS[!session.isReady ? 'connecting' : session.isRunning ? 'running' : 'ready']
   const chatView = session.mobileView === 'chat'
+  const changeCount = task ? session.changes.changes.length : 0
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    // Chat and Workspace sit side by side only when the page itself is wide enough, not the window:
+    // the sidebar takes 260px from a tablet. Container queries (`@4xl:`, 56rem) measure this element.
+    <main className="@container flex min-h-0 flex-1 flex-col overflow-hidden">
       <TopBar
         actions={<>
           {task?.pullRequest && (
@@ -43,16 +46,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
             </a>
           )}
           <Button
-            className="hidden md:flex"
+            className="hidden @4xl:flex"
             variant={filesOpen ? 'secondary' : 'ghost'}
             size="sm"
             onClick={() => setFilesOpen((open) => !open)}
             aria-pressed={filesOpen}
             icon={<SidebarSimpleIcon mirrored />}
           >
-            {task
-              ? <>Changes{session.changes.changes.length > 0 && ` · ${session.changes.changes.length}`}</>
-              : <>Files{session.files.length > 0 && ` · ${session.files.length}`}</>}
+            Workspace<ChangesDot count={changeCount} />
           </Button>
         </>}
       >
@@ -71,57 +72,55 @@ function SessionView({ sessionId }: { sessionId: string }) {
             <PencilSimpleIcon size={13} aria-hidden="true" className="shrink-0 text-kumo-subtle opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
           </Button>
           {task && (
-            <span className="hidden min-w-0 items-center gap-1 truncate text-xs text-kumo-subtle md:flex" title={`${task.repo} · ${task.branch} from ${task.baseBranch}`}>
+            <span className="hidden min-w-0 items-center gap-1 truncate text-xs text-kumo-subtle @3xl:flex" title={`${task.repo} · ${task.branch} from ${task.baseBranch}`}>
               {/* An unnamed session is titled with its repository, so the branch is enough here. */}
               <GitBranchIcon size={13} className="shrink-0" />{name === task.repo ? task.branch : `${task.repo} · ${task.branch}`}
             </span>
           )}
-          <Badge variant={status.variant} appearance="dot" className="max-md:ring-0">
-            {/* On a phone the badge is just its dot; the label stays for screen readers. */}
-            <span className="sr-only md:not-sr-only">{status.label}</span>
+          <Badge variant={status.variant} appearance="dot" className="@max-3xl:ring-0">
+            {/* In a narrow page the badge is just its dot; the label stays for screen readers. */}
+            <span className="sr-only @3xl:not-sr-only">{status.label}</span>
             {session.queued > 0 && <span>· {session.queued} queued</span>}
           </Badge>
         </div>
       </TopBar>
 
-      {/* Mobile: the views stack, Chat before Files; desktop: they sit side by side. */}
-      <section className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <nav className="shrink-0 border-b border-kumo-hairline bg-kumo-base px-3 py-1.5 md:hidden" aria-label="Workspace view">
+      {/* Narrow: Chat and Workspace are tabs; wide: they sit side by side. */}
+      <section className="flex min-h-0 flex-1 flex-col @4xl:flex-row">
+        <nav className="shrink-0 border-b border-kumo-hairline bg-kumo-base px-3 py-1.5 @4xl:hidden" aria-label="Session view">
           <Tabs
             tabs={[
               { value: 'chat', label: 'Chat', render: <button id="chat-tab" aria-label="Chat" aria-controls="chat-panel" /> },
               {
-                value: 'files',
-                label: <>
-                  Files<span className="ml-1 text-kumo-subtle">{session.files.length}</span>
-                  {/* Pi's changes wait behind the Files tab, so a dot points them out. */}
-                  {task && session.changes.changes.length > 0 && (
-                    <>
-                      <span aria-hidden className="ml-1.5 inline-block size-1.5 rounded-full bg-kumo-warning" />
-                      <span className="sr-only">, {session.changes.changes.length} changes</span>
-                    </>
-                  )}
-                </>,
-                render: <button id="files-tab" aria-label="Files" aria-controls="files-panel" />,
+                value: 'workspace',
+                // Pi's changes wait behind this tab, so a dot points them out.
+                label: <>Workspace<ChangesDot count={changeCount} /></>,
+                render: <button id="workspace-tab" aria-label="Workspace" aria-controls="workspace-panel" />,
               },
             ]}
             value={session.mobileView}
-            onValueChange={(value) => session.setMobileView(value as 'chat' | 'files')}
+            onValueChange={(value) => session.setMobileView(value as 'chat' | 'workspace')}
             activateOnFocus
           />
         </nav>
-        <div id="chat-panel" className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !chatView && 'hidden md:flex')} role="tabpanel" aria-label="Chat" aria-labelledby="chat-tab">
+        <div id="chat-panel" className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !chatView && 'hidden @4xl:flex')} role="tabpanel" aria-label="Chat" aria-labelledby="chat-tab">
           <TranscriptView activeTextId={session.activeTextId} entries={session.entries} isRunning={session.isRunning} onScroll={session.handleTranscriptScroll} onTryOperation={() => { session.setInput('Create /workspace/hello.ts with a Worker that returns “Hello from Pi”.'); document.getElementById('prompt')?.focus() }} transcriptRef={session.transcriptRef} />
-          <div className="mx-auto w-full max-w-200 shrink-0 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-5 md:pb-4">
+          <div className="mx-auto w-full max-w-200 shrink-0 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] @3xl:px-5 @3xl:pb-4">
             {session.error && <Banner className="mb-2" variant="error" role="alert" description={session.error} />}
             <PromptComposer input={session.input} isReady={session.isReady} isRunning={session.isRunning} onAbort={() => void session.abort()} onInputChange={session.setInput} onSubmit={session.submit} repositories={session.listRepositories} models={session.models} model={session.model} onModelChange={(id) => void session.setModel(id)} />
           </div>
         </div>
-        <div className={cn(
-          'flex min-h-0 min-w-0 flex-1 bg-kumo-base md:w-[clamp(320px,34vw,480px)] md:flex-none md:border-l md:border-kumo-hairline',
-          !filesOpen && 'md:hidden',
-          chatView && 'hidden md:flex',
-        )}>
+        <div
+          id="workspace-panel"
+          role="tabpanel"
+          aria-label="Workspace"
+          aria-labelledby="workspace-tab"
+          className={cn(
+            'flex min-h-0 min-w-0 flex-1 bg-kumo-base @4xl:w-[clamp(320px,36cqw,480px)] @4xl:flex-none @4xl:border-l @4xl:border-kumo-hairline',
+            !filesOpen && '@4xl:hidden',
+            chatView && 'hidden @4xl:flex',
+          )}
+        >
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {task && (
               <div className="shrink-0 border-b border-kumo-hairline px-3 py-1.5">
@@ -148,5 +147,16 @@ function SessionView({ sessionId }: { sessionId: string }) {
 
       <RenameSessionDialog name={session.summary?.name} open={renameOpen} onOpenChange={setRenameOpen} onRename={(next) => void session.rename(next)} />
     </main>
+  )
+}
+
+/** A dot that says Pi has changes waiting in the workspace, with the count for screen readers. */
+function ChangesDot({ count }: { count: number }) {
+  if (count === 0) return null
+  return (
+    <>
+      <span aria-hidden className="ml-1.5 inline-block size-1.5 rounded-full bg-kumo-warning" />
+      <span className="sr-only">, {count} {count === 1 ? 'change' : 'changes'}</span>
+    </>
   )
 }

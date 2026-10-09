@@ -319,8 +319,9 @@ describe('SessionPage', () => {
 
     expect(await screen.findByRole('button', { name: /src\/index\.ts/ })).toBeTruthy()
     expect(screen.getByText('octo/demo · pi/12345678')).toBeTruthy()
-    // The mobile Files tab points out that changes wait behind it.
-    expect(screen.getByRole('tab', { name: 'Files' }).textContent).toContain('2 changes')
+    // The Workspace tab and the desktop Workspace button both point out that changes wait behind them.
+    expect(screen.getByRole('tab', { name: 'Workspace' }).textContent).toContain('2 changes')
+    expect(screen.getByRole('button', { name: /^Workspace/ }).textContent).toContain('2 changes')
     // The first change is selected, and its diff requested, after the list renders.
     await waitFor(() => expect(mocks.sessionAgent.stub.readChange).toHaveBeenCalledWith('src/index.ts'))
     expect(await screen.findByText(/\+changed src\/index\.ts/, { selector: 'pre.sr-only code' })).toBeTruthy()
@@ -426,15 +427,15 @@ describe('SessionPage', () => {
     open.mockRestore()
   })
 
-  it('switches between the mobile Chat and Files views', async () => {
+  it('switches between the narrow Chat and Workspace views', async () => {
     renderSession(<SessionPage sessionId="session-12345678" />)
     const chatTab = screen.getByRole('tab', { name: 'Chat' })
-    const filesTab = screen.getByRole('tab', { name: /Files/ })
+    const filesTab = screen.getByRole('tab', { name: 'Workspace' })
     expect(chatTab.getAttribute('aria-selected')).toBe('true')
 
     fireEvent.click(filesTab)
     await waitFor(() => expect(filesTab.getAttribute('aria-selected')).toBe('true'))
     expect(chatTab.getAttribute('aria-selected')).toBe('false')
-    expect(screen.getByRole('tabpanel', { name: /Files/ })).toBeTruthy()
+    expect(screen.getByRole('tabpanel', { name: 'Workspace' }).getAttribute('aria-labelledby')).toBe('workspace-tab')
   })
 })
