@@ -61,7 +61,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
           <Button
             variant="ghost"
             size="sm"
-            className="group min-w-0 text-base font-semibold"
+            // Kumo's buttons are w-max and shrink-0; a long title must shrink and truncate instead of pushing the status off a phone.
+            className="group w-auto min-w-0 shrink text-base font-semibold"
             onClick={() => setRenameOpen(true)}
             disabled={!session.summary}
             aria-label={name}

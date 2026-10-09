@@ -27,10 +27,9 @@ describe('the root document', () => {
     expect(viewport).toContain('viewport-fit=cover')
   })
 
-  it('tints the browser chrome with the canvas colour of each colour scheme', () => {
-    const colors = named('theme-color')
-    expect(colors).toContainEqual(expect.objectContaining({ media: '(prefers-color-scheme: light)', content: '#fbfbfb' }))
-    expect(colors).toContainEqual(expect.objectContaining({ media: '(prefers-color-scheme: dark)', content: '#030303' }))
+  it('leaves theme-color to the theme script', () => {
+    // HeadContent keeps one meta per name, and React would re-add one whose content the script changed.
+    expect(named('theme-color')).toEqual([])
   })
 
   it('offers an installable app whose files all exist', () => {

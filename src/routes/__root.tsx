@@ -15,9 +15,6 @@ export const Route = createRootRoute({
         // viewport-fit: notches; resizes-content: Chrome shrinks the page, not just the visual viewport, when the keyboard opens.
         content: 'width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content',
       },
-      // The browser chrome follows the page's canvas colour, which Kumo switches with the colour scheme.
-      { name: 'theme-color', media: '(prefers-color-scheme: light)', content: '#fbfbfb' },
-      { name: 'theme-color', media: '(prefers-color-scheme: dark)', content: '#030303' },
       {
         title: 'Pi on Cloudflare',
       },
@@ -54,6 +51,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     // The theme script sets data-mode before hydration, so React must not reset it.
     <html lang="en" data-mode="light" suppressHydrationWarning>
       <head>
+        {/* Sets the mode and adds the theme-color meta that follows it; see themeScript. */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <HeadContent />
       </head>
