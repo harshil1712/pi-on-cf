@@ -1,0 +1,19 @@
+.gitignore
+  s_6b7a5fbc69fca6::t_5782bafb6f5759 23-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "03b83a36edc9397a70dcab2589fef6df88238ad3",
+  "prompts": {},
+  "sessions": {
+    "s_6b7a5fbc69fca6": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a12140-89d7-7165-9bc8-bef9e5d04732",
+        "model": "kimi-k3"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
