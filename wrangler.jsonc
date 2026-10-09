@@ -10,7 +10,7 @@
   "main": "src/server.ts",
   "vars": {
     "AI_GATEWAY_ID": "default",
-    "AI_MODEL": "@cf/zai-org/glm-5.2",
+    "AI_MODEL": "@cf/zai-org/glm-5.3",
   },
   // The GitHub App sessions clone, push and open pull requests as, and the
   // secret its webhooks are signed with; see "GitHub App" in the README. Only
@@ -84,4 +84,53 @@
     "traces": { "enabled": true },
   },
   "upload_source_maps": true,
+  // Serve Worker Previews (and version preview URLs) on workers.dev. Preview
+  // URLs are public; put them behind Cloudflare Access like production.
+  "preview_urls": true,
+  // Worker Previews (`npx wrangler preview`) inherit none of the bindings,
+  // vars or secrets above, so they are repeated here. Each Preview gets its
+  // own Durable Object namespaces; R2 and Artifacts point at separate preview
+  // resources so branches never touch production data. Set the GitHub App
+  // secrets for new Previews with
+  // `npx wrangler preview base-config secret put <NAME>`.
+  // Previews do not support Durable Object-scheduled containers yet, so the
+  // Computer container is unavailable in a Preview.
+  "previews": {
+    "vars": {
+      "AI_GATEWAY_ID": "default",
+      "AI_MODEL": "@cf/zai-org/glm-5.3",
+    },
+    "ai": {
+      "binding": "AI",
+    },
+    "durable_objects": {
+      "bindings": [
+        {
+          "name": "PiSession",
+          "class_name": "PiSession",
+        },
+        {
+          "name": "PiRegistry",
+          "class_name": "PiRegistry",
+        },
+      ],
+    },
+    "r2_buckets": [
+      {
+        "binding": "BUCKET",
+        "bucket_name": "pi-on-cf-preview",
+      },
+    ],
+    "artifacts": [
+      {
+        "binding": "ARTIFACTS",
+        "namespace": "pi-apps-preview",
+      },
+    ],
+    "worker_loaders": [
+      {
+        "binding": "LOADER",
+      },
+    ],
+  },
 }

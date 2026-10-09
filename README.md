@@ -78,6 +78,8 @@ Sessions reach GitHub as a GitHub App, set up as described in [GitHub App](#gith
 
 `BUCKET` is the app's R2 bucket, `pi-on-cf`. It is a remote binding, so local development reads the real bucket. Create it once with `npx wrangler r2 bucket create pi-on-cf`.
 
+[Worker Previews](https://developers.cloudflare.com/workers/previews/) (open beta) deploy a branch to its own URL on workers.dev: `npx wrangler preview`, named after the current git branch unless you pass `--name`. Previews inherit none of the production settings, so `previews` in `wrangler.jsonc` repeats the bindings and variables. Each Preview gets its own Durable Objects, and R2 and Artifacts point at separate preview resources so branches never touch production data; create the bucket once with `npx wrangler r2 bucket create pi-on-cf-preview`. Set the GitHub App secrets for Previews with `npx wrangler preview base-config secret put <NAME>`. Preview URLs are public, so put them behind Cloudflare Access like production. `previews` declares no container, so a Preview has no Computer container, and the App's webhook still points at production.
+
 ## GitHub App
 
 Pi clones, pushes and opens pull requests with short-lived tokens from a GitHub App, each limited to the one repository a session works on, and commits as the App's bot, `<slug>[bot]`. Set it up once, following GitHub's docs linked at each step.
