@@ -166,6 +166,21 @@ Mention the App's bot, `@<slug>`, in a comment on GitHub to give Pi work there. 
 
 Pi reacts to the comment with 👀 when it takes the work. The webhook endpoint answers GitHub at once and queues the mention on the registry, which retries it if it fails. An issue's description by a user outside `GITHUB_OWNERS` goes into the prompt marked as information, not instructions.
 
+## Web tools
+
+Every session can read pages with `web_fetch`: it fetches the URL and returns it as readable Markdown (converted by Workers AI for HTML, PDFs and office documents), a window at a time. Every session also keeps its own persistent Chromium on [Browser Run](https://developers.cloudflare.com/browser-run/) (the `BROWSER` binding in `wrangler.jsonc`): Pi drives it with code for pages that need JavaScript, clicks, logins or screenshots. Browser Run is billed per browser-hour and limited to the public internet; it cannot reach a dev server running inside the session's container.
+
+### Web search
+
+`web_search` is off by default, because searches bill whoever the gateway says. This deployment brings its own free Exa key: Exa's Starter plan gives 10 dollars of credits each month with no payment method, which is about two thousand searches.
+
+1. Sign up at [exa.ai](https://exa.ai/) and copy the API key.
+2. In the dashboard, go to **AI Gateway**, pick the gateway (`default` unless you changed `AI_GATEWAY_ID`), then **Provider Keys**, and add the Exa key with the alias `pi-search`.
+3. In `wrangler.jsonc`, set the two vars commented there: `WEB_SEARCH_PROVIDER` to `exa` and `WEB_SEARCH_BYOK_ALIAS` to `pi-search`. The Worker holds no secret, only the alias.
+4. Deploy. When the month's free credits are gone, searches fail with `payment required` and Pi is told to carry on without them; to keep searching, add a payment method to Exa, or load AI Gateway credits and drop `WEB_SEARCH_BYOK_ALIAS`.
+
+Note: Exa is the one Web Search provider without Zero Data Retention for requests routed through Cloudflare, so search terms are logged at Exa.
+
 ## Skills
 
 Pi offers [Agent Skills](https://developers.cloudflare.com/agents/runtime/execution/agent-skills/) from two sources: built-in skills in `src/server/bundled-skills`, which ship with the Worker, and shared skills under `skills/` in the bucket. Each skill is a directory holding a `SKILL.md` with `name` and `description` frontmatter, and optional `references/`, `scripts/` and `assets/`. A built-in skill wins a name, so a shared skill cannot replace one.

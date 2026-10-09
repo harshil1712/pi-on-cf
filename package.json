@@ -33,7 +33,7 @@
     "@streamdown/code": "^1.1.1",
     "@tanstack/react-router": "^1.170.18",
     "@tanstack/react-start": "^1.168.32",
-    "agents": "^0.26.0",
+    "agents": "^0.28.0",
     "ai": "^7.0.130",
     "just-bash": "^3.2.0",
     "react": "^19.2.0",

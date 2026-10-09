@@ -9,6 +9,8 @@ export { PiRegistry } from './server/pi-registry'
 // Computer reaches back into PiSession through these entrypoints: the
 // container's egress and the Worker Shell's workspace binding.
 export { WorkspaceProxy, WorkspaceServiceProxy } from '@cloudflare/computer'
+// The browser tool's codemode runtime is a facet of each session.
+export { CodemodeRuntime } from '@cloudflare/codemode'
 
 export default createServerEntry({
   async fetch(request) {

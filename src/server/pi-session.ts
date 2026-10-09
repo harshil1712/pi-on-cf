@@ -11,9 +11,11 @@ import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient } from '@cloudflare/computer/git'
 import { createCloudflareObserver } from '@cloudflare/computer/observe/cloudflare'
 import type { Provider } from '@earendil-works/pi-ai'
+import type { ToolRegistration } from '@earendil-works/pi-durable'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { type AgentEventStream, createRegistry, Harness } from '@earendil-works/pi-durable'
 import { Agent, type AgentStaticOptions, callable, type Connection, getAgentByName } from 'agents'
+import { Browser, browserRun } from 'agents/browser'
 import { PiHarness, type PiModel } from 'agents/harness/pi'
 import { createAI } from 'agents/models/pi-ai'
 import type { SkillSource } from 'agents/skills'
@@ -34,6 +36,7 @@ import { modelOptions } from './models'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
 import { cloneTask, createTaskTools, listChanges, readChange, taskSection } from './task'
+import { createWebTools, webToolGuidance } from './web-tools'
 import { createWorkspaceTools } from './workspace-tools'
 import { WORKSPACE_ROOT, workspacePath } from './workspace-root'
 
@@ -52,16 +55,18 @@ const CONTAINER_LOCAL_PATHS = ['**/node_modules', '**/.wrangler', '**/.venv', '*
  * is for tools that read the repository, and has no identity, so a commit
  * there fails loudly.
  */
-const preamble = (identity: { name: string; email: string }) => [
-  'You are Pi, a coding agent running natively on Cloudflare Workers. You work on your own: finish the task, check your work, and report what you did.',
-  `Your durable workspace is ${WORKSPACE_ROOT}. Paths are absolute and the same in every tool and backend.`,
-  'Use read, write, edit, delete, ls, find and grep for files.',
-  'exec runs commands on one of three backends: shell is a fast just-bash environment with text utilities and git; javascript runs an ES module in an isolated Worker with node:fs/promises, ws:git and ws:artifacts; container is a Linux machine with Node.js, npm and network access.',
-  'Prefer shell for searches and text processing. Use container only for native binaries, package installs, builds, tests or networked CLIs.',
-  `Dependency and tool caches (${CONTAINER_LOCAL_PATHS.join(', ')}) stay on the container's disk: only container commands can see them, and they are lost when the container is replaced, so reinstall if they are missing.`,
-  `Run git in shell: it is the workspace's own git, and commits as ${identity.name} <${identity.email}> already, so do not set user.name or user.email. It takes no -c options, and has no rebase or cherry-pick.`,
-  'A pipeline reports only its last command\'s exit code, so do not pipe tests, builds, lint or type checks into head, tail or grep: use set -o pipefail, or redirect the output to a file and read its end, and trust the exit code.',
-].join('\n')
+const preamble = (identity: { name: string; email: string }, web: string[]) =>
+  [
+    'You are Pi, a coding agent running natively on Cloudflare Workers. You work on your own: finish the task, check your work, and report what you did.',
+    `Your durable workspace is ${WORKSPACE_ROOT}. Paths are absolute and the same in every tool and backend.`,
+    'Use read, write, edit, delete, ls, find and grep for files.',
+    'exec runs commands on one of three backends: shell is a fast just-bash environment with text utilities and git; javascript runs an ES module in an isolated Worker with node:fs/promises, ws:git and ws:artifacts; container is a Linux machine with Node.js, npm and network access.',
+    'Prefer shell for searches and text processing. Use container only for native binaries, package installs, builds, tests or networked CLIs.',
+    `Dependency and tool caches (${CONTAINER_LOCAL_PATHS.join(', ')}) stay on the container's disk: only container commands can see them, and they are lost when the container is replaced, so reinstall if they are missing.`,
+    `Run git in shell: it is the workspace's own git, and commits as ${identity.name} <${identity.email}> already, so do not set user.name or user.email. It takes no -c options, and has no rebase or cherry-pick.`,
+    'A pipeline reports only its last command\'s exit code, so do not pipe tests, builds, lint or type checks into head, tail or grep: use set -o pipefail, or redirect the output to a file and read its end, and trust the exit code.',
+    ...web,
+  ].join('\n')
 
 const FILE_LIST_LIMIT = 1000
 /**
@@ -136,13 +141,18 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   override initialState: PiSessionState = { task: null, model: this.model.default.id }
   readonly registry = createRegistry()
   readonly skills = new SkillCatalog(() => this.skillSources())
+  /**
+   * The session's persistent browser on Browser Run, when the deployment has
+   * a `BROWSER` binding. Tests and previews don't, and run without it.
+   */
+  readonly browser = this.env.BROWSER ? new Browser({ provider: browserRun(this.env.BROWSER) }) : undefined
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       const workspace = await getWorkspace(this)
       this.registry.install({
         name: 'pi-on-cf',
         sections: [
-          { key: 'preamble', render: () => preamble(botIdentity(this.env)), tag: false },
+          { key: 'preamble', render: () => preamble(botIdentity(this.env), webToolGuidance(this.env)), tag: false },
           taskSection(() => this.state.task, () => getWorkspace(this)),
         ],
         tools: [...createWorkspaceTools({
@@ -169,7 +179,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
           bucket: this.env.BUCKET,
           workspace,
           onChange: () => this.skills.reload(this.registry),
-        })],
+        }), ...this.webTools()],
       })
       // Skills are optional: an unreachable bucket must not stop pi opening.
       await this.skills.sync(this.registry).catch((error: unknown) => {
@@ -196,8 +206,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
+    if (this.browser) this.lifecycle.use(this.browser)
     // Lifecycle disposes in reverse order, so this teardown runs before
-    // the harness closes.
+    // the harness closes, and the browser closes last.
     this.lifecycle.use(this.harness).use({ dispose: () => this.#teardown() })
   }
 
@@ -211,6 +222,14 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     const ai = createAI({ binding: this.env.AI, id: this.env.AI_GATEWAY_ID || 'default' })
     const choices = modelOptions(this.env.AI_MODEL).map(({ id, label }) => ({ model: ai(id), label }))
     return { provider: ai.provider, default: ai(this.env.AI_MODEL), choices }
+  }
+
+  /**
+   * Pi's web tools for this session; see createWebTools. Tests override
+   * this with fake sources.
+   */
+  protected webTools(): ToolRegistration[] {
+    return createWebTools(this.env, { ctx: this.ctx, browser: this.browser })
   }
 
   /**
