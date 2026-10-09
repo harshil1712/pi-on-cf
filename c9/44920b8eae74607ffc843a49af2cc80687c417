@@ -1,0 +1,45 @@
+README.md
+  s_6b7a5fbc69fca6::t_fac63b7ce3605b 169-183
+docs/architecture.md
+  s_6b7a5fbc69fca6::t_97201743e9a39f 44-45,49-56,155
+package-lock.json
+  s_6b7a5fbc69fca6::t_dd71b0ed37806e 22,7181-7183,7198-7200,7210-7211,7238-7243
+package.json
+  s_6b7a5fbc69fca6::t_9fbab4e87a4a40 36
+src/server.ts
+  s_6b7a5fbc69fca6::t_793b61a7e613e1 12-13
+src/server/pi-session.ts
+  s_6b7a5fbc69fca6::t_acad58d65e8b65 14,18,39,58-69,144-148,155,182,209,211,227-234
+test/worker/entry.ts
+  s_6b7a5fbc69fca6::t_47af1a983ed4a3 21-56,60-61,141-154
+test/worker/web-tools.test.ts
+  s_0e388aa105b35d::t_3a19122732aa29 1-46
+worker-configuration.d.ts
+  s_6b7a5fbc69fca6::t_ac8e45f5c626a7 2,8
+wrangler.jsonc
+  s_6b7a5fbc69fca6::t_625e7c8b99cc6c 14-17,32-35,114-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c944920b8eae74607ffc843a49af2cc80687c417",
+  "prompts": {},
+  "sessions": {
+    "s_0e388aa105b35d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a121f7-f7e1-7601-b0f4-e9525d99631a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    },
+    "s_6b7a5fbc69fca6": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a12140-89d7-7165-9bc8-bef9e5d04732",
+        "model": "kimi-k3"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
