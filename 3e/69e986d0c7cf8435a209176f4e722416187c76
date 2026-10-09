@@ -1,0 +1,57 @@
+.gitignore
+  s_6675b6f1de10b1::t_78576f6b041d16 18
+README.md
+  s_6675b6f1de10b1::t_02f0a32e85f361 68-76,80-123,126
+docs/architecture.md
+  s_6675b6f1de10b1::t_c53673bbc8e3a1 72,78,82,119
+package-lock.json
+  s_6675b6f1de10b1::t_cd3ae51ec68e33 15,4130-4232,4239-4289,10331-10336,13907-13915,14220-14231
+package.json
+  s_6675b6f1de10b1::t_1c36f74cc64e9b 29
+src/server/pi-registry.ts
+  s_6675b6f1de10b1::t_4b546f49b4de2f 5,98-99,103
+src/server/pi-session.ts
+  s_6675b6f1de10b1::t_80a85a80aee52a 31-32,49-53,55,62,113,143,159,222-227,371-372
+src/server/task.ts
+  s_6675b6f1de10b1::t_c8e9e38c39acca 18,26-27,78-79,100,128-133
+test/worker/entry.ts
+  s_6675b6f1de10b1::t_9f6ccb60e21155 103-105
+test/worker/github-app.test.ts
+  s_6675b6f1de10b1::t_9ffe194df63bbf 1-138
+test/worker/github.test.ts
+  s_6675b6f1de10b1::t_6844ee0a6d1fdf 2,23,26,28,33-34,38-44,51
+test/worker/sessions.test.ts
+  s_6675b6f1de10b1::t_c6aee21e48cef3 182
+test/worker/task.test.ts
+  s_6675b6f1de10b1::t_c51b29d43f5edf 79,91,94,116-117,135,138
+test/worker/wrangler.jsonc
+  s_6675b6f1de10b1::t_0dc84e3eff4f26 9-11
+worker-configuration.d.ts
+  s_6675b6f1de10b1::t_f23842905af191 2,11-15,31
+wrangler.jsonc
+  s_01feb3a23ad911::t_f5a5c74d38b45b 15-19,21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3e69e986d0c7cf8435a209176f4e722416187c76",
+  "prompts": {},
+  "sessions": {
+    "s_01feb3a23ad911": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a11e11-a260-7165-9bc8-bef73ea6305a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    },
+    "s_6675b6f1de10b1": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a11c32-2ea6-76cd-a15d-7aa8c4a8eac5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}

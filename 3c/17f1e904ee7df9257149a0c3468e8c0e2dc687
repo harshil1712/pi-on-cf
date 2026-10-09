@@ -1,0 +1,49 @@
+README.md
+  s_6675b6f1de10b1::t_17c375443186f3 68,76-77,91,99-101,113-116,137-146
+docs/architecture.md
+  s_6675b6f1de10b1::t_66d25c6664ff2d 82-84,121
+package-lock.json
+  s_6675b6f1de10b1::t_6d6809d957b788 16,33,4241-4247,4299-4307
+package.json
+  s_6675b6f1de10b1::t_69c5e896ff44a0 30,47
+src/server.ts
+  s_6675b6f1de10b1::t_04763d7cf2415c 5,15
+src/server/github-app.ts
+  s_6675b6f1de10b1::t_71218d7482d41d 28-30,32-34,37-42
+src/server/github-webhook.ts
+  s_6675b6f1de10b1::t_6db1160548dbc8 1-142
+src/server/github.ts
+  s_6675b6f1de10b1::t_bcbbe86d4a264d 9-11,129-139
+src/server/pi-registry.ts
+  s_6675b6f1de10b1::t_4625a2d613ecc4 5-7,20-21,55-58,61,68,115-160
+src/server/pi-session.ts
+  s_6675b6f1de10b1::t_d0498ab8f93d68 31,76-77,167,367-371
+src/server/task.ts
+  s_6675b6f1de10b1::t_62f0081683cdfc 6,83-84,89-90,92,97-100,161-181
+test/worker/github-webhook.test.ts
+  s_6675b6f1de10b1::t_fbac4fbcbacb1d 1-217
+test/worker/github.test.ts
+  s_6675b6f1de10b1::t_fd8ed15d313baf 2,55-83
+test/worker/wrangler.jsonc
+  s_6675b6f1de10b1::t_713ead37031c31 11-13
+worker-configuration.d.ts
+  s_6675b6f1de10b1::t_f58ad49a3dc38a 2,16,32
+wrangler.jsonc
+  s_6675b6f1de10b1::t_43194f1d9db736 15-20,22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3c17f1e904ee7df9257149a0c3468e8c0e2dc687",
+  "prompts": {},
+  "sessions": {
+    "s_6675b6f1de10b1": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a11c32-2ea6-76cd-a15d-7aa8c4a8eac5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
