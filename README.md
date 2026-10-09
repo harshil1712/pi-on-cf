@@ -65,13 +65,65 @@ Open `http://localhost:3000`.
 
 The model picker in the composer chooses between the Workers AI models curated in `src/server/models.ts`; edit that list to offer others. `AI_MODEL` is always offered, and listed first. On the home page it picks the model a new session starts on; in a session it switches the model from the next request, and is disabled while Pi is running.
 
-`GITHUB_TOKEN` is a required secret: a GitHub token that can read and write the contents and pull requests of the repositories sessions work on. A [fine-grained personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token) limited to those repositories, with **Contents** and **Pull requests** read and write, is enough. Set it with `npx wrangler secret put GITHUB_TOKEN`, and locally in `.dev.vars`; `wrangler deploy` fails until it is set. Because `wrangler.jsonc` declares `secrets`, `.dev.vars` and `.env` load only the secrets listed there.
+Sessions reach GitHub as a GitHub App, set up as described in [GitHub App](#github-app). Its five settings are declared as required secrets in `wrangler.jsonc`, so `wrangler deploy` fails until each is set. Only the private key is sensitive, but all five are per deployment. Set them with `npx wrangler secret put <NAME>`, and locally in `.dev.vars`. Because `wrangler.jsonc` declares `secrets`, `.dev.vars` and `.env` load only the secrets listed there.
+
+| Secret | Value |
+|---|---|
+| `GITHUB_APP_ID` | The App ID, on the App's settings page. |
+| `GITHUB_APP_PRIVATE_KEY` | The App's private key, converted to PKCS#8. |
+| `GITHUB_APP_SLUG` | The App's URL name, as in `github.com/apps/<slug>`. |
+| `GITHUB_APP_BOT_ID` | The user ID of the App's bot, `<slug>[bot]`. |
+| `GITHUB_OWNERS` | The accounts whose installations Pi uses, comma-separated: your user and your orgs. |
 
 `BUCKET` is the app's R2 bucket, `pi-on-cf`. It is a remote binding, so local development reads the real bucket. Create it once with `npx wrangler r2 bucket create pi-on-cf`.
 
+## GitHub App
+
+Pi clones, pushes and opens pull requests with short-lived tokens from a GitHub App, each limited to the one repository a session works on, and commits as the App's bot, `<slug>[bot]`. Set it up once, following GitHub's docs linked at each step.
+
+**Register the App** ([Registering a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)):
+
+1. Click your profile picture, then **Settings → Developer settings → GitHub Apps → New GitHub App**.
+2. Under **GitHub App name**, enter a name of up to 34 characters. GitHub lowercases it and replaces spaces with `-` to make the slug, which the bot is named after.
+3. Under **Homepage URL**, enter your Worker's URL or this repository's.
+4. Leave **Callback URL**, **Setup URL**, **Request user authorization (OAuth) during installation** and **Enable Device Flow** as they are: Pi acts as the App, never on behalf of a user.
+5. Under **Webhook**, clear **Active** for now.
+6. Under **Permissions**, in **Repository permissions**, choose:
+   - **Contents**: Read and write
+   - **Pull requests**: Read and write
+   - **Issues**: Read and write
+   - **Checks**, **Actions** and **Commit statuses**: Read-only
+   - **Workflows**: Read and write, only to let Pi change files in `.github/workflows`
+
+   **Metadata** becomes Read-only by itself. Pi needs only Contents and Pull requests today; the rest are for answering reviews and fixing CI. Added later, they would wait for every installation's owner to approve them.
+7. Under **Where can this GitHub App be installed?**, choose **Any account**, so you can install it on your organizations as well as your account. Anyone can then install it, but Pi ignores installations on accounts outside `GITHUB_OWNERS`.
+8. Click **Create GitHub App**, and note the **App ID** on the page that opens.
+
+**Generate a private key** ([Managing private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)): in the App's settings, click **Key pairs**, then **New key**. The PEM file that downloads is PKCS#1, which Web Crypto cannot read, so convert it to PKCS#8:
+
+```bash
+openssl pkcs8 -topk8 -nocrypt -in <downloaded>.pem -out pi-app.pem
+```
+
+**Install the App** ([Installing your own GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)): in the App's settings, click **Install App**, then **Install** next to your account. Choose **Only select repositories** and pick the repositories Pi may work on. Repeat for each organization you own.
+
+**Find the bot's user ID:**
+
+```bash
+curl -s 'https://api.github.com/users/<slug>%5Bbot%5D' | jq .id
+```
+
+**Set the secrets** listed under [Configuration](#configuration). The private key goes in from the file:
+
+```bash
+npx wrangler secret put GITHUB_APP_PRIVATE_KEY < pi-app.pem
+```
+
+Locally, in `.dev.vars` or `.env`, wrap the key's lines in double quotes: `GITHUB_APP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----` on the first line, through `-----END PRIVATE KEY-----"`.
+
 ## Repositories
 
-Mention a repository in the chat: type `@` and pick one of yours, or write `@owner/name`, optionally `@owner/name#branch` for a base branch other than the default. Pi decides whether it needs the code. To answer from the code or change it, it calls `clone_repository`, which clones the repository into `/workspace/<name>`, shallow and on one branch, and checks out `pi/<session>`; a question it can answer without the code clones nothing. A session clones one repository. The repository's `AGENTS.md` goes into the system prompt, up to 16 KiB.
+Mention a repository in the chat: type `@` and pick one from the App's installations, or write `@owner/name`, optionally `@owner/name#branch` for a base branch other than the default. Pi decides whether it needs the code. To answer from the code or change it, it calls `clone_repository`, which clones the repository into `/workspace/<name>` with its history, on one branch, and checks out `pi/<session>`; a question it can answer without the code clones nothing. Pi can clone only repositories the App is installed on. A session clones one repository. The repository's `AGENTS.md` goes into the system prompt, up to 16 KiB.
 
 When you ask for changes, Pi commits with git like any developer, then calls `create_pull_request`, which pushes the task branch and opens a draft pull request into the base branch, or updates the one already open. The token is passed to Computer's git for the clone and that push only, so the git the agent runs has no credentials and cannot push anything itself. The session page shows the branch, a Changes panel with every file changed since the base commit, and a link to the pull request.
 

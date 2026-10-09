@@ -44,7 +44,7 @@ async function request<T>(token: string, url: string, init: { method?: string; b
   if (!response.ok) {
     const error = data as Partial<Schema['validation-error']> | null
     const detail = error?.errors?.map((item) => item.message).filter(Boolean).join('; ')
-    throw new Error(`GitHub ${response.status}: ${error?.message ?? response.statusText}${detail ? ` (${detail})` : ''}`)
+    throw Object.assign(new Error(`GitHub ${response.status}: ${error?.message ?? response.statusText}${detail ? ` (${detail})` : ''}`), { status: response.status })
   }
   return { data: data as T, next: nextPage(response.headers.get('Link')) }
 }
@@ -62,16 +62,20 @@ export function nextPage(link: string | null): string | null {
   return url?.startsWith(`${API}/`) ? url : null
 }
 
-/** Every item of a paginated GET, following `Link` headers for at most `maxPages` pages. */
-async function githubAll<T>(token: string, path: string, maxPages: number): Promise<T[]> {
-  const items: T[] = []
+/**
+ * Every item of a paginated GET, following `Link` headers for at most
+ * `maxPages` pages. `items` picks them out of each page's body, for the
+ * endpoints that wrap their list in an object.
+ */
+async function githubAll<T, Page = T[]>(token: string, path: string, maxPages: number, items: (page: Page) => T[] = (page) => page as T[]): Promise<T[]> {
+  const all: T[] = []
   let url: string | null = `${API}${path}`
   for (let page = 0; url && page < maxPages; page++) {
-    const { data, next }: { data: T[]; next: string | null } = await request<T[]>(token, url)
-    items.push(...data)
+    const { data, next }: { data: Page; next: string | null } = await request<Page>(token, url)
+    all.push(...items(data))
     url = next
   }
-  return items
+  return all
 }
 
 /**
@@ -82,19 +86,41 @@ export async function defaultBranch(token: string, repo: RepoRef): Promise<strin
   return (await github<Schema['full-repository']>(token, `/repos/${repoSlug(repo)}`)).default_branch
 }
 
+export type Installation = Schema['installation']
+
+/** The login of the account an installation belongs to; an enterprise's slug. */
+export const installationOwner = ({ account }: Installation) => (account && ('login' in account ? account.login : account.slug)) ?? ''
+
+/** The installation of the GitHub App on `repo`, or null where it is not installed. Takes the App's JWT. */
+export async function repoInstallation(jwt: string, repo: RepoRef): Promise<Installation | null> {
+  return github<Installation>(jwt, `/repos/${repoSlug(repo)}/installation`).catch((error: unknown) => {
+    if ((error as { status?: number }).status === 404) return null
+    throw error
+  })
+}
+
+/** Every installation of the GitHub App. Takes the App's JWT. */
+export function appInstallations(jwt: string): Promise<Installation[]> {
+  return githubAll<Installation>(jwt, '/app/installations?per_page=100', 10)
+}
+
 /** Pages of 100 repositories fetched for suggestions; more than this is not worth the wait. */
 const REPOSITORY_PAGES = 5
 
-/** Repositories the token can push to, most recently pushed first, up to 500. */
-export async function listRepositories(token: string): Promise<Repository[]> {
-  const data = await githubAll<Schema['repository']>(
+/** The repositories an installation token can reach, up to 500. */
+export async function installationRepositories(token: string): Promise<(Repository & { pushedAt: string })[]> {
+  const data = await githubAll<Schema['repository'], { repositories: Schema['repository'][] }>(
     token,
-    '/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
+    '/installation/repositories?per_page=100',
     REPOSITORY_PAGES,
+    (page) => page.repositories,
   )
-  return data
-    .filter((repo) => repo.permissions?.push !== false)
-    .map((repo) => ({ repo: repo.full_name, private: repo.private, ...(repo.description ? { description: repo.description } : {}) }))
+  return data.map((repo) => ({
+    repo: repo.full_name,
+    private: repo.private,
+    ...(repo.description ? { description: repo.description } : {}),
+    pushedAt: repo.pushed_at ?? '',
+  }))
 }
 
 const pullRequest = (data: Pick<Schema['pull-request'], 'number' | 'html_url'>): PullRequest => ({ number: data.number, url: data.html_url })

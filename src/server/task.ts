@@ -15,8 +15,7 @@ const git = (workspace: WorkspaceClient) => workspace.git as GitClient
  * Clone `repo` into the workspace and start the task's branch from
  * `baseBranch`, the repository's default branch unless given.
  */
-export async function cloneTask(workspace: WorkspaceClient, token: string | undefined, input: { repo: string; baseBranch?: string; branch: string }): Promise<SessionTask> {
-  if (!token) throw new Error('Set the GITHUB_TOKEN secret to work on GitHub repositories.')
+export async function cloneTask(workspace: WorkspaceClient, token: string, input: { repo: string; baseBranch?: string; branch: string }): Promise<SessionTask> {
   const repo = parseRepo(input.repo)
   const baseBranch = input.baseBranch?.trim() || await defaultBranch(token, repo)
   const dir = `${WORKSPACE_ROOT}/${repo.name}`
@@ -24,7 +23,8 @@ export async function cloneTask(workspace: WorkspaceClient, token: string | unde
   // agent runs, has no credentials.
   if (await workspace.fs.stat(dir).then(() => true, () => false)) throw new Error(`${dir} already exists; move it before working on ${repoSlug(repo)}.`)
   try {
-    await git(workspace).clone({ url: cloneUrl(repo), dir, ref: baseBranch, depth: 1, headers: gitAuthHeaders(token) })
+    // Full history, Computer's default, for log, blame and merges.
+    await git(workspace).clone({ url: cloneUrl(repo), dir, ref: baseBranch, headers: gitAuthHeaders(token) })
   } catch (error) {
     // A half-written clone would make the next attempt fail on a non-empty directory.
     await workspace.fs.rm(dir, { recursive: true, force: true })
@@ -75,7 +75,8 @@ export function taskSection(task: () => SessionTask | null, workspace: () => Pro
 type TaskToolsOptions = {
   workspace: WorkspaceClient
   task: () => SessionTask | null
-  token: () => string | undefined
+  /** A token for `repo`, as owner/name; throws when there is none. */
+  token: (repo: string) => Promise<string>
   /** Clone the repository and make it the session's task. */
   openRepository: (input: { repo: string; baseBranch?: string }) => Promise<SessionTask>
   onPullRequest: (pullRequest: PullRequest) => Promise<void>
@@ -96,7 +97,7 @@ export function createTaskTools({ workspace, task, token, openRepository, onPull
   })
   return [{
     name: 'clone_repository',
-    description: 'Clone a GitHub repository into the workspace, shallow, and check out a new branch for this session\'s work. Use it when you need the code to answer a question or make a change.',
+    description: 'Clone a GitHub repository into the workspace, with its history, and check out a new branch for this session\'s work. Use it when you need the code to answer a question or make a change.',
     parameters: cloneParameters as unknown as ToolRegistration['parameters'],
     // Once a clone has made the task, running it again reports that task.
     replay: 'safe',
@@ -124,8 +125,12 @@ export function createTaskTools({ workspace, task, token, openRepository, onPull
       const { title, body } = args as { title: string; body: string }
       const current = task()
       if (!current) return failure('This session has no repository.')
-      const secret = token()
-      if (!secret) return failure('GITHUB_TOKEN is not set.')
+      let secret: string
+      try {
+        secret = await token(current.repo)
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : String(error))
+      }
       const dirty = await git(workspace).status({ dir: current.dir })
       if (dirty.length) {
         return failure(`Commit or discard these changes first:\n${dirty.slice(0, 20).map((entry) => `${entry.index}${entry.worktree} ${entry.path}`).join('\n')}`)

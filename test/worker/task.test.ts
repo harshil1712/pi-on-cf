@@ -76,7 +76,7 @@ describe('repository sessions', () => {
     const { id } = await registry().createSession()
     const pi = await session(id)
     const result = await pi.promptForTest('tool clone_repository {"repo":"octo/demo"}')
-    expect(result.text).toBe('tool failed: Set the GITHUB_TOKEN secret to work on GitHub repositories.')
+    expect(result.text).toBe('tool failed: Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY and GITHUB_OWNERS to work on GitHub repositories.')
     expect((await pi.promptForTest('section repository')).text).toContain('call clone_repository')
     expect(await registry().getSession(id)).not.toHaveProperty('repo')
   })
@@ -88,10 +88,10 @@ describe('repository sessions', () => {
     expect((await pi.promptForTest('tool clone_repository {"repo":"octo/other"}')).text).toBe('tool failed: This session already cloned octo/demo, and works on one repository.')
   })
 
-  it('needs a GitHub token to suggest repositories', async () => {
+  it('needs the GitHub App to suggest repositories', async () => {
     const reply = await call(REGISTRY_URL, 'listRepositories', [])
     expect(reply.success).toBe(false)
-    expect(reply.error).toMatch(/GITHUB_TOKEN/)
+    expect(reply.error).toMatch(/GITHUB_APP_ID/)
   })
 
   it('tells the model about its repository and AGENTS.md', async () => {
@@ -113,8 +113,8 @@ describe('repository sessions', () => {
     await pi.promptForTest('write /workspace/demo/README.md one\ntwo')
     const commit = await pi.promptForTest('exec shell cd /workspace/demo && git add README.md && git commit -m "Add two"')
     expect(commit.text).toMatch(/^tool said:/)
-    // Without any git config: the identity the preamble promises.
-    expect((await pi.promptForTest('exec shell cd /workspace/demo && git log -1 --format="%an <%ae>"')).text).toContain('Pi <pi@cloudflare.invalid>')
+    // Without any git config: the App's bot, as the preamble promises.
+    expect((await pi.promptForTest('exec shell cd /workspace/demo && git log -1 --format="%an <%ae>"')).text).toContain('pi-test[bot] <1+pi-test[bot]@users.noreply.github.com>')
     await pi.promptForTest('write /workspace/demo/new.txt hello')
     await pi.promptForTest('exec shell rm /workspace/demo/old.txt')
 
@@ -132,10 +132,10 @@ describe('repository sessions', () => {
     expect(result.text).toBe('tool failed: This session has no repository.')
   })
 
-  it('refuses to open a pull request without a GitHub token', async () => {
+  it('refuses to open a pull request without the GitHub App', async () => {
     const { pi } = await taskSession({ 'README.md': 'one\n' })
     const result = await pi.promptForTest('tool create_pull_request {"title":"t","body":"b"}')
-    expect(result.text).toBe('tool failed: GITHUB_TOKEN is not set.')
+    expect(result.text).toBe('tool failed: Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY and GITHUB_OWNERS to work on GitHub repositories.')
   })
 
   it('refuses to open a pull request with uncommitted changes', async () => {

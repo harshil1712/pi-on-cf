@@ -2,7 +2,7 @@ import { Agent, callable, type Connection } from 'agents'
 import { type RoutedAgentEntry, RoutedAgents } from 'agents/routing'
 import { type ModelOption, PI_SESSIONS_ROUTE, type PiRegistryState, type PullRequest, type Repository, type RunStatus, type SessionSummary } from '~/contract'
 import { titleFromPrompt } from './session-title'
-import { listRepositories } from './github'
+import { listRepositories } from './github-app'
 import { modelOptions } from './models'
 import type { PiSession } from './pi-session'
 
@@ -95,14 +95,12 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
   }
 
   /**
-   * The token's repositories, for `@` suggestions. On the registry, so the
-   * home page can suggest them before any session exists.
+   * The GitHub App's repositories, for `@` suggestions. On the registry, so
+   * the home page can suggest them before any session exists.
    */
   @callable()
   async listRepositories(): Promise<Repository[]> {
-    const token = this.env.GITHUB_TOKEN
-    if (!token) throw new Error('Set the GITHUB_TOKEN secret to work on GitHub repositories.')
-    return listRepositories(token)
+    return listRepositories(this.env)
   }
 
   /** The models a session can use, the default first, for the home page's picker. Tests override this. */

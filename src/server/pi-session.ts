@@ -28,6 +28,8 @@ import {
   type WorkspaceFileContent,
 } from '~/contract'
 import { reduceRunStatus, type RunStatus } from '~/lib/run-status'
+import { parseRepo } from './github'
+import { botIdentity, repoToken } from './github-app'
 import { modelOptions } from './models'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
@@ -44,21 +46,20 @@ import { WORKSPACE_ROOT, workspacePath } from './workspace-root'
 const CONTAINER_LOCAL_PATHS = ['**/node_modules', '**/.wrangler', '**/.venv', '**/__pycache__']
 
 /**
- * Who the workspace's git commits as, through Computer's
- * `defaultGitIdentity`. Pi commits there, in the shell backend, as
- * Computer recommends; the container's git is for tools that read the
- * repository, and has no identity, so a commit there fails loudly.
+ * The system prompt's opening, with who the workspace's git commits as:
+ * the GitHub App's bot, through Computer's `defaultGitIdentity`. Pi commits
+ * there, in the shell backend, as Computer recommends; the container's git
+ * is for tools that read the repository, and has no identity, so a commit
+ * there fails loudly.
  */
-const GIT_IDENTITY = { name: 'Pi', email: 'pi@cloudflare.invalid' }
-
-const PREAMBLE = [
+const preamble = (identity: { name: string; email: string }) => [
   'You are Pi, a coding agent running natively on Cloudflare Workers. You work on your own: finish the task, check your work, and report what you did.',
   `Your durable workspace is ${WORKSPACE_ROOT}. Paths are absolute and the same in every tool and backend.`,
   'Use read, write, edit, delete, ls, find and grep for files.',
   'exec runs commands on one of three backends: shell is a fast just-bash environment with text utilities and git; javascript runs an ES module in an isolated Worker with node:fs/promises, ws:git and ws:artifacts; container is a Linux machine with Node.js, npm and network access.',
   'Prefer shell for searches and text processing. Use container only for native binaries, package installs, builds, tests or networked CLIs.',
   `Dependency and tool caches (${CONTAINER_LOCAL_PATHS.join(', ')}) stay on the container's disk: only container commands can see them, and they are lost when the container is replaced, so reinstall if they are missing.`,
-  `Run git in shell: it is the workspace's own git, and commits as ${GIT_IDENTITY.name} <${GIT_IDENTITY.email}> already, so do not set user.name or user.email. It takes no -c options, and has no rebase or cherry-pick.`,
+  `Run git in shell: it is the workspace's own git, and commits as ${identity.name} <${identity.email}> already, so do not set user.name or user.email. It takes no -c options, and has no rebase or cherry-pick.`,
   'A pipeline reports only its last command\'s exit code, so do not pipe tests, builds, lint or type checks into head, tail or grep: use set -o pipefail, or redirect the output to a file and read its end, and trust the exit code.',
 ].join('\n')
 
@@ -109,7 +110,7 @@ function workspaceOptions(self: PiSessionHost): WorkspaceOptions {
       self.container,
     ],
     git: createGitClient(),
-    defaultGitIdentity: GIT_IDENTITY,
+    defaultGitIdentity: botIdentity(env),
     // Scoped to this session, so its repos can be found and deleted with it.
     artifacts: env.ARTIFACTS ? { binding: env.ARTIFACTS, sessionId: ctx.id.toString() } : undefined,
     observer: createCloudflareObserver({ tracing }),
@@ -139,7 +140,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
       this.registry.install({
         name: 'pi-on-cf',
         sections: [
-          { key: 'preamble', render: () => PREAMBLE, tag: false },
+          { key: 'preamble', render: () => preamble(botIdentity(this.env)), tag: false },
           taskSection(() => this.state.task, () => getWorkspace(this)),
         ],
         tools: [...createWorkspaceTools({
@@ -155,7 +156,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
         }), ...createTaskTools({
           workspace,
           task: () => this.state.task,
-          token: () => this.githubToken(),
+          token: (repo) => this.githubToken(repo),
           openRepository: (input) => this.#openRepository(input),
           onPullRequest: async (pullRequest) => {
             const { task } = this.state
@@ -218,9 +219,12 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     return [builtInSkills, bucketSkills(this.env.BUCKET)]
   }
 
-  /** The token that clones, pushes and opens pull requests. Tests override this. */
-  protected githubToken(): string | undefined {
-    return this.env.GITHUB_TOKEN || undefined
+  /**
+   * The GitHub App's token for `repo`, as owner/name, which clones, pushes
+   * and opens pull requests there. Tests override this.
+   */
+  protected githubToken(repo: string): Promise<string> {
+    return repoToken(this.env, parseRepo(repo))
   }
 
   override fetch(request: Request): Promise<Response> {
@@ -364,7 +368,8 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
    */
   async #openRepository(input: { repo: string; baseBranch?: string }): Promise<SessionTask> {
     const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY) ?? this.ctx.id.toString()
-    const task = await cloneTask(await getWorkspace(this), this.githubToken(), { ...input, branch: `pi/${entryId.slice(0, 8)}` })
+    const token = await this.githubToken(input.repo)
+    const task = await cloneTask(await getWorkspace(this), token, { ...input, branch: `pi/${entryId.slice(0, 8)}` })
     await this.#setTask(task)
     return task
   }

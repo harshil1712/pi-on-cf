@@ -100,9 +100,9 @@ export class PiSession extends AppPiSession {
     return [builtInSkills, bucketSkills(this.env.BUCKET, { refreshIntervalMs: 0 })]
   }
 
-  /** Tests set a token with `useGitHubTokenForTest`; none unless the test environment has one. */
-  protected override githubToken(): string | undefined {
-    return this.#token ?? (this.env.GITHUB_TOKEN || undefined)
+  /** Tests set a token with `useGitHubTokenForTest`; without one, the App's, which tests do not configure. */
+  protected override githubToken(repo: string): Promise<string> {
+    return this.#token ? Promise.resolve(this.#token) : super.githubToken(repo)
   }
 
   #token: string | undefined

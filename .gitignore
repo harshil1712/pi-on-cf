@@ -15,6 +15,7 @@ coverage
 *.local
 wrangler.local.jsonc
 wrangler.*.local.jsonc
+*.pem
 
 # OS and tooling
 .DS_Store
