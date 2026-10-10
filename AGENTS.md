@@ -11,7 +11,7 @@ Read `docs/architecture.md` for the full system design before changing anything 
 | `npm ci` | Install. Node >= 22 (`.node-version`). |
 | `npm run dev` | Vite dev server on `http://localhost:3000`. |
 | `npm run check` | Lint, typecheck, and both test projects — what CI runs, run it before finishing. |
-| `npm run lint` | `oxlint --deny-warnings`; warnings fail the build. |
+| `npm run lint` | `oxlint --deny-warnings`, with the vendored anti-slop rules; warnings fail the build. `npx oxlint --fix` applies the blank-line rule. |
 | `npm run typecheck` | `tsc --noEmit`. |
 | `npm test` | `vitest run`, both projects. |
 | `npm run test:unit` / `test:worker` | One project: browser units (jsdom) / Worker tests (workerd). |
@@ -41,6 +41,7 @@ src/
 test/
 ├── unit/     browser unit tests (jsdom), mirroring src/ paths
 └── worker/   Worker tests in workerd; entry.ts and its own wrangler.jsonc
+tools/oxlint/anti-slop/   vendored anti-slop Oxlint plugin; provenance and local changes in UPSTREAM.md
 container/Dockerfile      computerd image, pinned in step with @cloudflare/computer
 ```
 
@@ -50,9 +51,21 @@ Imports across directories use the `~/` alias for `src/`; imports within a direc
 
 The UI is Kumo (`@cloudflare/kumo`), imported per component (`@cloudflare/kumo/components/button`), with Phosphor icons. Layout and colour are Tailwind utilities on Kumo's semantic tokens (`bg-kumo-base`, `text-kumo-subtle`, `border-kumo-hairline`) — never raw palette colours and never `dark:` variants; Kumo switches modes through `data-mode`. The UI is mobile-first: the below-`md` layout is the baseline, `md:`/`lg:` add the desktop arrangement. The session page splits Chat and Workspace only when its `main` is at least 56rem wide, by container query, not viewport. `src/styles.css` holds only what utilities cannot reach: Streamdown's rendered Markdown and keyframes.
 
+## Code conventions
+
+`.oxlintrc.json` enables every generic rule of [anti-slop](https://github.com/dmmulroy/anti-slop), vendored in `tools/oxlint/anti-slop/` — the code is ours to change, so fix a rule that is wrong for this project there, with a line in its `UPSTREAM.md`, rather than suppressing it. What the rules ask for here:
+
+- Parse at the boundary, then use named types. No `unknown` parameters or returns, no `Record<string, unknown>`; JSON is `Json`/`JsonObject` from `src/lib/json.ts`, which also has `parseJson` and the guards. `typeof` only inside a type predicate.
+- Check untrusted payloads in the Worker with a compiled TypeBox schema (`Compile(Type.Object(…)).Check(value)`, as in `github-webhook.ts`) that covers only the fields the code reads. TypeBox is pinned to the version pi-ai and pi-durable ship, so it adds nothing to the bundle; it falls back from code generation, which Workers forbid. Do not import it into browser code.
+- No `as unknown as`. A necessary single assertion carries a `// SAFETY:` comment stating the invariant (not required in `test/`). Prefer `defineTool` for tool registrations, so `execute` arguments are typed by their TypeBox `parameters`.
+- Name a caught value `cause` (`.catch((cause: unknown) => …)`), and show it with `errorMessage(cause)` from `src/lib/error-message.ts`. Narrow strings from UI controls with `isOneOf` from `src/lib/one-of.ts`.
+- Keep inference or use named types over annotated anonymous object types; use a `Map` for lookup tables.
+- No `vi.mock`. Components open Agent connections through `useAgentConnection()`; tests pass a fake `useAgent` to `AgentConnectionProvider`, and render routed components with `renderAtPath` (`test/unit/render-at-path.tsx`), a real in-memory router whose location the test asserts.
+
 ## Testing
 
 - Browser code is tested in `test/unit` at the same path as the code it tests (`src/lib/transcript.ts` → `test/unit/lib/transcript.test.ts`).
+- Shared fixtures: pi-durable agent events in `test/unit/pi-events.ts`; Durable Object stubs typed to the test subclasses in `test/worker/stubs.ts`.
 - Everything that runs in the Worker, pure modules included, is tested in `test/worker` under workerd, with `@cloudflare/vitest-pool-workers` and the config in `test/worker/wrangler.jsonc`. The suite drives a real `PiSession` with pi-ai's faux models — no live inference, container, or GitHub.
 - New bundled skills change the built-in catalog: update the assertions in `test/worker/skills.test.ts` that list the built-in skill names.
 

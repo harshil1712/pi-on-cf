@@ -3,6 +3,7 @@ import { type RoutedAgentEntry, RoutedAgents } from 'agents/routing'
 import {
   type ConnectMcpServerInput,
   type ConnectMcpServerResult,
+  type CreateSessionInput,
   type McpServerSummary,
   type ModelOption,
   PI_AGENT_PREFIX,
@@ -20,6 +21,9 @@ import { listRepositories, repoToken } from './github-app'
 import { followUpPrompt, type GitHubMention, issuePrompt } from './github-webhook'
 import { modelOptions } from './models'
 import type { PiSession } from './pi-session'
+
+/** A session's task, as the catalog lists it. */
+export type CatalogTask = { repo: string; branch: string; pullRequest?: PullRequest }
 
 type SessionMetadata = {
   name?: string
@@ -73,8 +77,9 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
   }
 
   @callable()
-  async createSession(input: { name?: string; prompt?: string; model?: string } = {}): Promise<SessionSummary> {
+  async createSession(input: CreateSessionInput = {}): Promise<SessionSummary> {
     const name = cleanName(input.name)
+
     return this.#create(name ? { name } : {}, input)
   }
 
@@ -82,15 +87,20 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
     // Checked here, before there is an entry to undo, so a bad model never reaches a session.
     if (input.model && !this.listModels().some(({ id }) => id === input.model)) throw new Error(`Unknown model: ${input.model}`)
     const entry = await this.sessions.create({ metadata })
+
     // The session reports activity under its entry ID, which only the
     // registry knows. Without it the entry is unusable, so undo the create.
     try {
       const session = await this.sessions.get(entry.id)
+
       if (!session) throw new Error(`Session not found: ${entry.id}`)
       await session.joinCatalog(entry.id)
+
       if (input.thread) await session.setThread(input.thread)
+
       // Before the prompt, so pi answers it with the model the home page chose.
       if (input.model) await session.setModel(input.model)
+
       // The home page starts a session with its first prompt; a session
       // that cannot take it is no use to the caller either.
       if (input.prompt?.trim()) {
@@ -101,13 +111,16 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
       await this.sessions.delete(entry.id)
       throw error
     }
+
     this.#changed()
+
     return summary(await this.#require(entry.id))
   }
 
   @callable()
   async getSession(sessionId: string): Promise<SessionSummary | null> {
     const entry = await this.#find(sessionId)
+
     return entry ? summary(entry) : null
   }
 
@@ -123,6 +136,7 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
     const { name: _previous, ...metadata } = entry.metadata ?? {}
     await this.sessions.setMetadata(sessionId, nextName ? { ...metadata, name: nextName } : metadata)
     this.#changed()
+
     return summary(await this.#require(sessionId))
   }
 
@@ -154,18 +168,25 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
   async handleGitHubMention(mention: GitHubMention): Promise<void> {
     const repo = mention.repo.toLowerCase()
     const entries = await this.sessions.list()
+
     const entry = entries.find(({ metadata }) => metadata?.repo?.toLowerCase() === repo && metadata.pullRequest?.number === mention.number)
       ?? entries.find(({ metadata }) => metadata?.thread?.repo.toLowerCase() === repo && metadata.thread.number === mention.number)
+
     if (entry) {
       await this.#react(mention, 'eyes')
       const session = await this.sessions.get(entry.id)
+
       if (session) await session.submit(followUpPrompt(mention))
+
       return
     }
+
     if (mention.kind !== 'issue') {
       await this.#react(mention, 'confused')
+
       return
     }
+
     await this.#react(mention, 'eyes')
     const thread = { repo: mention.repo, number: mention.number }
     await this.#create({ title: `${mention.repo}#${mention.number}: ${mention.title}`, thread }, { prompt: issuePrompt(mention), thread })
@@ -203,6 +224,7 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
   async connectMcpServer(input: ConnectMcpServerInput): Promise<ConnectMcpServerResult> {
     const { name, url, headers } = cleanMcpServerInput(input, this.mcpServers.list())
     const id = crypto.randomUUID().replaceAll('-', '').slice(0, 12)
+
     try {
       const result = await this.addMcpServer(name, url, {
         id,
@@ -210,6 +232,7 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
         agentsPrefix: PI_AGENT_PREFIX,
         transport: headers ? { headers } : {},
       })
+
       return { server: this.mcpServers.get(id), ...(result.state === 'authenticating' ? { authUrl: result.authUrl } : {}) }
     } catch (error) {
       await this.removeMcpServer(id).catch(() => {})
@@ -222,6 +245,7 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
   async reconnectMcpServer(id: string): Promise<ConnectMcpServerResult> {
     this.mcpServers.get(id)
     const { authUrl } = await this.mcpServers.connect(id)
+
     return { server: this.mcpServers.get(id), ...(authUrl ? { authUrl } : {}) }
   }
 
@@ -254,8 +278,9 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
   }
 
   /** Called by a PiSession when it clones its repository and when it opens a pull request. */
-  async setTask(sessionId: string, task: { repo: string; branch: string; pullRequest?: PullRequest }): Promise<void> {
+  async setTask(sessionId: string, task: CatalogTask): Promise<void> {
     const entry = await this.#find(sessionId)
+
     if (!entry) return
     await this.sessions.setMetadata(sessionId, { ...entry.metadata, ...task })
     this.#changed()
@@ -267,6 +292,7 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
    */
   async touchSession(sessionId: string, prompt?: string): Promise<void> {
     const entry = await this.#find(sessionId)
+
     if (!entry) return
     const metadata = entry.metadata ?? {}
     // Rewriting the same metadata bumps the entry's `updatedAt`.
@@ -282,8 +308,10 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
    */
   async setStatus(sessionId: string, status: RunStatus): Promise<void> {
     const entry = await this.#find(sessionId)
+
     if (!entry) return
     const { status: previous, ...metadata } = entry.metadata ?? {}
+
     if ((previous ?? 'idle') === status) return
     await this.sessions.setMetadata(sessionId, status === 'idle' ? metadata : { ...metadata, status })
     this.#changed()
@@ -304,7 +332,9 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
 
   async #require(sessionId: string): Promise<RoutedAgentEntry<SessionMetadata>> {
     const entry = await this.#find(sessionId)
+
     if (!entry) throw new Error(`Session not found: ${sessionId}`)
+
     return entry
   }
 }
@@ -324,7 +354,10 @@ function summary(entry: RoutedAgentEntry<SessionMetadata>): SessionSummary {
 
 function cleanName(name: string | undefined): string | undefined {
   const value = name?.trim()
+
   if (!value) return undefined
+
   if (value.length > MAX_NAME_LENGTH) throw new Error(`Session names are limited to ${MAX_NAME_LENGTH} characters.`)
+
   return value
 }

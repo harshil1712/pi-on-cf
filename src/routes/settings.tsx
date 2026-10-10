@@ -1,13 +1,17 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { SettingsPage } from '~/components/settings-page'
+import { isString } from '~/lib/json'
+
+/** The page's search: where an MCP server's OAuth callback sends a failure. */
+type SettingsSearch = { mcp_error?: string }
 
 export const Route = createFileRoute('/settings')({
-  // Where an MCP server's OAuth callback sends a failure.
-  validateSearch: (search: Record<string, unknown>): { mcp_error?: string } => (typeof search.mcp_error === 'string' ? { mcp_error: search.mcp_error } : {}),
+  validateSearch: ({ mcp_error }): SettingsSearch => (isString(mcp_error) ? { mcp_error } : {}),
   component: SettingsRoute,
 })
 
 function SettingsRoute() {
   const { mcp_error: mcpError } = Route.useSearch()
+
   return <SettingsPage mcpError={mcpError} />
 }

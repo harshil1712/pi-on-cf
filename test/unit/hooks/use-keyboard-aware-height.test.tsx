@@ -9,6 +9,7 @@ function stubVisualViewport(height: number, offsetTop = 0) {
   viewport.offsetTop = offsetTop
   viewport.scale = 1
   Object.defineProperty(window, 'visualViewport', { configurable: true, writable: true, value: viewport })
+
   return viewport
 }
 
@@ -21,6 +22,7 @@ async function settle() {
 
 function Probe() {
   useKeyboardAwareHeight()
+
   return null
 }
 

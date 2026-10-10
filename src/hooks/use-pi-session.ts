@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, UIEvent } from 'react'
-import { useAgent } from 'agents/react'
 import type { AgentEvent } from '@earendil-works/pi-durable'
 import {
   PI_AGENT_NAME,
@@ -16,9 +15,12 @@ import {
 import { useSessionRegistry } from './use-session-registry'
 import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from '~/lib/transcript'
 import { useTaskChanges } from './use-task-changes'
+import { useAgentConnection } from './use-agent-connection'
+import { errorMessage } from '~/lib/error-message'
+import { isJsonObject, isString, parseJson, type Json, type JsonObject } from '~/lib/json'
 
-function isPiEvents(value: unknown): value is PiEventsMessage {
-  return Boolean(value && typeof value === 'object' && (value as { type?: unknown }).type === 'pi:events')
+function isPiEvents(value: Json | undefined): value is PiEventsMessage & JsonObject {
+  return isJsonObject(value) && value.type === 'pi:events'
 }
 
 /**
@@ -26,10 +28,11 @@ function isPiEvents(value: unknown): value is PiEventsMessage {
  * frame, then closes with 1011 and the client retries. Returns the stack's
  * first line, the error message.
  */
-function setupError(value: unknown): string | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const error = (value as { error?: unknown }).error
-  return typeof error === 'string' ? error.split('\n')[0] : undefined
+function setupError(value: Json | undefined): string | undefined {
+  if (!isJsonObject(value)) return undefined
+  const { error } = value
+
+  return isString(error) ? error.split('\n')[0] : undefined
 }
 
 const NORMAL_CLOSURE = 1000
@@ -64,16 +67,20 @@ export function usePiSession(sessionId: string) {
   const flushEvents = useCallback(() => {
     frameRef.current = null
     const events = pendingEventsRef.current.splice(0)
+
     if (events.length === 0) return
     setView((current) => reducePiEvents(current, events))
     setIsReady(true)
+
     // A finished tool or run may have changed the workspace.
     if (events.some((event) => event.type === 'tool_execution_end' || event.type === 'run_end')) {
       setFilesVersion((version) => version + 1)
     }
   }, [])
 
-  const agent = useAgent<PiSessionContract, PiSessionState>({
+  const useConnection = useAgentConnection()
+
+  const agent = useConnection<PiSessionContract, PiSessionState>({
     // The registry routes the socket to the session's Agent.
     agent: PI_AGENT_NAME,
     basePath: sessionBasePath(sessionId),
@@ -83,20 +90,19 @@ export function usePiSession(sessionId: string) {
       setModel(state.model)
     },
     onMessage: (message) => {
-      if (typeof message.data !== 'string') return
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(message.data)
-      } catch {
-        return
-      }
+      if (!isString(message.data)) return
+      const parsed = parseJson(message.data)
       const failure = setupError(parsed)
+
       if (failure) {
         setConnectionError(`The session could not start: ${failure}. Retrying…`)
+
         return
       }
+
       if (!isPiEvents(parsed)) return
       setConnectionError('')
+
       // A snapshot replaces everything before it, so drop queued deltas.
       if (parsed.events[0]?.type === 'snapshot') pendingEventsRef.current = []
       pendingEventsRef.current.push(...parsed.events)
@@ -109,6 +115,7 @@ export function usePiSession(sessionId: string) {
     },
     onConnectionError: (failure) => setError(failure.message),
   })
+
   const catalog = useSessionRegistry()
   const registry = catalog.agent
 
@@ -116,13 +123,15 @@ export function usePiSession(sessionId: string) {
     const request = ++filesRequestRef.current
     setFilesLoading(true)
     setFilesError('')
+
     try {
       const nextFiles = await agent.stub.listFiles()
+
       if (request !== filesRequestRef.current) return
       setFiles(nextFiles)
       setSelectedPath((current) => nextFiles.some((file) => file.path === current) ? current : (nextFiles[0]?.path ?? ''))
     } catch (caught) {
-      if (request === filesRequestRef.current) setFilesError(caught instanceof Error ? caught.message : String(caught))
+      if (request === filesRequestRef.current) setFilesError(errorMessage(caught))
     } finally {
       if (request === filesRequestRef.current) setFilesLoading(false)
     }
@@ -139,6 +148,7 @@ export function usePiSession(sessionId: string) {
     agent.stub.listModels().then((list) => {
       if (!ignore) setModels(list)
     }, () => {})
+
     return () => { ignore = true }
   }, [agent.stub, isReady])
 
@@ -150,19 +160,22 @@ export function usePiSession(sessionId: string) {
     registry.stub.getSession(sessionId).then((session) => {
       if (ignore) return
       setSummary(session)
+
       if (session) return
       // The registry answers this session's socket with 404, and the client
       // would retry it forever.
       setError('This session does not exist. It may have been deleted.')
       agent.close()
     }).catch((caught) => {
-      if (!ignore) setError(caught instanceof Error ? caught.message : String(caught))
+      if (!ignore) setError(errorMessage(caught))
     })
+
     return () => { ignore = true }
   }, [agent, registry.stub, sessionId])
 
   useEffect(() => () => {
     filesRequestRef.current += 1
+
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     frameRef.current = null
     pendingEventsRef.current = []
@@ -174,8 +187,10 @@ export function usePiSession(sessionId: string) {
       setFileContent('')
       setFileContentPath('')
       setFileError('')
+
       return
     }
+
     let ignore = false
     setFileContent('')
     setFileContentPath('')
@@ -186,8 +201,9 @@ export function usePiSession(sessionId: string) {
         setFileContentPath(file.path)
       }
     }).catch((caught) => {
-      if (!ignore) setFileError(caught instanceof Error ? caught.message : String(caught))
+      if (!ignore) setFileError(errorMessage(caught))
     })
+
     return () => { ignore = true }
   }, [agent.stub, selectedFileMtime, selectedPath])
 
@@ -202,11 +218,13 @@ export function usePiSession(sessionId: string) {
   async function submit(event: FormEvent) {
     event.preventDefault()
     const prompt = input.trim()
+
     if (!prompt || isSubmitting || !isReady) return
     setInput('')
     setError('')
     setIsSubmitting(true)
     shouldAutoScrollRef.current = true
+
     try {
       // Durable once this resolves; the answer streams in as pi events. While
       // pi is running, the prompt steers it: pi places it after the current
@@ -219,7 +237,7 @@ export function usePiSession(sessionId: string) {
       }
     } catch (caught) {
       setInput(prompt)
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(errorMessage(caught))
     } finally {
       setIsSubmitting(false)
     }
@@ -229,7 +247,7 @@ export function usePiSession(sessionId: string) {
     try {
       await agent.stub.setModel(id)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(errorMessage(caught))
     }
   }
 
@@ -237,7 +255,7 @@ export function usePiSession(sessionId: string) {
     try {
       setSummary(await registry.stub.renameSession(sessionId, name))
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(errorMessage(caught))
     }
   }
 
@@ -260,7 +278,7 @@ export function usePiSession(sessionId: string) {
   const browserLiveView = useCallback(() => agent.stub.browserLiveView(), [agent.stub])
 
   return {
-    abort: async () => { try { await agent.stub.abort() } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)) } },
+    abort: async () => { try { await agent.stub.abort() } catch (caught) { setError(errorMessage(caught)) } },
     activeTextId: transcript.activeTextId,
     browserLiveView,
     changes,

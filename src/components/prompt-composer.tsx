@@ -7,6 +7,7 @@ import { cn } from '@cloudflare/kumo/utils'
 import { ArrowUpIcon, CubeIcon, LockSimpleIcon, StopIcon } from '@phosphor-icons/react'
 import type { ModelOption, Repository } from '~/contract'
 import { mentionQueryAt } from '~/lib/repo-mention'
+import { errorMessage } from '~/lib/error-message'
 
 const SUGGESTION_LIMIT = 8
 
@@ -46,12 +47,13 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
     const found = repositories ? mentionQueryAt(value, caret) : null
     setMention(found && { ...found, end: caret })
     setActive(0)
+
     if (!found || !repositories || loading.current) return
     // Loaded once, at the first `@`.
     loading.current = true
-    repositories().then(setRepos, (caught: unknown) => {
+    repositories().then(setRepos, (cause: unknown) => {
       loading.current = false
-      setReposError(caught instanceof Error ? caught.message : String(caught))
+      setReposError(errorMessage(cause))
     })
   }
 
@@ -120,19 +122,25 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
                 event.preventDefault()
                 const step = event.key === 'ArrowDown' ? 1 : -1
                 setActive((current) => (current + step + suggestions.length) % suggestions.length)
+
                 return
               }
+
               if (event.key === 'Enter' || event.key === 'Tab') {
                 event.preventDefault()
                 choose(suggestions[active]!.repo)
+
                 return
               }
             }
+
             if (open && event.key === 'Escape') {
               event.preventDefault()
               setMention(null)
+
               return
             }
+
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault()
               event.currentTarget.form?.requestSubmit()
@@ -162,7 +170,7 @@ export function PromptComposer({ input, isReady, isRunning, onAbort, onInputChan
                   <span className="truncate">{models.find((option) => option.id === id)?.label ?? id}</span>
                 </span>
               )}
-              onValueChange={(id) => { if (typeof id === 'string' && id !== model) onModelChange?.(id) }}
+              onValueChange={(id) => { if (id !== null && id !== model) onModelChange?.(id) }}
               // Pi would switch from its next request; keeping the choice to idle sessions keeps the effect obvious.
               disabled={!isReady || isRunning}
               side="top"

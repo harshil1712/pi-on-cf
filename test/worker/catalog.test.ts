@@ -3,30 +3,25 @@ import { routeAgentRequest } from 'agents'
 import { describe, expect, it } from 'vitest'
 import { AGENT_ROUTES } from '~/server/agent-routes'
 import { type PiEventsMessage, sessionBasePath } from '~/contract'
-import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from './entry'
-
-const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>
-
-async function session(id: string): Promise<DurableObjectStub<TestPiSession>> {
-  const name = await registry().sessionAgentNameForTest(id)
-  if (!name) throw new Error(`No session behind ${id}`)
-  return env.PiSession.getByName(name) as unknown as DurableObjectStub<TestPiSession>
-}
+import type { EntryRecord } from '@earendil-works/pi-durable'
+import { registry, session } from './stubs'
 
 /** The session's transcript entries, from the snapshot a browser gets on connect. */
-async function transcript(id: string): Promise<{ kind: string; model?: unknown }[]> {
+async function transcript(id: string): Promise<readonly EntryRecord[]> {
   const response = await routeAgentRequest(new Request(`http://localhost/${sessionBasePath(id)}`, { headers: { Upgrade: 'websocket' } }), env, AGENT_ROUTES)
   const socket = response!.webSocket!
   socket.accept()
+
   try {
     return await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('No pi:events frame')), 5_000)
       socket.addEventListener('message', (event) => {
         const data = JSON.parse(String(event.data)) as PiEventsMessage
         const snapshot = data.type === 'pi:events' ? data.events[0] : undefined
+
         if (snapshot?.type !== 'snapshot') return
         clearTimeout(timer)
-        resolve(snapshot.entries as unknown as { kind: string; model?: unknown }[])
+        resolve(snapshot.entries)
       })
     })
   } finally {
@@ -85,7 +80,9 @@ describe('catalog revisions', () => {
     let refused = false
     socket.addEventListener('message', (event) => {
       const data = JSON.parse(String(event.data)) as { type?: string; state?: { revision: number } }
+
       if (data.type === 'cf_agent_state' && data.state) revisions.push(data.state.revision)
+
       if (data.type === 'cf_agent_state_error') refused = true
     })
     await expect.poll(() => revisions.length).toBe(1)

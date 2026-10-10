@@ -1,9 +1,17 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import type { UseAgentOptions } from 'agents/react'
+import { act, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { McpServerSummary } from '~/contract'
+import { Sidebar } from '@cloudflare/kumo/components/sidebar'
+import type { McpServerSummary, PiRegistryState } from '~/contract'
+import { AgentConnectionProvider } from '~/hooks/use-agent-connection'
+import { SessionRegistryProvider } from '~/hooks/use-session-registry'
+import { SettingsPage } from '~/components/settings-page'
+import { renderAtPath } from '../render-at-path'
 
-const mocks = vi.hoisted(() => ({
-  navigate: vi.fn(),
+type RegistryOptions = UseAgentOptions<PiRegistryState>
+
+const mocks = {
   registry: {
     stub: {
       listSessions: vi.fn(),
@@ -15,31 +23,22 @@ const mocks = vi.hoisted(() => ({
     },
   },
   useAgent: vi.fn(),
-  onMcpUpdate: undefined as undefined | ((state: unknown) => void),
-}))
-
-vi.mock('agents/react', () => ({
-  useAgent: (options: { onMcpUpdate?: (state: unknown) => void }) => {
-    mocks.onMcpUpdate = options.onMcpUpdate
-    return mocks.useAgent(options)
-  },
-}))
-
-vi.mock('@tanstack/react-router', () => ({
-  useNavigate: () => mocks.navigate,
-}))
-
-import { act } from 'react'
-import { Sidebar } from '@cloudflare/kumo/components/sidebar'
-import { SessionRegistryProvider } from '~/hooks/use-session-registry'
-import { SettingsPage } from '~/components/settings-page'
+  onMcpUpdate: undefined as RegistryOptions['onMcpUpdate'],
+}
 
 const server = (overrides: Partial<McpServerSummary> = {}): McpServerSummary => ({
   id: 'docs', name: 'Cloudflare Docs', url: 'https://docs.mcp.cloudflare.com/mcp', state: 'ready', toolCount: 2, enabled: true, ...overrides,
 })
 
+/** The app's providers, over a fake registry connection. */
+function Providers({ children }: { children: ReactNode }) {
+  return <AgentConnectionProvider value={mocks.useAgent}><Sidebar.Provider><SessionRegistryProvider>{children}</SessionRegistryProvider></Sidebar.Provider></AgentConnectionProvider>
+}
+
 function renderSettings(mcpError?: string) {
-  return render(<Sidebar.Provider><SessionRegistryProvider><SettingsPage mcpError={mcpError} /></SessionRegistryProvider></Sidebar.Provider>)
+  const path = mcpError ? `/settings?mcp_error=${encodeURIComponent(mcpError)}` : '/settings'
+
+  return renderAtPath(<SettingsPage mcpError={mcpError} />, { path, wrapper: Providers })
 }
 
 describe('SettingsPage', () => {
@@ -52,16 +51,21 @@ describe('SettingsPage', () => {
 
   beforeEach(() => {
     vi.resetAllMocks()
-    mocks.useAgent.mockReturnValue(mocks.registry)
-    mocks.navigate.mockResolvedValue(undefined)
+    mocks.useAgent.mockImplementation((options: RegistryOptions) => {
+      mocks.onMcpUpdate = options.onMcpUpdate
+
+      return mocks.registry
+    })
     mocks.registry.stub.listSessions.mockResolvedValue([])
     mocks.registry.stub.listMcpServers.mockResolvedValue([])
-    vi.spyOn(window, 'location', 'get').mockReturnValue({ assign } as unknown as Location)
+    // jsdom's location cannot be spied on; this one records where the page sends the browser.
+    const { ancestorOrigins, href } = window.location
+    vi.spyOn(window, 'location', 'get').mockReturnValue(Object.assign(new URL(href), { ancestorOrigins, assign, reload: vi.fn(), replace: vi.fn() }))
   })
 
   it('lists servers with their state and tool count', async () => {
     mocks.registry.stub.listMcpServers.mockResolvedValue([server(), server({ id: 'cf', name: 'Cloudflare API', state: 'authenticating', toolCount: 0 })])
-    renderSettings()
+    await renderSettings()
     const list = await screen.findByRole('list', { name: 'MCP servers' })
     const [docs, api] = within(list).getAllByRole('listitem')
     expect(docs!.textContent).toContain('Cloudflare Docs')
@@ -73,7 +77,7 @@ describe('SettingsPage', () => {
 
   it('adds a server with a header and shows it', async () => {
     mocks.registry.stub.connectMcpServer.mockResolvedValue({ server: server() })
-    renderSettings()
+    await renderSettings()
     await screen.findByText('No servers yet')
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Cloudflare Docs' } })
     fireEvent.change(screen.getByLabelText('URL'), { target: { value: 'https://docs.mcp.cloudflare.com/mcp' } })
@@ -90,7 +94,7 @@ describe('SettingsPage', () => {
 
   it('continues to the authorization page when a server wants OAuth', async () => {
     mocks.registry.stub.connectMcpServer.mockResolvedValue({ server: server({ state: 'authenticating' }), authUrl: 'https://auth.example.com/authorize' })
-    renderSettings()
+    await renderSettings()
     await screen.findByText('No servers yet')
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'API' } })
     fireEvent.change(screen.getByLabelText('URL'), { target: { value: 'https://mcp.cloudflare.com/mcp' } })
@@ -102,7 +106,7 @@ describe('SettingsPage', () => {
 
   it('shows why a server could not be added', async () => {
     mocks.registry.stub.connectMcpServer.mockRejectedValue(new Error('MCP server URLs must use https.'))
-    renderSettings()
+    await renderSettings()
     await screen.findByText('No servers yet')
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'A' } })
     fireEvent.change(screen.getByLabelText('URL'), { target: { value: 'http://example.com/mcp' } })
@@ -113,7 +117,7 @@ describe('SettingsPage', () => {
   it('turns a server off for sessions', async () => {
     mocks.registry.stub.listMcpServers.mockResolvedValue([server()])
     mocks.registry.stub.setMcpServerEnabled.mockResolvedValue(server({ enabled: false }))
-    renderSettings()
+    await renderSettings()
     const toggle = await screen.findByRole('switch', { name: 'Use Cloudflare Docs in sessions' })
     fireEvent.click(toggle)
     await waitFor(() => expect(mocks.registry.stub.setMcpServerEnabled).toHaveBeenCalledWith('docs', false))
@@ -123,19 +127,20 @@ describe('SettingsPage', () => {
   it('removes a server after confirming', async () => {
     mocks.registry.stub.listMcpServers.mockResolvedValue([server()])
     mocks.registry.stub.deleteMcpServer.mockResolvedValue(undefined)
-    renderSettings()
+    await renderSettings()
     fireEvent.click(await screen.findByRole('button', { name: 'Remove' }))
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }))
     expect(dialog.textContent).toContain("Cloudflare Docs's tools")
     await waitFor(() => expect(mocks.registry.stub.deleteMcpServer).toHaveBeenCalledWith('docs'))
+
     // The dialog keeps naming the server while it closes.
     if (screen.queryByRole('alertdialog')) expect(screen.getByRole('alertdialog').textContent).toContain("Cloudflare Docs's tools")
     expect(await screen.findByText('No servers yet')).toBeTruthy()
   })
 
   it('reloads the servers when the SDK reports a change', async () => {
-    renderSettings()
+    await renderSettings()
     await screen.findByText('No servers yet')
     mocks.registry.stub.listMcpServers.mockResolvedValue([server()])
     act(() => mocks.onMcpUpdate?.({ servers: {}, tools: [], prompts: [], resources: [] }))
@@ -143,8 +148,10 @@ describe('SettingsPage', () => {
   })
 
   it('shows an OAuth failure from the callback, then drops it from the URL', async () => {
-    renderSettings('access_denied')
+    const { router } = await renderSettings('access_denied')
     expect((await screen.findByRole('alert')).textContent).toContain('Authorization failed: access_denied')
-    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/settings', search: {}, replace: true })
+    await waitFor(() => expect(router.state.location.searchStr).toBe(''))
+    expect(router.state.location.pathname).toBe('/settings')
+    expect(router.history.length).toBe(1)
   })
 })

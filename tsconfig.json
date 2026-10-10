@@ -1,6 +1,6 @@
 {
   "extends": "agents/tsconfig",
-  "include": ["src", "test", "*.config.ts", "worker-configuration.d.ts"],
+  "include": ["src", "test", "tools", "*.config.ts", "worker-configuration.d.ts"],
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],

@@ -1,13 +1,6 @@
-import type { AgentEvent, SnapshotEvent } from '@earendil-works/pi-durable'
 import { describe, expect, it } from 'vitest'
 import { reduceRunStatus } from '~/lib/run-status'
-
-const snapshot = (overrides: Partial<SnapshotEvent> = {}): AgentEvent => ({
-  type: 'snapshot', entries: [], tools: [], compactions: [], inbox: [], agent: {}, usage: {}, ...overrides,
-} as unknown as AgentEvent)
-const unanswered = (reason: string): AgentEvent => ({ type: 'submission', record: { status: 'unanswered', reason } } as unknown as AgentEvent)
-const runStart = { type: 'run_start', inputs: [] } as unknown as AgentEvent
-const runEnd = { type: 'run_end', inputs: [] } as unknown as AgentEvent
+import { runEnd, runStart, snapshot, unanswered } from '../pi-events'
 
 describe('reduceRunStatus', () => {
   it('runs from run_start to run_end', () => {
@@ -18,7 +11,7 @@ describe('reduceRunStatus', () => {
   it('fails when pi gives up on the run\'s inputs, until the next run starts', () => {
     const failed = reduceRunStatus('running', [runEnd, unanswered('model_error')])
     expect(failed).toBe('failed')
-    expect(reduceRunStatus(failed, [snapshot()])).toBe('failed')
+    expect(reduceRunStatus(failed, [snapshot([])])).toBe('failed')
     expect(reduceRunStatus(failed, [runStart])).toBe('running')
   })
 
@@ -27,7 +20,7 @@ describe('reduceRunStatus', () => {
   })
 
   it('takes a pending run from the snapshot, and clears a stale running one', () => {
-    expect(reduceRunStatus('idle', [snapshot({ run: { inputs: [] } })])).toBe('running')
-    expect(reduceRunStatus('running', [snapshot()])).toBe('idle')
+    expect(reduceRunStatus('idle', [snapshot([], { run: { inputs: [] } })])).toBe('running')
+    expect(reduceRunStatus('running', [snapshot([])])).toBe('idle')
   })
 })

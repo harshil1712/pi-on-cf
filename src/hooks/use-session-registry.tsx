@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useAgent } from 'agents/react'
+import type { useAgent } from 'agents/react'
 import {
   PI_AGENT_PREFIX,
   PI_REGISTRY_INSTANCE,
@@ -8,6 +8,8 @@ import {
   type PiRegistryState,
   type SessionSummary,
 } from '~/contract'
+import { errorMessage } from '~/lib/error-message'
+import { useAgentConnection } from './use-agent-connection'
 
 type SessionRegistry = {
   agent: ReturnType<typeof useAgent<PiRegistryContract, PiRegistryState>>
@@ -34,7 +36,9 @@ export function SessionRegistryProvider({ children }: { children: ReactNode }) {
   const requestRef = useRef(0)
   const reloadRef = useRef<() => Promise<void>>(async () => {})
 
-  const agent = useAgent<PiRegistryContract, PiRegistryState>({
+  const useConnection = useAgentConnection()
+
+  const agent = useConnection<PiRegistryContract, PiRegistryState>({
     agent: PI_REGISTRY_NAME,
     name: PI_REGISTRY_INSTANCE,
     prefix: PI_AGENT_PREFIX,
@@ -46,29 +50,36 @@ export function SessionRegistryProvider({ children }: { children: ReactNode }) {
   const reload = useCallback(async () => {
     const request = ++requestRef.current
     setError('')
+
     try {
       const next = await agent.stub.listSessions()
+
       if (request === requestRef.current) setSessions(next)
     } catch (caught) {
-      if (request === requestRef.current) setError(caught instanceof Error ? caught.message : String(caught))
+      if (request === requestRef.current) setError(errorMessage(caught))
     } finally {
       if (request === requestRef.current) setLoading(false)
     }
   }, [agent.stub])
+
   reloadRef.current = reload
 
   useEffect(() => {
     void reload()
+
     return () => { requestRef.current += 1 }
   }, [reload])
 
   const value = useMemo(() => ({ agent, error, loading, mcpRevision, reload, sessions }), [agent, error, loading, mcpRevision, reload, sessions])
+
   return <SessionRegistryContext.Provider value={value}>{children}</SessionRegistryContext.Provider>
 }
 
 export function useSessionRegistry(): SessionRegistry {
   const registry = useContext(SessionRegistryContext)
+
   if (!registry) throw new Error('useSessionRegistry needs a SessionRegistryProvider.')
+
   return registry
 }
 

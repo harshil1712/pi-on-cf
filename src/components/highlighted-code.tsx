@@ -7,25 +7,25 @@ import { CODE_VIEWER } from './code-viewer'
 const workspaceCode = createCodePlugin({ themes: ['github-light', 'github-dark'] })
 
 /** Extensions Shiki doesn't recognise by name. Everything else is tried as-is (ts, py, go, rs, toml, ...). */
-const languagesByExtension: Record<string, string> = {
-  cjs: 'javascript',
-  cts: 'typescript',
-  htm: 'html',
-  markdown: 'markdown',
-  mjs: 'javascript',
-  mts: 'typescript',
-  svg: 'xml',
-  tf: 'terraform',
-  txt: 'text',
-}
+const languagesByExtension = new Map([
+  ['cjs', 'javascript'],
+  ['cts', 'typescript'],
+  ['htm', 'html'],
+  ['markdown', 'markdown'],
+  ['mjs', 'javascript'],
+  ['mts', 'typescript'],
+  ['svg', 'xml'],
+  ['tf', 'terraform'],
+  ['txt', 'text'],
+])
 
-const languagesByFilename: Record<string, string> = {
-  dockerfile: 'dockerfile',
-  makefile: 'makefile',
-  '.gitignore': 'text',
-  '.npmrc': 'ini',
-  '.editorconfig': 'ini',
-}
+const languagesByFilename = new Map([
+  ['dockerfile', 'dockerfile'],
+  ['makefile', 'makefile'],
+  ['.gitignore', 'text'],
+  ['.npmrc', 'ini'],
+  ['.editorconfig', 'ini'],
+])
 
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdx'])
 
@@ -36,6 +36,7 @@ function fileName(path: string) {
 function extension(path: string) {
   const name = fileName(path)
   const index = name.lastIndexOf('.')
+
   return index > 0 ? name.slice(index + 1) : ''
 }
 
@@ -45,17 +46,25 @@ export function isMarkdownPath(path: string) {
 
 export function languageForPath(path: string) {
   const name = fileName(path)
-  if (languagesByFilename[name]) return languagesByFilename[name]
+
+  const byName = languagesByFilename.get(name)
+
+  if (byName) return byName
+
   if (name.startsWith('.env')) return 'dotenv'
+
   if (name.startsWith('dockerfile')) return 'dockerfile'
   const ext = extension(path)
-  const language = languagesByExtension[ext] ?? ext
+  const language = languagesByExtension.get(ext) ?? ext
+
+  // SAFETY: supportsLanguage takes any name, resolving Shiki's aliases; only its parameter type is narrower.
   return language && workspaceCode.supportsLanguage(language as BundledLanguage) ? language : 'text'
 }
 
 function fenced(content: string, language: string) {
   const longestFence = Math.max(2, ...Array.from(content.matchAll(/`+/g), ([fence]) => fence.length))
   const fence = '`'.repeat(longestFence + 1)
+
   return `${fence}${language}\n${content}\n${fence}`
 }
 
@@ -67,11 +76,14 @@ type Frontmatter = { entries: Array<[string, string]>; body: string }
  */
 export function parseFrontmatter(content: string): Frontmatter {
   const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(content)
+
   if (!match) return { entries: [], body: content }
 
   const entries: Array<[string, string, string[]]> = []
+
   for (const line of match[1]!.split(/\r?\n/)) {
     const field = /^([A-Za-z0-9_-]+):[ \t]*(.*)$/.exec(line)
+
     if (field) entries.push([field[1]!, field[2]!.trim(), []])
     else if (entries.length > 0) entries.at(-1)![2].push(line.trim())
   }
@@ -81,6 +93,7 @@ export function parseFrontmatter(content: string): Frontmatter {
       // `|` keeps line breaks, `>` folds them; quotes are presentation only.
       if (/^[|>][+-]?$/.test(value)) return [key, rest.join(value.startsWith('|') ? '\n' : ' ').trim()]
       const joined = [value, ...rest].filter(Boolean).join(' ')
+
       return [key, joined.replace(/^(['"])([\s\S]*)\1$/, '$2')]
     }),
     body: content.slice(match[0].length),

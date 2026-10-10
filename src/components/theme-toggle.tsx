@@ -18,10 +18,11 @@ export function ThemeToggle() {
 
   // While following the system, track OS-level changes live.
   useEffect(() => {
-    if (preference !== 'system' || typeof window.matchMedia !== 'function') return
+    if (preference !== 'system' || !('matchMedia' in window)) return
     const query = window.matchMedia('(prefers-color-scheme: dark)')
     const update = () => applyThemePreference('system')
     query.addEventListener('change', update)
+
     return () => query.removeEventListener('change', update)
   }, [preference])
 

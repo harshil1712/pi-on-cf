@@ -30,6 +30,7 @@ export const themeScript = `(() => {
 export function readThemePreference(): ThemePreference {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY)
+
     return stored === 'light' || stored === 'dark' ? stored : 'system'
   } catch {
     return 'system'
@@ -37,7 +38,7 @@ export function readThemePreference(): ThemePreference {
 }
 
 function systemPrefersDark() {
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches
+  return 'matchMedia' in window && window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
 export function applyThemePreference(preference: ThemePreference) {
@@ -54,5 +55,6 @@ export function storeThemePreference(preference: ThemePreference) {
   } catch {
     // Storage can be unavailable (private mode); the choice still applies for this page.
   }
+
   applyThemePreference(preference)
 }

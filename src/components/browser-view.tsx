@@ -13,6 +13,7 @@ const tabLabel = (tab: { title?: string; pageUrl?: string }) => tab.title || tab
  */
 export function BrowserViewPanel({ browser }: { browser: BrowserView }) {
   const { tabs, selected, loading, error } = browser
+
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Browser" aria-busy={loading}>
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-kumo-hairline pr-2 pl-3.5">
@@ -24,7 +25,7 @@ export function BrowserViewPanel({ browser }: { browser: BrowserView }) {
             className="min-w-0 flex-1"
             items={tabs.map((tab) => ({ value: tab.targetId, label: tabLabel(tab) }))}
             value={selected?.targetId ?? null}
-            onValueChange={(targetId) => { if (typeof targetId === 'string') void browser.select(targetId) }}
+            onValueChange={(targetId) => { if (targetId !== null) void browser.select(targetId) }}
           />
         ) : (
           <span className="min-w-0 flex-1 truncate text-xs text-kumo-subtle" title={selected?.pageUrl}>{selected?.pageUrl}</span>

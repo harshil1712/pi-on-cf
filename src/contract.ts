@@ -4,9 +4,13 @@ import type { RunStatus } from '~/lib/run-status'
 export type { RunStatus }
 
 export const PI_AGENT_NAME = 'PiSession'
+
 export const PI_REGISTRY_NAME = 'PiRegistry'
+
 export const PI_AGENT_PREFIX = 'api/agents'
+
 export const PI_REGISTRY_INSTANCE = 'singleton'
+
 /** The registry's route segment for sessions; see `sessionBasePath`. */
 export const PI_SESSIONS_ROUTE = 'sessions'
 
@@ -169,9 +173,12 @@ export type PiRegistryState = {
   revision: number
 }
 
+/** A new session: its name, the first prompt, and the model pi answers with. Each is optional. */
+export type CreateSessionInput = { name?: string; prompt?: string; model?: string }
+
 export interface PiRegistryContract {
   readonly state: PiRegistryState
-  createSession(input?: { name?: string; prompt?: string; model?: string }): Promise<SessionSummary>
+  createSession(input?: CreateSessionInput): Promise<SessionSummary>
   getSession(sessionId: string): Promise<SessionSummary | null>
   listSessions(): Promise<SessionSummary[]>
   renameSession(sessionId: string, name?: string): Promise<SessionSummary>

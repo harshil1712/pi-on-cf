@@ -8,6 +8,7 @@ import { PiMark } from './pi-mark'
 import { TopBar } from './top-bar'
 import { PromptComposer } from './prompt-composer'
 import type { ModelOption } from '~/contract'
+import { errorMessage } from '~/lib/error-message'
 
 /**
  * Ways into a task. Each leaves the caret after `@`, so the repository
@@ -47,6 +48,7 @@ export function HomePage() {
       setModels(list)
       setModel((current) => current || (list[0]?.id ?? ''))
     }, () => {})
+
     return () => { ignore = true }
   }, [registry.agent.stub])
   const recentRepositories = [...new Set(registry.sessions.flatMap((session) => session.repo ? [session.repo] : []))].slice(0, RECENT_REPOSITORY_LIMIT)
@@ -55,11 +57,12 @@ export function HomePage() {
     if (starting) return
     setStarting(true)
     setError('')
+
     try {
       const session = await registry.agent.stub.createSession({ prompt: firstPrompt, ...(model ? { model } : {}) })
       await navigate({ to: '/sessions/$sessionId', params: { sessionId: session.id } })
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(errorMessage(caught))
       setStarting(false)
     }
   }
@@ -68,10 +71,12 @@ export function HomePage() {
   function compose(text: string) {
     setPrompt(text)
     requestAnimationFrame(() => {
-      const field = document.getElementById('prompt') as HTMLTextAreaElement | null
+      const field = document.getElementById('prompt')
+
+      if (!(field instanceof HTMLTextAreaElement)) return
       // Caret first: focusing reads it to decide whether to open the picker.
-      field?.setSelectionRange(text.length, text.length)
-      field?.focus()
+      field.setSelectionRange(text.length, text.length)
+      field.focus()
     })
   }
 
@@ -118,6 +123,7 @@ export function HomePage() {
             onInputChange={setPrompt}
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
+
               if (prompt.trim()) void start(prompt.trim())
             }}
             placeholder={starting ? 'Starting a session…' : 'Describe a task, or type @ to pick a repository'}

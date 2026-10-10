@@ -3,15 +3,15 @@ import { routeAgentRequest } from 'agents'
 import { describe, expect, it } from 'vitest'
 import { AGENT_ROUTES } from '~/server/agent-routes'
 import { sessionBasePath } from '~/contract'
-import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from './entry'
+import { registry, sessionStub } from './stubs'
 
-const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>
-
-async function newSession(): Promise<{ id: string; pi: DurableObjectStub<TestPiSession> }> {
+async function newSession() {
   const { id } = await registry().createSession()
   const name = await registry().sessionAgentNameForTest(id)
+
   if (!name) throw new Error(`No session behind ${id}`)
-  return { id, pi: env.PiSession.getByName(name) as unknown as DurableObjectStub<TestPiSession> }
+
+  return { id, pi: sessionStub(name) }
 }
 
 /** One callable over a session's WebSocket, the way AgentClient sends it from the browser. */
@@ -24,16 +24,20 @@ async function callAt(url: string, method: string, args: unknown[]): Promise<{ s
   const response = await routeAgentRequest(new Request(url, { headers: { Upgrade: 'websocket' } }), env, AGENT_ROUTES)
   const socket = response!.webSocket!
   socket.accept()
+
   const reply = new Promise<{ success: boolean; result?: unknown; error?: string }>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('No RPC response')), 10_000)
     socket.addEventListener('message', (event) => {
       const data = JSON.parse(String(event.data)) as { type?: string; id?: string }
+
       if (data.type !== 'rpc' || data.id !== 'call-1') return
       clearTimeout(timer)
       resolve(data as { success: boolean })
     })
   })
+
   socket.send(JSON.stringify({ type: 'rpc', id: 'call-1', method, args }))
+
   try {
     return await reply
   } finally {
@@ -75,7 +79,7 @@ describe('model picker', () => {
   it('starts a session from the home page on the model chosen there', async () => {
     const { id } = await registry().createSession({ prompt: 'hello', model: 'faux-b' })
     const name = await registry().sessionAgentNameForTest(id)
-    const pi = env.PiSession.getByName(name!) as unknown as DurableObjectStub<TestPiSession>
+    const pi = sessionStub(name!)
     expect((await pi.state).model).toBe('faux-b')
     expect((await pi.promptForTest('model')).text).toBe('model: faux-b')
   })

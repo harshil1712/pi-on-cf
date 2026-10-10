@@ -4,6 +4,7 @@ import { ChangesBrowser } from '~/components/changes-browser'
 import type { SessionTask } from '~/contract'
 
 const task: SessionTask = { repo: 'octo/demo', baseBranch: 'main', baseCommit: 'abc', branch: 'pi/123', dir: '/workspace/demo' }
+
 const change = { path: 'src/index.ts', status: 'M' as const, insertions: 3, deletions: 1 }
 
 function changes(selectedPath: string, onSelectPath: (path: string) => void, list = [change]) {

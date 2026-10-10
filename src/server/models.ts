@@ -21,5 +21,6 @@ export const MODEL_OPTIONS: readonly ModelOption[] = [
  */
 export function modelOptions(defaultId: string): ModelOption[] {
   const listed = MODEL_OPTIONS.find(({ id }) => id === defaultId) ?? { id: defaultId, label: defaultId }
+
   return [listed, ...MODEL_OPTIONS.filter(({ id }) => id !== defaultId)]
 }

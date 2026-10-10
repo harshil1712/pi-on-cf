@@ -3,17 +3,8 @@ import { runDurableObjectAlarm } from 'cloudflare:test'
 import { routeAgentRequest } from 'agents'
 import { describe, expect, it } from 'vitest'
 import { type PiEventsMessage, sessionBasePath } from '~/contract'
-import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from './entry'
+import { registry, session, sessionStub } from './stubs'
 import { AGENT_ROUTES } from '~/server/agent-routes'
-
-const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>
-
-/** The Agent behind a catalog entry, reached directly for test-only RPC. */
-async function session(id: string): Promise<DurableObjectStub<TestPiSession>> {
-  const name = await registry().sessionAgentNameForTest(id)
-  if (!name) throw new Error(`No session behind ${id}`)
-  return env.PiSession.getByName(name) as unknown as DurableObjectStub<TestPiSession>
-}
 
 /** Route a request the way the Worker does. */
 function route(path: string, init?: RequestInit): Promise<Response | null> {
@@ -25,11 +16,13 @@ const upgrade = { headers: { Upgrade: 'websocket' } }
 /** Every frame the socket receives until the first `pi:events` frame. */
 async function framesUntilPiEvents(socket: WebSocket): Promise<{ events: PiEventsMessage; frames: unknown[] }> {
   const frames: unknown[] = []
+
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('No pi:events frame')), 5_000)
     socket.addEventListener('message', (event) => {
       const data = JSON.parse(String(event.data)) as { type?: string }
       frames.push(data)
+
       if (data.type !== 'pi:events') return
       clearTimeout(timer)
       resolve({ events: data as PiEventsMessage, frames })
@@ -98,16 +91,19 @@ describe('session routing', () => {
     const response = await route(sessionBasePath(id), upgrade)
     const socket = response!.webSocket!
     socket.accept()
+
     // The frame AgentClient sends for `agent.stub.listFiles()`.
     const result = new Promise<{ success: boolean; result?: unknown; error?: string }>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('No RPC response')), 5_000)
       socket.addEventListener('message', (event) => {
         const data = JSON.parse(String(event.data)) as { type?: string; id?: string }
+
         if (data.type !== 'rpc' || data.id !== 'list-1') return
         clearTimeout(timer)
         resolve(data as { success: boolean; result?: unknown })
       })
     })
+
     socket.send(JSON.stringify({ type: 'rpc', id: 'list-1', method: 'listFiles', args: [] }))
     const reply = await result
     socket.close()
@@ -123,6 +119,7 @@ describe('session routing', () => {
 
   it('refuses direct routes to a session Agent', async () => {
     const { id } = await registry().createSession()
+
     for (const name of [id, crypto.randomUUID()]) {
       expect((await route(`api/agents/pi-session/${name}`, upgrade))?.status).toBe(404)
       expect((await route(`api/agents/pi-session/${name}`))?.status).toBe(404)
@@ -142,7 +139,7 @@ describe('pi session', () => {
     const { id } = await registry().createSession()
     const agentName = await registry().sessionAgentNameForTest(id)
     // A fresh stub per call: a stub that saw the isolate abort stays broken.
-    const agent = () => env.PiSession.getByName(agentName!) as unknown as DurableObjectStub<TestPiSession>
+    const agent = () => sessionStub(agentName!)
     const doomed = agent()
     await doomed.promptForTest('write /workspace/doomed.txt bye')
     expect((await doomed.listFiles()).map(({ path }) => path)).toEqual(['/workspace/doomed.txt'])
@@ -200,6 +197,7 @@ describe('pi session', () => {
   it('leaves dependencies and git internals out of the file list at any depth', async () => {
     const { id } = await registry().createSession()
     const pi = await session(id)
+
     for (const path of [
       '/workspace/node_modules/top/index.js',
       '/workspace/.git/HEAD',

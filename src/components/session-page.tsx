@@ -14,6 +14,7 @@ import { TranscriptView } from './transcript-view'
 import { WorkspaceBrowser } from './workspace-browser'
 import { useBrowserView } from '~/hooks/use-browser-view'
 import { usePiSession } from '~/hooks/use-pi-session'
+import { isOneOf } from '~/lib/one-of'
 
 export function SessionPage({ sessionId }: { sessionId: string }) {
   return <SessionView key={sessionId} sessionId={sessionId} />
@@ -36,16 +37,20 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const browser = useBrowserView(session.browserLiveView, { isReady: session.isReady, active: panel === 'browser', browserRuns })
   // What the Workspace panel shows: Changes only with a task, Browser only with a browser.
   const view = panel === 'browser' && browser.available ? 'browser' : task && panel === 'changes' ? 'changes' : 'files'
+
   const showPanel = (next: 'files' | 'changes' | 'browser') => {
     setPanel(next)
+
     // Live View URLs only connect for about five minutes, so opening the view mints fresh ones.
     if (next === 'browser') void browser.refresh({ reconnect: true })
   }
+
   const openBrowser = () => {
     showPanel('browser')
     setFilesOpen(true)
     session.setMobileView('workspace')
   }
+
   const name = session.summary?.name || session.summary?.title || session.summary?.repo || `Untitled ${sessionId.slice(0, 8)}`
   const status = STATUS[!session.isReady ? 'connecting' : session.isRunning ? 'running' : 'ready']
   const chatView = session.mobileView === 'chat'
@@ -119,7 +124,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
               },
             ]}
             value={session.mobileView}
-            onValueChange={(value) => session.setMobileView(value as 'chat' | 'workspace')}
+            onValueChange={(value) => { if (isOneOf(['chat', 'workspace'], value)) session.setMobileView(value) }}
             activateOnFocus
           />
         </nav>
@@ -155,7 +160,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                     ...browser.available ? [{ value: 'browser', label: 'Browser' }] : [],
                   ]}
                   value={view}
-                  onValueChange={(value) => showPanel(value as 'files' | 'changes' | 'browser')}
+                  onValueChange={(value) => { if (isOneOf(['files', 'changes', 'browser'], value)) showPanel(value) }}
                 />
               </div>
             )}
@@ -178,6 +183,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
 /** A dot that says Pi has changes waiting in the workspace, with the count for screen readers. */
 function ChangesDot({ count }: { count: number }) {
   if (count === 0) return null
+
   return (
     <>
       <span aria-hidden className="ml-1.5 inline-block size-1.5 rounded-full bg-kumo-warning" />

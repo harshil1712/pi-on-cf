@@ -1,7 +1,9 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { botIdentity, type GitHubAppConfig, listRepositories, repoToken } from '~/server/github-app'
+import type { Json } from '~/lib/json'
 
 let privateKey: string
+
 let publicKey: CryptoKey
 
 /** A fresh RSA key, as the PKCS#8 PEM the README tells you to convert GitHub's key to. */
@@ -11,6 +13,7 @@ beforeAll(async () => {
     true,
     ['sign', 'verify'],
   ) as CryptoKeyPair
+
   const der = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey) as ArrayBuffer)
   const base64 = btoa(String.fromCharCode(...der)).replace(/.{64}/g, '$&\n')
   privateKey = `-----BEGIN PRIVATE KEY-----\n${base64}\n-----END PRIVATE KEY-----\n`
@@ -21,6 +24,7 @@ afterEach(() => vi.restoreAllMocks())
 
 /** A fresh App ID per test, so no test reuses another's cached tokens. */
 let appId = 1000
+
 const config = (overrides: Partial<GitHubAppConfig> = {}): GitHubAppConfig => ({
   GITHUB_APP_ID: String(++appId),
   GITHUB_APP_PRIVATE_KEY: privateKey,
@@ -39,7 +43,7 @@ async function checkJwt(authorization: string | null, app: string) {
   expect(valid).toBe(true)
 }
 
-type Route = (request: Request) => unknown
+type Route = (request: Request) => Json | Promise<Json>
 
 /** Serves `routes`, by method and path, as JSON; anything else is a 404. */
 function serve(routes: Record<string, Route>) {
@@ -50,15 +54,19 @@ function serve(routes: Record<string, Route>) {
     calls.push(request.clone())
     const url = new URL(request.url)
     const route = routes[`${request.method} ${url.pathname}`]
+
     if (!route) return Response.json({ message: 'Not Found' }, { status: 404 })
+
     return Response.json(await route(request))
   })
+
   return calls
 }
 
 const accessToken = (token: string) => async (request: Request) => {
   const text = await request.text()
   const body = (text ? JSON.parse(text) : {}) as { repositories?: string[] }
+
   return {
     token,
     expires_at: new Date(Date.now() + 3_600_000).toISOString(),
@@ -71,10 +79,12 @@ const accessToken = (token: string) => async (request: Request) => {
 describe('repoToken', () => {
   it('finds the repository\'s installation and returns a token scoped to it, cached', async () => {
     const app = config()
+
     const calls = serve({
       'GET /repos/octo/demo/installation': () => ({ id: 7, account: { login: 'Octo' } }),
       'POST /app/installations/7/access_tokens': accessToken('ghs_demo'),
     })
+
     expect(await repoToken(app, { owner: 'octo', name: 'demo' })).toBe('ghs_demo')
     await checkJwt(calls[0]!.headers.get('Authorization'), app.GITHUB_APP_ID)
     await checkJwt(calls[1]!.headers.get('Authorization'), app.GITHUB_APP_ID)
@@ -109,6 +119,7 @@ describe('repoToken', () => {
 describe('listRepositories', () => {
   it('lists the repositories of owned installations, most recently pushed first', async () => {
     const repo = (name: string, pushed: string) => ({ full_name: name, private: false, description: null, pushed_at: pushed })
+
     const calls = serve({
       'GET /app/installations': () => [
         { id: 1, account: { login: 'octo' } },
@@ -123,6 +134,7 @@ describe('listRepositories', () => {
           : [repo('org/new', '2026-03-01T00:00:00Z'), repo('org/mid', '2026-02-01T00:00:00Z')],
       }),
     })
+
     expect((await listRepositories(config())).map(({ repo }) => repo)).toEqual(['org/new', 'org/mid', 'octo/old'])
     expect(calls.some((call) => new URL(call.url).pathname === '/app/installations/3/access_tokens')).toBe(false)
   })

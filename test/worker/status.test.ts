@@ -2,19 +2,13 @@ import { env } from 'cloudflare:workers'
 import { routeAgentRequest } from 'agents'
 import { describe, expect, it } from 'vitest'
 import { AGENT_ROUTES } from '~/server/agent-routes'
-import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from './entry'
-
-const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>
-
-async function session(id: string): Promise<DurableObjectStub<TestPiSession>> {
-  const name = await registry().sessionAgentNameForTest(id)
-  if (!name) throw new Error(`No session behind ${id}`)
-  return env.PiSession.getByName(name) as unknown as DurableObjectStub<TestPiSession>
-}
+import { registry, session } from './stubs'
 
 const summary = async (id: string) => {
   const found = await registry().getSession(id)
+
   if (!found) throw new Error(`Session not found: ${id}`)
+
   return found
 }
 
@@ -26,9 +20,11 @@ async function watchRevisions(): Promise<{ revisions: number[]; close: () => voi
   const revisions: number[] = []
   socket.addEventListener('message', (event) => {
     const data = JSON.parse(String(event.data)) as { type?: string; state?: { revision: number } }
+
     if (data.type === 'cf_agent_state' && data.state) revisions.push(data.state.revision)
   })
   await expect.poll(() => revisions.length).toBeGreaterThan(0)
+
   return { revisions, close: () => socket.close() }
 }
 

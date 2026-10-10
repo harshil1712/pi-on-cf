@@ -4,6 +4,7 @@ import { WorkspaceBrowser } from '~/components/workspace-browser'
 import type { WorkspaceFile } from '~/contract'
 
 const now = '2026-07-28T12:00:00.000Z'
+
 const file = (path: string): WorkspaceFile => ({ path, size: 10, mtime: now })
 
 function browser(selectedPath: string, onSelectPath: (path: string) => void) {

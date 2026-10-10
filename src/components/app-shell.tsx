@@ -11,12 +11,14 @@ import { SessionSidebar } from './session-sidebar'
 const RouterLink = forwardRef<HTMLAnchorElement, LinkComponentProps>(({ href, to: _to, ...props }, ref) => (
   <Link ref={ref} to={href ?? '/'} {...props} />
 ))
+
 RouterLink.displayName = 'RouterLink'
 
 /** Every page: the sessions sidebar beside the routed page. */
 export function AppShell() {
   // The shell renders the height this hook tracks, so the composer stays above iOS's keyboard.
   useKeyboardAwareHeight()
+
   return (
     <LinkProvider component={RouterLink}>
       <Toasty>

@@ -7,9 +7,16 @@ class ResizeObserverStub implements ResizeObserver {
 }
 
 vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+
 vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 16))
+
 vi.stubGlobal('cancelAnimationFrame', (handle: number) => window.clearTimeout(handle))
+
 Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })
+
+// jsdom does not scroll; the router restores the scroll position after each navigation.
+Object.defineProperty(window, 'scrollTo', { configurable: true, value: vi.fn() })
+
 // jsdom has no media queries; Kumo's sidebar asks one to tell phones from desktops. Tests run as a desktop.
 Object.defineProperty(window, 'matchMedia', {
   configurable: true,
@@ -24,5 +31,6 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: () => false,
   }),
 })
+
 // Nor the Web Animations API, which Base UI waits on before unmounting popups and toasts.
 Object.defineProperty(Element.prototype, 'getAnimations', { configurable: true, value: () => [] })

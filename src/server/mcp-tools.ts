@@ -9,8 +9,9 @@ import {
   truncateResult,
 } from '@cloudflare/codemode'
 import { Type } from '@earendil-works/pi-ai'
-import type { Registry, ToolRegistration } from '@earendil-works/pi-durable'
+import type { Registry, ToolExecutionResult, ToolRegistration } from '@earendil-works/pi-durable'
 import type { JsonObject, McpCallResult, McpServerCatalog } from './mcp-servers'
+import { isString } from '~/lib/json'
 
 type CodemodeTool = ReturnType<CodemodeRuntimeHandle['tool']>
 
@@ -22,6 +23,7 @@ export type McpSource = {
 
 /** The pi extension the MCP tool is installed under, replaced when the servers change. */
 const EXTENSION = 'mcp'
+
 /** Long enough for a few MCP round trips, and a server waking up. */
 const TIMEOUT_MS = 120_000
 
@@ -59,6 +61,7 @@ export class McpToolset {
   sync(registry: Registry): Promise<boolean> {
     // One at a time, so two syncs never race to install.
     this.#syncing = this.#syncing.catch(() => false).then(() => this.#sync(registry))
+
     return this.#syncing
   }
 
@@ -66,15 +69,19 @@ export class McpToolset {
     const source = await this.#source()
     const servers = await source.listMcpTools()
     const json = JSON.stringify(servers)
+
     if (json === this.#installed) return false
     this.#installed = json
+
     if (servers.length === 0) registry.uninstall({ name: EXTENSION })
     else registry.install({ name: EXTENSION, tools: [this.#tool(servers, source)] })
+
     return true
   }
 
   #tool(servers: McpServerCatalog[], source: McpSource): ToolRegistration<typeof parameters> {
     const connectors = connectorNames(servers).map(({ server, name }) => new RegistryMcpConnector(this.#ctx, { server, name, source }))
+
     const runtime = createCodemodeRuntime({
       ctx: this.#ctx,
       executor: new DynamicWorkerExecutor({ loader: this.#loader, timeout: TIMEOUT_MS }),
@@ -83,7 +90,9 @@ export class McpToolset {
       // Keep a large result from filling the context; the full one stays in the run's log.
       transformResult: (result) => truncateResult(result),
     })
+
     const tool = runtime.tool({ connectorHints: Object.fromEntries(connectors.map((connector) => [connector.name(), connectorHint(connector.server)])) })
+
     return {
       name: EXTENSION,
       description: [
@@ -121,11 +130,15 @@ class RegistryMcpConnector extends McpConnector {
   protected createConnection(): McpConnectionLike {
     const { server } = this
     const source = this.#source
+
     return {
       name: server.name,
       instructions: server.instructions,
       tools: server.tools,
-      client: { callTool: ({ name, arguments: args }) => source.callMcpTool(server.id, name, (args ?? {}) as JsonObject) },
+      client: {
+        // SAFETY: MCP tool arguments are JSON by protocol, and the client sends them JSON-encoded.
+        callTool: ({ name, arguments: args }) => source.callMcpTool(server.id, name, (args ?? {}) as JsonObject),
+      },
     }
   }
 }
@@ -136,11 +149,14 @@ class RegistryMcpConnector extends McpConnector {
  */
 export function connectorNames(servers: McpServerCatalog[]): { server: McpServerCatalog; name: string }[] {
   const taken = new Set(['codemode'])
+
   return servers.map((server) => {
     const base = sanitizeToolName(server.name.toLowerCase()) || 'server'
     let name = base
+
     for (let n = 2; taken.has(name); n++) name = `${base}_${n}`
     taken.add(name)
+
     return { server, name }
   })
 }
@@ -156,14 +172,16 @@ export function connectorHint(server: McpServerCatalog): string {
   const names = server.tools.map((tool) => sanitizeToolName(tool.name))
   const listed = names.slice(0, HINT_TOOLS).join(', ')
   const more = names.length > HINT_TOOLS ? `, and ${names.length - HINT_TOOLS} more` : ''
+
   return `The "${server.name}" MCP server: ${listed}${more}.`
 }
 
 /** The model's view of a run: its result, logs or error as JSON, without the call log. */
-function toolResult(tool: CodemodeTool, output: ProxyToolOutput) {
+function toolResult(tool: CodemodeTool, output: ProxyToolOutput): ToolExecutionResult {
   const { value } = tool.toModelOutput({ output })
+
   return {
-    content: [{ type: 'text' as const, text: typeof value === 'string' ? value : JSON.stringify(value) }],
+    content: [{ type: 'text', text: isString(value) ? value : JSON.stringify(value) }],
     details: { executionId: output.executionId, status: output.status },
     ...(output.status === 'error' ? { isError: true } : {}),
   }

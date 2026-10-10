@@ -37,24 +37,30 @@ export function useBrowserView(
 
   const load = useCallback(async ({ reconnect = false, targetId }: { reconnect?: boolean; targetId?: string } = {}) => {
     setLoading(true)
+
     try {
       const listed = await liveView()
       setError('')
+
       if (!listed) {
         setAvailable(false)
+
         return
       }
+
       setAvailable(true)
       setTabs(listed)
       const previous = known.current
       known.current = new Set(listed.map((tab) => tab.targetId))
       const opened = previous && listed.find((tab) => !previous.has(tab.targetId))
       const kept = current.current && listed.find((tab) => tab.targetId === current.current?.targetId)
+
       const next = (targetId && listed.find((tab) => tab.targetId === targetId))
         || opened
         || (kept && (reconnect ? kept : current.current))
         || listed[0]
         || null
+
       current.current = next
       setSelected(next)
     } catch {
@@ -78,5 +84,6 @@ export function useBrowserView(
 
   const refresh = useCallback((options?: { reconnect?: boolean }) => load(options), [load])
   const select = useCallback((targetId: string) => load({ targetId }), [load])
+
   return { available, tabs, selected, loading, error, refresh, select }
 }

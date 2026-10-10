@@ -11,8 +11,10 @@ import { useEffect } from 'react'
 export function useKeyboardAwareHeight() {
   useEffect(() => {
     const viewport = window.visualViewport
+
     if (!viewport) return
     let frame: number | null = null
+
     const sync = () => {
       frame ??= requestAnimationFrame(() => {
         frame = null
@@ -23,12 +25,15 @@ export function useKeyboardAwareHeight() {
         document.documentElement.style.setProperty('--app-height', keyboard ? `${viewport.height}px` : '')
       })
     }
+
     viewport.addEventListener('resize', sync)
     viewport.addEventListener('scroll', sync)
     sync()
+
     return () => {
       viewport.removeEventListener('resize', sync)
       viewport.removeEventListener('scroll', sync)
+
       if (frame !== null) cancelAnimationFrame(frame)
       document.documentElement.style.removeProperty('--app-height')
     }

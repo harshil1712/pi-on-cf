@@ -1,11 +1,11 @@
-import type { components } from '@octokit/openapi-webhooks-types'
 import { verify } from '@octokit/webhooks-methods'
 import { getAgentByName } from 'agents'
 import { PI_REGISTRY_INSTANCE } from '~/contract'
 import type { GitHubThread } from './github'
 import { isOwner } from './github-app'
-
-type Schema = components['schemas']
+import { Type, type Static } from 'typebox'
+import { Compile } from 'typebox/compile'
+import type { Json } from '~/lib/json'
 
 /** Where GitHub sends the App's webhooks; set as the App's webhook URL. */
 export const GITHUB_WEBHOOK_PATH = '/webhooks/github'
@@ -25,6 +25,41 @@ export type GitHubMention = GitHubThread & {
 
 type WebhookEnv = Pick<Env, 'GITHUB_WEBHOOK_SECRET' | 'GITHUB_APP_SLUG' | 'GITHUB_OWNERS'>
 
+/*
+ * The parts of GitHub's webhook payloads a mention is made from. Only these
+ * fields are checked; GitHub's many others pass through unexamined.
+ */
+const Account = Type.Object({ login: Type.String(), type: Type.Optional(Type.String()) })
+
+const Author = Type.Union([Account, Type.Null()])
+
+const Body = Type.Union([Type.String(), Type.Null()])
+
+const Delivery = { action: Type.String(), repository: Type.Object({ full_name: Type.String() }), sender: Account }
+
+const Comment = { id: Type.Number(), body: Type.String(), html_url: Type.String() }
+
+const Thread = { number: Type.Number(), title: Type.String(), html_url: Type.String(), body: Body, user: Author }
+
+const IssueComment = Compile(Type.Object({
+  ...Delivery,
+  issue: Type.Object({ ...Thread, pull_request: Type.Optional(Type.Object({})) }),
+  comment: Type.Object(Comment),
+}))
+
+const ReviewComment = Compile(Type.Object({
+  ...Delivery,
+  pull_request: Type.Object(Thread),
+  comment: Type.Object({
+    ...Comment,
+    path: Type.String(),
+    line: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+    diff_hunk: Type.String(),
+  }),
+}))
+
+type Account = Static<typeof Account>
+
 /**
  * The App's webhook endpoint. GitHub signs each delivery with the webhook
  * secret, and that signature is the only authentication here: the path
@@ -34,39 +69,50 @@ type WebhookEnv = Pick<Env, 'GITHUB_WEBHOOK_SECRET' | 'GITHUB_APP_SLUG' | 'GITHU
  */
 export async function handleGitHubWebhook(request: Request, env: WebhookEnv & Pick<Env, 'PiRegistry'>): Promise<Response> {
   if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'POST' } })
+
   if (!env.GITHUB_WEBHOOK_SECRET) return new Response('GITHUB_WEBHOOK_SECRET is not set.', { status: 503 })
   const body = await request.text()
   const signature = request.headers.get('X-Hub-Signature-256')
+
   if (!signature || !await verify(env.GITHUB_WEBHOOK_SECRET, body, signature).catch(() => false)) {
     return new Response('Invalid signature', { status: 401 })
   }
-  let payload: unknown
+
+  let payload: Json
+
   try {
     payload = JSON.parse(body)
   } catch {
     return new Response('Invalid JSON', { status: 400 })
   }
+
   const mention = mentionFromEvent(request.headers.get('X-GitHub-Event'), payload, env)
+
   if (!mention) return new Response(null, { status: 204 })
   const registry = await getAgentByName(env.PiRegistry, PI_REGISTRY_INSTANCE)
   await registry.receiveGitHubMention(mention, request.headers.get('X-GitHub-Delivery') ?? crypto.randomUUID())
+
   return new Response(null, { status: 202 })
 }
 
 /** `@<slug>` as a whole word, the way GitHub links a mention. */
 function mentions(slug: string, text: string): boolean {
   const escaped = slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
   return new RegExp(`(^|[^\\w-])@${escaped}(?![\\w-])`, 'i').test(text)
 }
 
 /**
  * The mention in a new issue or review comment, or null for any other
- * event, a comment without one, or one from a bot or an untrusted user.
+ * event, a payload without the fields a mention needs, a comment without
+ * one, or one from a bot or an untrusted user.
  */
-export function mentionFromEvent(event: string | null, payload: unknown, env: WebhookEnv): GitHubMention | null {
-  if (event === 'issue_comment') {
-    const { action, issue, comment, repository, sender } = payload as Schema['webhook-issue-comment-created']
+export function mentionFromEvent(event: string | null, payload: Json, env: WebhookEnv): GitHubMention | null {
+  if (event === 'issue_comment' && IssueComment.Check(payload)) {
+    const { action, issue, comment, repository, sender } = payload
+
     if (action !== 'created' || !accepted(env, sender, comment.body)) return null
+
     return {
       repo: repository.full_name,
       number: issue.number,
@@ -79,9 +125,12 @@ export function mentionFromEvent(event: string | null, payload: unknown, env: We
       description: { body: issue.body ?? '', author: issue.user?.login ?? '', trusted: isOwner(env, issue.user?.login) },
     }
   }
-  if (event === 'pull_request_review_comment') {
-    const { action, pull_request, comment, repository, sender } = payload as Schema['webhook-pull-request-review-comment-created']
+
+  if (event === 'pull_request_review_comment' && ReviewComment.Check(payload)) {
+    const { action, pull_request, comment, repository, sender } = payload
+
     if (action !== 'created' || !accepted(env, sender, comment.body)) return null
+
     return {
       repo: repository.full_name,
       number: pull_request.number,
@@ -94,12 +143,14 @@ export function mentionFromEvent(event: string | null, payload: unknown, env: We
       description: { body: pull_request.body ?? '', author: pull_request.user?.login ?? '', trusted: isOwner(env, pull_request.user?.login) },
     }
   }
+
   return null
 }
 
-function accepted(env: WebhookEnv, sender: { login: string; type?: string } | null | undefined, body: string): boolean {
+function accepted(env: WebhookEnv, sender: Account, body: string): boolean {
   // The bot's own comments mention itself in quotes; it must never wake itself.
-  if (!sender || sender.type === 'Bot') return false
+  if (sender.type === 'Bot') return false
+
   return isOwner(env, sender.login) && mentions(env.GITHUB_APP_SLUG, body)
 }
 
@@ -112,7 +163,9 @@ function noun(mention: GitHubMention): string {
 function comment(mention: GitHubMention): string {
   const { review } = mention.comment
   const lines = [`@${mention.author} mentioned you on ${noun(mention)}, "${mention.title}" (${mention.comment.url}):`, '', quote(mention.body)]
+
   if (review) lines.push('', `The comment is on ${review.path}${review.line ? ` line ${review.line}` : ''}:`, '', '```diff', review.diffHunk, '```')
+
   return lines.join('\n')
 }
 
@@ -128,6 +181,7 @@ export function followUpPrompt(mention: GitHubMention): string {
 /** The prompt that starts a session from a mention on an issue. */
 export function issuePrompt(mention: GitHubMention): string {
   const { description } = mention
+
   return [
     comment(mention),
     '',

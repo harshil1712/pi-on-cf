@@ -1,16 +1,7 @@
-import { env } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
 import { connectorHint, connectorNames } from '~/server/mcp-tools'
 import type { McpServerCatalog } from '~/server/mcp-servers'
-import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from './entry'
-
-const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>
-
-async function session(id: string): Promise<DurableObjectStub<TestPiSession>> {
-  const name = await registry().sessionAgentNameForTest(id)
-  if (!name) throw new Error(`No session behind ${id}`)
-  return env.PiSession.getByName(name) as unknown as DurableObjectStub<TestPiSession>
-}
+import { registry, session } from './stubs'
 
 /** What the faux model sends to call the `mcp` tool with `code`. */
 const callMcp = (code: string) => `tool mcp ${JSON.stringify({ code })}`

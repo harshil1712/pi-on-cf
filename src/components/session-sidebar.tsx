@@ -11,6 +11,7 @@ import { ThemeToggle } from './theme-toggle'
 import type { SessionSummary } from '~/contract'
 import { DeleteSessionDialog, RenameSessionDialog } from './session-dialogs'
 import { displayName, useSessionRegistry } from '~/hooks/use-session-registry'
+import { errorMessage } from '~/lib/error-message'
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -18,13 +19,16 @@ const DAY = 24 * 60 * 60 * 1000
 function groupByRecency(sessions: SessionSummary[], now: number) {
   const today = new Date(now).setHours(0, 0, 0, 0)
   const groups: { label: string; sessions: SessionSummary[] }[] = []
+
   for (const session of sessions) {
     const at = Date.parse(session.updatedAt)
     const label = at >= today ? 'Today' : at >= today - DAY ? 'Yesterday' : at >= today - 6 * DAY ? 'Previous 7 days' : 'Older'
     const group = groups.at(-1)
+
     if (group?.label === label) group.sessions.push(session)
     else groups.push({ label, sessions: [session] })
   }
+
   return groups
 }
 
@@ -38,6 +42,7 @@ function StatusMarker({ status }: Pick<SessionSummary, 'status'>) {
       </span>
     )
   }
+
   if (status === 'failed') {
     return (
       <span className="flex shrink-0 items-center text-kumo-danger" title="Last run failed">
@@ -46,6 +51,7 @@ function StatusMarker({ status }: Pick<SessionSummary, 'status'>) {
       </span>
     )
   }
+
   return null
 }
 
@@ -54,19 +60,20 @@ export function SessionSidebar() {
   const navigate = useNavigate()
   const toasts = useKumoToastManager()
   const { isMobile, setOpenMobile } = useSidebar()
-  const { sessionId } = useParams({ strict: false }) as { sessionId?: string }
+  const { sessionId } = useParams({ strict: false })
   // The target outlives `open` so the dialog keeps its text while it animates closed.
   const [dialog, setDialog] = useState<{ action: 'rename' | 'delete'; session: SessionSummary; open: boolean } | null>(null)
   const closeDialog = (open: boolean) => { if (!open) setDialog((current) => current && { ...current, open: false }) }
+
   const groups = groupByRecency(registry.sessions, Date.now())
   // On a phone the sidebar is a sheet over the page; picking a destination closes it.
   const closeOnMobile = () => { if (isMobile) setOpenMobile(false) }
 
-  async function act(operation: () => Promise<unknown>) {
+  async function act<T>(operation: () => Promise<T>) {
     try {
       await operation()
     } catch (caught) {
-      toasts.add({ variant: 'error', title: 'Something went wrong', description: caught instanceof Error ? caught.message : String(caught) })
+      toasts.add({ variant: 'error', title: 'Something went wrong', description: errorMessage(caught) })
     }
   }
 
@@ -176,6 +183,7 @@ export function SessionSidebar() {
             onDelete={() => void act(async () => {
               const { id } = dialog.session
               await registry.agent.stub.deleteSession(id)
+
               // The open session is gone, so go home rather than to a dead page.
               if (id === sessionId) await navigate({ to: '/' })
             })}

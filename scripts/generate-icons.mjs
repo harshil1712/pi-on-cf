@@ -9,7 +9,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
+
 const BRAND = [0xf6, 0x82, 0x1f] // --color-pi-brand
+
 const WHITE = [0xff, 0xff, 0xff]
 
 /** The π of the mark as the three rectangles it reads as: a bar and two stems. */
@@ -25,6 +27,7 @@ const rectDistance = (x, y, { x0, x1, y0, y1 }) =>
 const roundedRectDistance = (x, y, size, radius) => {
   const qx = Math.abs(x - size / 2) - (size / 2 - radius)
   const qy = Math.abs(y - size / 2) - (size / 2 - radius)
+
   return Math.min(Math.max(qx, qy), 0) + Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - radius
 }
 
@@ -35,6 +38,7 @@ const coverage = (distance) => Math.min(Math.max(0.5 - distance, 0), 1)
 function render(size, rounded) {
   const scale = size / 512
   const pixels = new Uint8Array(size * size * 4)
+
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       // Distances in the 512-space the design is drawn in, for a crisp edge at any size.
@@ -49,18 +53,23 @@ function render(size, rounded) {
       pixels[index + 3] = 255 * background
     }
   }
+
   return pixels
 }
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   let c = n
+
   for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+
   return c >>> 0
 })
 
 const crc32 = (buffer) => {
   let crc = 0xffffffff
+
   for (const byte of buffer) crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8)
+
   return (crc ^ 0xffffffff) >>> 0
 }
 
@@ -71,8 +80,10 @@ function png(size, pixels) {
     const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
     const crc = Buffer.alloc(4)
     crc.writeUInt32BE(crc32(body))
+
     return Buffer.concat([length, body, crc])
   }
+
   const header = Buffer.alloc(13)
   header.writeUInt32BE(size, 0)
   header.writeUInt32BE(size, 4)
@@ -80,10 +91,12 @@ function png(size, pixels) {
   header[9] = 6 // RGBA
   // One filter-type byte, zero, before each row.
   const raw = Buffer.alloc(size * (size * 4 + 1))
+
   for (let y = 0; y < size; y++) {
     const row = pixels.subarray(y * size * 4, (y + 1) * size * 4)
     raw.set(row, y * (size * 4 + 1) + 1)
   }
+
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', header),

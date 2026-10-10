@@ -1,5 +1,6 @@
 import type { components } from '@octokit/openapi-types'
 import type { PullRequest, Repository } from '~/contract'
+import { isString } from '~/lib/json'
 
 type Schema = components['schemas']
 
@@ -15,40 +16,60 @@ const NAME = /^[A-Za-z0-9_.-]+$/
 export function parseRepo(input: string): RepoRef {
   const path = input.trim().replace(/^https:\/\/github\.com\//, '').replace(/\/$/, '').replace(/\.git$/, '')
   const [owner, name, ...rest] = path.split('/')
+
   if (!owner || !name || rest.length || !NAME.test(owner) || !NAME.test(name)) {
     throw new Error(`"${input}" is not a GitHub repository. Use owner/name.`)
   }
+
   return { owner, name }
 }
 
 export const repoSlug = ({ owner, name }: RepoRef) => `${owner}/${name}`
+
 export const cloneUrl = (repo: RepoRef) => `https://github.com/${repoSlug(repo)}.git`
 
 /** Git over HTTPS takes an access token as the password of any user. */
 export const gitAuth = (token: string) => ({ username: 'x-access-token', password: token })
+
 export const gitAuthHeaders = (token: string) => ({ Authorization: `Basic ${btoa(`x-access-token:${token}`)}` })
 
 const API = 'https://api.github.com'
 
-/** One GitHub REST API call, with the URL of the next page if there is one. Throws GitHub's own message on failure. */
+/** A failed GitHub REST API call, with GitHub's own message. */
+export class GitHubError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'GitHubError'
+  }
+}
+
+/** One GitHub REST API call, with the URL of the next page if there is one. Throws a GitHubError on failure. */
 async function request<T>(token: string, url: string, init: { method?: string; body?: unknown } = {}): Promise<{ data: T; next: string | null }> {
+  const headers = new Headers({
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${token}`,
+    'User-Agent': 'pi-on-cf',
+    'X-GitHub-Api-Version': '2022-11-28',
+  })
+
+  if (init.body !== undefined) headers.set('Content-Type', 'application/json')
+
   const response = await fetch(url, {
     method: init.method ?? 'GET',
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'User-Agent': 'pi-on-cf',
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
-    },
+    headers,
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   })
+
   const data = await response.json().catch(() => null)
+
   if (!response.ok) {
+    // SAFETY: GitHub documents this body for failed REST calls; every field is optional, and a non-JSON body is null.
     const error = data as Partial<Schema['validation-error']> | null
     const detail = error?.errors?.map((item) => item.message).filter(Boolean).join('; ')
-    throw Object.assign(new Error(`GitHub ${response.status}: ${error?.message ?? response.statusText}${detail ? ` (${detail})` : ''}`), { status: response.status })
+    throw new GitHubError(`GitHub ${response.status}: ${error?.message ?? response.statusText}${detail ? ` (${detail})` : ''}`, response.status)
   }
+
+  // SAFETY: each caller names the response schema GitHub's OpenAPI description gives for its endpoint.
   return { data: data as T, next: nextPage(response.headers.get('Link')) }
 }
 
@@ -62,6 +83,7 @@ const github = async <T>(token: string, path: string, init?: { method?: string; 
  */
 export function nextPage(link: string | null): string | null {
   const url = link?.match(/<([^>]+)>;\s*rel="next"/)?.[1]
+
   return url?.startsWith(`${API}/`) ? url : null
 }
 
@@ -70,14 +92,16 @@ export function nextPage(link: string | null): string | null {
  * `maxPages` pages. `items` picks them out of each page's body, for the
  * endpoints that wrap their list in an object.
  */
-async function githubAll<T, Page = T[]>(token: string, path: string, maxPages: number, items: (page: Page) => T[] = (page) => page as T[]): Promise<T[]> {
+async function githubAll<T, Page>(token: string, path: string, maxPages: number, items: (page: Page) => T[]): Promise<T[]> {
   const all: T[] = []
   let url: string | null = `${API}${path}`
+
   for (let page = 0; url && page < maxPages; page++) {
     const { data, next }: { data: Page; next: string | null } = await request<Page>(token, url)
     all.push(...items(data))
     url = next
   }
+
   return all
 }
 
@@ -96,15 +120,15 @@ export const installationOwner = ({ account }: Installation) => (account && ('lo
 
 /** The installation of the GitHub App on `repo`, or null where it is not installed. Takes the App's JWT. */
 export async function repoInstallation(jwt: string, repo: RepoRef): Promise<Installation | null> {
-  return github<Installation>(jwt, `/repos/${repoSlug(repo)}/installation`).catch((error: unknown) => {
-    if ((error as { status?: number }).status === 404) return null
-    throw error
+  return github<Installation>(jwt, `/repos/${repoSlug(repo)}/installation`).catch((cause: unknown) => {
+    if (cause instanceof GitHubError && cause.status === 404) return null
+    throw cause
   })
 }
 
 /** Every installation of the GitHub App. Takes the App's JWT. */
 export function appInstallations(jwt: string): Promise<Installation[]> {
-  return githubAll<Installation>(jwt, '/app/installations?per_page=100', 10)
+  return githubAll(jwt, '/app/installations?per_page=100', 10, (page: Installation[]) => page)
 }
 
 /** Pages of 100 repositories fetched for suggestions; more than this is not worth the wait. */
@@ -118,6 +142,7 @@ export async function installationRepositories(token: string): Promise<(Reposito
     REPOSITORY_PAGES,
     (page) => page.repositories,
   )
+
   return data.map((repo) => ({
     repo: repo.full_name,
     private: repo.private,
@@ -146,26 +171,34 @@ const pullRequest = (data: Pick<Schema['pull-request'], 'number' | 'html_url'>):
 export async function upsertPullRequest(token: string, repo: RepoRef, input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest & { created: boolean }> {
   const head = encodeURIComponent(`${repo.owner}:${input.branch}`)
   const [open] = await github<Schema['pull-request-simple'][]>(token, `/repos/${repoSlug(repo)}/pulls?state=open&head=${head}`)
+
   if (open) {
     const updated = await github<Schema['pull-request']>(token, `/repos/${repoSlug(repo)}/pulls/${open.number}`, {
       method: 'PATCH',
       body: { title: input.title, body: input.body },
     })
+
     return { ...pullRequest(updated), created: false }
   }
+
   const created = await github<Schema['pull-request']>(token, `/repos/${repoSlug(repo)}/pulls`, {
     method: 'POST',
     body: { title: input.title, body: input.body, head: input.branch, base: input.base, draft: true },
   })
+
   return { ...pullRequest(created), created: true }
 }
 
+/** An issue to open; GitHub refuses an empty `labels`, so it is left out instead. */
+export type NewIssue = { title: string; body: string; labels?: string[] }
+
 /** Open an issue; returns its number and URL. */
-export async function createIssue(token: string, repo: RepoRef, input: { title: string; body: string; labels?: string[] }): Promise<{ number: number; url: string }> {
+export async function createIssue(token: string, repo: RepoRef, input: NewIssue): Promise<{ number: number; url: string }> {
   const issue = await github<Schema['issue']>(token, `/repos/${repoSlug(repo)}/issues`, {
     method: 'POST',
     body: { title: input.title, body: input.body, ...(input.labels?.length ? { labels: input.labels } : {}) },
   })
+
   return { number: issue.number, url: issue.html_url }
 }
 
@@ -188,10 +221,12 @@ const COMMENT_PAGES = 3
 /** Read an issue or pull request and its comments. */
 export async function readIssue(token: string, repo: RepoRef, number: number): Promise<IssueThread> {
   const path = `/repos/${repoSlug(repo)}/issues/${number}`
+
   const [issue, comments] = await Promise.all([
     github<Schema['issue']>(token, path),
-    githubAll<Schema['issue-comment']>(token, `${path}/comments?per_page=100`, COMMENT_PAGES),
+    githubAll(token, `${path}/comments?per_page=100`, COMMENT_PAGES, (page: Schema['issue-comment'][]) => page),
   ])
+
   return {
     number: issue.number,
     url: issue.html_url,
@@ -199,7 +234,7 @@ export async function readIssue(token: string, repo: RepoRef, number: number): P
     state: issue.state,
     author: issue.user?.login ?? 'ghost',
     pullRequest: Boolean(issue.pull_request),
-    labels: issue.labels.map((label) => (typeof label === 'string' ? label : label.name ?? '')).filter(Boolean),
+    labels: issue.labels.map((label) => (isString(label) ? label : label.name ?? '')).filter(Boolean),
     body: issue.body ?? '',
     comments: comments.map((comment) => ({ author: comment.user?.login ?? 'ghost', createdAt: comment.created_at, body: comment.body ?? '' })),
   }

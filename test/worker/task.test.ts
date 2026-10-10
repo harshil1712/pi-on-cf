@@ -4,17 +4,10 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_ROUTES } from '~/server/agent-routes'
 import { parseRepo } from '~/server/github'
 import { sessionBasePath } from '~/contract'
-import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from './entry'
-
-const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>
-
-async function session(id: string): Promise<DurableObjectStub<TestPiSession>> {
-  const name = await registry().sessionAgentNameForTest(id)
-  if (!name) throw new Error(`No session behind ${id}`)
-  return env.PiSession.getByName(name) as unknown as DurableObjectStub<TestPiSession>
-}
+import { registry, session } from './stubs'
 
 const REGISTRY_URL = 'http://localhost/api/agents/pi-registry/singleton'
+
 const sessionUrl = (id: string) => `http://localhost/${sessionBasePath(id)}`
 
 /** One callable over an Agent's WebSocket, the way AgentClient sends it from the browser. */
@@ -22,16 +15,20 @@ async function call(url: string, method: string, args: unknown[]): Promise<{ suc
   const response = await routeAgentRequest(new Request(url, { headers: { Upgrade: 'websocket' } }), env, AGENT_ROUTES)
   const socket = response!.webSocket!
   socket.accept()
+
   const reply = new Promise<{ success: boolean; result?: unknown; error?: string }>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('No RPC response')), 10_000)
     socket.addEventListener('message', (event) => {
       const data = JSON.parse(String(event.data)) as { type?: string; id?: string }
+
       if (data.type !== 'rpc' || data.id !== 'call-1') return
       clearTimeout(timer)
       resolve(data as { success: boolean })
     })
   })
+
   socket.send(JSON.stringify({ type: 'rpc', id: 'call-1', method, args }))
+
   try {
     return await reply
   } finally {
@@ -43,6 +40,7 @@ async function taskSession(files: Record<string, string>) {
   const { id } = await registry().createSession()
   const pi = await session(id)
   const task = await pi.setTaskForTest(files)
+
   return { id, pi, task }
 }
 

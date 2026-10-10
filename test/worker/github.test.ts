@@ -31,7 +31,9 @@ describe('installationRepositories', () => {
     return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const page = Number(new URL(input instanceof Request ? input.url : input).searchParams.get('page') ?? '1')
       const headers = new Headers({ 'Content-Type': 'application/json' })
+
       if (page < pages.length) headers.set('Link', `<${API}/installation/repositories?per_page=100&page=${page + 1}>; rel="next"`)
+
       return new Response(JSON.stringify({ total_count: pages.flat().length, repositories: pages[page - 1] }), { headers })
     })
   }
@@ -61,8 +63,10 @@ describe('comments and reactions', () => {
     const calls: { method: string; url: string; body: unknown }[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       calls.push({ method: init?.method ?? 'GET', url: input instanceof Request ? input.url : input.toString(), body: JSON.parse(init?.body as string) })
+
       return Response.json({ html_url: 'https://github.com/octo/demo/issues/5#issuecomment-1' }, { status: 201 })
     })
+
     return calls
   }
 
@@ -90,6 +94,7 @@ describe('issues', () => {
     const calls: { method: string; url: string; body: unknown }[] = []
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       calls.push({ method: init?.method ?? 'GET', url: input instanceof Request ? input.url : input.toString(), body: JSON.parse(init?.body as string) })
+
       return Response.json({ number: 7, html_url: 'https://github.com/octo/demo/issues/7' }, { status: 201 })
     })
     expect(await createIssue('t', { owner: 'octo', name: 'demo' }, { title: 'Bug', body: 'It breaks.' })).toEqual({ number: 7, url: 'https://github.com/octo/demo/issues/7' })
@@ -103,7 +108,9 @@ describe('issues', () => {
   it('reads an issue with its comments, and renders it for the model', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = input instanceof Request ? input.url : input.toString()
+
       if (url.includes('/comments')) return Response.json([{ user: { login: 'bob' }, created_at: '2026-01-02T00:00:00Z', body: 'Me too.' }])
+
       return Response.json({ number: 7, html_url: 'https://github.com/octo/demo/issues/7', title: 'Bug', state: 'open', user: { login: 'alice' }, labels: [{ name: 'bug' }, 'p1'], body: 'It breaks.' })
     })
     const issue = await readIssue('t', { owner: 'octo', name: 'demo' }, 7)

@@ -27,17 +27,23 @@ export function isSkillName(name: string): boolean {
 export async function publishSkill(bucket: R2Bucket, name: string, files: ReadonlyMap<string, string>): Promise<void> {
   if (!isSkillName(name)) throw new Error(`"${name}" is not a valid skill name.`)
   const skillFile = files.get('SKILL.md')
+
   if (skillFile === undefined) throw new Error(`${name} has no SKILL.md.`)
   const parsed = parseSkillMarkdown(skillFile)
+
   if (!parsed?.description) throw new Error('SKILL.md needs name and description frontmatter.')
+
   if (parsed.name !== name) throw new Error(`SKILL.md is named "${parsed.name}"; it must match its directory, "${name}".`)
+
   if ((await builtInSkills.list()).some((skill) => skill.name === name)) throw new Error(`"${name}" is a built-in skill.`)
 
   const directory = `${SKILLS_PREFIX}${name}/`
   const paths = [...files.keys()].filter((path) => path !== 'SKILL.md').concat('SKILL.md')
+
   for (const path of paths) await bucket.put(`${directory}${path}`, files.get(path)!)
   const published = new Set(paths.map((path) => `${directory}${path}`))
   const stale = (await listKeys(bucket, directory)).filter((key) => !published.has(key))
+
   if (stale.length) await bucket.delete(stale)
 }
 
@@ -46,10 +52,13 @@ export async function readSharedSkill(bucket: R2Bucket, name: string): Promise<M
   if (!isSkillName(name)) return null
   const directory = `${SKILLS_PREFIX}${name}/`
   const files = new Map<string, string>()
+
   for (const key of await listKeys(bucket, directory)) {
     const object = await bucket.get(key)
+
     if (object) files.set(key.slice(directory.length), await object.text())
   }
+
   return files.has('SKILL.md') ? files : null
 }
 
@@ -57,24 +66,30 @@ export async function readSharedSkill(bucket: R2Bucket, name: string): Promise<M
 export async function deleteSharedSkill(bucket: R2Bucket, name: string): Promise<boolean> {
   if (!isSkillName(name)) return false
   const keys = await listKeys(bucket, `${SKILLS_PREFIX}${name}/`)
+
   if (!keys.length) return false
   // SKILL.md first, so a skill is never listed with only some of its files.
   const skillFile = `${SKILLS_PREFIX}${name}/SKILL.md`
+
   if (keys.includes(skillFile)) await bucket.delete(skillFile)
   // R2 refuses an empty list, which a skill of only SKILL.md would leave.
   const rest = keys.filter((key) => key !== skillFile)
+
   if (rest.length) await bucket.delete(rest)
+
   return true
 }
 
 async function listKeys(bucket: R2Bucket, prefix: string): Promise<string[]> {
   const keys: string[] = []
   let cursor: string | undefined
+
   do {
     const listed = await bucket.list({ prefix, cursor })
     keys.push(...listed.objects.map(({ key }) => key))
     cursor = listed.truncated ? listed.cursor : undefined
   } while (cursor)
+
   return keys
 }
 
@@ -112,6 +127,7 @@ export class SkillCatalog {
   sync(registry: Registry): Promise<boolean> {
     // One sync at a time: two would list the bucket twice and race to install.
     this.#syncing = this.#syncing.catch(() => false).then(() => this.#sync(registry))
+
     return this.#syncing
   }
 
@@ -123,8 +139,10 @@ export class SkillCatalog {
     this.#syncing = this.#syncing.catch(() => false).then(() => {
       this.#sources = this.#createSources()
       this.#fingerprint = undefined
+
       return this.#sync(registry)
     })
+
     return this.#syncing
   }
 
@@ -138,13 +156,16 @@ export class SkillCatalog {
           console.warn(`pi skills: could not refresh "${source.id}"`, error)
         }
       }))
+
       if (this.#current() === this.#fingerprint) return false
     }
+
     // `skills()` logs a source that fails to list and builds without it.
     const extension = await skills(this.#sources)
     // Read after `skills()`: a source's fingerprint is settled once it has listed.
     this.#fingerprint = this.#current()
     registry.install(extension)
+
     return true
   }
 

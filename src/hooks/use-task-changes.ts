@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PiSessionContract, SessionTask, TaskChange } from '~/contract'
+import { errorMessage } from '~/lib/error-message'
 
 type ChangesStub = Pick<PiSessionContract, 'listChanges' | 'readChange'>
 
@@ -22,13 +23,15 @@ export function useTaskChanges(stub: ChangesStub, task: SessionTask | null, vers
     const request = ++requestRef.current
     setLoading(true)
     setError('')
+
     try {
       const next = await stub.listChanges()
+
       if (request !== requestRef.current) return
       setChanges(next)
       setSelectedPath((current) => next.some((change) => change.path === current) ? current : (next[0]?.path ?? ''))
     } catch (caught) {
-      if (request === requestRef.current) setError(caught instanceof Error ? caught.message : String(caught))
+      if (request === requestRef.current) setError(errorMessage(caught))
     } finally {
       if (request === requestRef.current) setLoading(false)
     }
@@ -44,13 +47,15 @@ export function useTaskChanges(stub: ChangesStub, task: SessionTask | null, vers
   useEffect(() => {
     setDiff('')
     setDiffError('')
+
     if (!selectedPath) return
     let ignore = false
     stub.readChange(selectedPath).then((next) => {
       if (!ignore) setDiff(next)
     }).catch((caught) => {
-      if (!ignore) setDiffError(caught instanceof Error ? caught.message : String(caught))
+      if (!ignore) setDiffError(errorMessage(caught))
     })
+
     return () => { ignore = true }
   }, [changes, selectedPath, stub])
 

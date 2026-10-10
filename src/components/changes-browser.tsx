@@ -35,6 +35,7 @@ export function ChangesBrowser(props: ChangesBrowserProps) {
   // A change that disappears from the list (or an empty list) drops the phone back to the list.
   const drilled = drilledIn && Boolean(selectedPath)
   const back = () => { setDrilled(false); onSelectPath('') }
+
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Changes" aria-busy={loading}>
       <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-kumo-hairline pr-2 pl-3.5">
@@ -52,6 +53,7 @@ export function ChangesBrowser(props: ChangesBrowserProps) {
         )}
         {changes.map((change) => {
           const selected = selectedPath === change.path
+
           return (
             <button
               className={cn('flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2.5 text-left md:py-1.5', selected ? 'bg-kumo-fill' : 'hover:bg-kumo-tint active:bg-kumo-fill')}

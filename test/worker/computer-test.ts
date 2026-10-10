@@ -2,42 +2,48 @@ import { type DurableObjectStorageLike, getWorkspace, withWorkspace, type Worksp
 import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-javascript'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient } from '@cloudflare/computer/git'
+import type { ToolExecutionApi } from '@earendil-works/pi-durable'
 import { DurableObject } from 'cloudflare:workers'
+import type { JsonObject } from '~/lib/json'
 import { createWorkspaceTools } from '~/server/workspace-tools'
 import { WORKSPACE_ROOT } from '~/server/workspace-root'
 
 type ToolOutcome = { isError: boolean; text: string }
 
-class ComputerTestHost extends DurableObject<Env> {}
-
-function workspaceOptions(self: ComputerTestHost): WorkspaceOptions {
-  const { ctx, env } = self as unknown as { ctx: DurableObjectState; env: Env }
-  return {
-    storage: ctx.storage as unknown as DurableObjectStorageLike,
-    backends: [
-      new WorkerShellBackend({
-        id: 'shell',
-        loader: env.LOADER,
-        workspace: { binding: 'ComputerTest', id: ctx.id.toString() },
-        ctx,
-      }),
-      new WorkerJavaScriptBackend({ id: 'javascript', loader: env.LOADER, root: WORKSPACE_ROOT }),
-    ],
-    git: createGitClient(),
+class ComputerTestHost extends DurableObject<Env> {
+  /** The Computer backends for this host, as `withWorkspace` wires them in. */
+  static workspaceOptions(this: void, self: ComputerTestHost): WorkspaceOptions {
+    return {
+      // SAFETY: this is the storage Computer is built for; its type differs only in `sql.exec`'s generic row type.
+      storage: self.ctx.storage as DurableObjectStorageLike,
+      backends: [
+        new WorkerShellBackend({
+          id: 'shell',
+          loader: self.env.LOADER,
+          workspace: { binding: 'ComputerTest', id: self.ctx.id.toString() },
+          ctx: self.ctx,
+        }),
+        new WorkerJavaScriptBackend({ id: 'javascript', loader: self.env.LOADER, root: WORKSPACE_ROOT }),
+      ],
+      git: createGitClient(),
+    }
   }
 }
 
 /** A Durable Object with the same Computer backends as PiSession, minus the container. */
-export class ComputerTest extends withWorkspace(ComputerTestHost, workspaceOptions) {
+export class ComputerTest extends withWorkspace(ComputerTestHost, ComputerTestHost.workspaceOptions) {
   async exerciseShell(): Promise<{ exitCode: number; stdout: string; stderr: string; output: string }> {
     const workspace = await getWorkspace(this)
     await workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
     await workspace.fs.writeFile(`${WORKSPACE_ROOT}/input.txt`, 'cloudflare computer\n')
+
     using handle = await workspace.runtime.exec(
       "cat input.txt | tr '[:lower:]' '[:upper:]' > output.txt && cat output.txt",
       { cwd: WORKSPACE_ROOT, encoding: 'utf8', backend: 'shell' },
     )
+
     const result = await handle.result()
+
     return {
       exitCode: result.exitCode,
       stdout: result.stdout,
@@ -48,6 +54,7 @@ export class ComputerTest extends withWorkspace(ComputerTestHost, workspaceOptio
 
   async exerciseGit(): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     const workspace = await getWorkspace(this)
+
     using handle = await workspace.runtime.exec([
       `mkdir -p ${WORKSPACE_ROOT}/repo`,
       `cd ${WORKSPACE_ROOT}/repo`,
@@ -59,13 +66,16 @@ export class ComputerTest extends withWorkspace(ComputerTestHost, workspaceOptio
       "git commit -m 'initial commit'",
       'git log --oneline -1',
     ].join(' && '), { cwd: WORKSPACE_ROOT, encoding: 'utf8', backend: 'shell' })
+
     const result = await handle.result()
+
     return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr }
   }
 
   async exerciseJavaScript(): Promise<{ exitCode: number; stdout: string; value: unknown; file: string }> {
     const workspace = await getWorkspace(this)
     await workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
+
     using handle = await workspace.runtime.exec(`
       import { writeFile } from 'node:fs/promises'
       export default async function (input) {
@@ -75,7 +85,9 @@ export class ComputerTest extends withWorkspace(ComputerTestHost, workspaceOptio
         return { value }
       }
     `, { backend: 'javascript', encoding: 'utf8', input: { number: 21 } })
+
     const result = await handle.result()
+
     return {
       exitCode: result.exitCode,
       stdout: result.stdout,
@@ -90,17 +102,23 @@ export class ComputerTest extends withWorkspace(ComputerTestHost, workspaceOptio
       workspace: await getWorkspace(this),
       shell: { defaultBackend: 'shell', backends: { shell: { description: 'Worker shell' } } },
     })
+
     const byName = new Map(tools.map((tool) => [tool.name, tool]))
-    const call = async (name: string, args: unknown): Promise<ToolOutcome> => {
+
+    const call = async (name: string, args: JsonObject): Promise<ToolOutcome> => {
       const result = await byName.get(name)!.execute(
-        args as never,
-        { callId: `call-${name}` } as never,
-        { abortSignal: new AbortController().signal } as never,
+        args,
+        { callId: `call-${name}` } as ToolExecutionApi,
+        { abortSignal: new AbortController().signal, value: () => undefined, toString: () => '' },
       )
+
       const text = (result.content ?? []).map((part) => part.type === 'text' ? part.text : '').join('')
+
       return { isError: result.isError === true, text }
     }
+
     await call('write', { path: `${WORKSPACE_ROOT}/notes.txt`, content: 'hello pi\n' })
+
     return {
       names: tools.map((tool) => tool.name).sort(),
       replay: Object.fromEntries(tools.map((tool) => [tool.name, tool.replay ?? 'unsafe'])),

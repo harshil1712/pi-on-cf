@@ -19,12 +19,13 @@ const REPLAY_SAFE = new Set(['read', 'ls', 'find', 'grep', 'write', 'delete'])
  */
 export function createWorkspaceTools(options: CreatePiToolsOptions): ToolRegistration[] {
   const { tools, execute } = createPiTools(options)
+
   return tools.map((tool): ToolRegistration => ({
     name: tool.name,
     description: tool.description,
-    // Computer declares plain JSON Schema. pi validates with TypeBox, which
-    // accepts it; only the static type differs.
-    parameters: tool.parameters as unknown as ToolRegistration['parameters'],
+    // SAFETY: Computer declares plain JSON Schema. pi validates with TypeBox,
+    // which accepts it; only the static type differs.
+    parameters: tool.parameters as ToolRegistration['parameters'],
     ...(tool.constrainedSampling ? { constrainedSampling: tool.constrainedSampling } : {}),
     replay: REPLAY_SAFE.has(tool.name) ? 'safe' : 'unsafe',
     async execute(args, api, context) {
@@ -32,6 +33,7 @@ export function createWorkspaceTools(options: CreatePiToolsOptions): ToolRegistr
         { id: api.callId, name: tool.name, arguments: args },
         { abortSignal: context.abortSignal },
       )
+
       return { content, isError }
     },
   }))

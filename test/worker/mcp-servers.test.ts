@@ -1,16 +1,18 @@
-import { env } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
 import { cleanMcpServerInput, type JsonObject, type McpCallResult, type McpServerCatalog } from '~/server/mcp-servers'
 import type { McpServerSummary } from '~/contract'
-import type { PiRegistry as TestPiRegistry } from './entry'
-
-const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>
+import { errorMessage } from '~/lib/error-message'
+import { registry } from './stubs'
 
 /** The registry's MCP methods for sessions, typed directly: the stub's mapping of recursive JSON types is too deep for tsc. */
 type McpRpc = {
   listMcpTools(): Promise<McpServerCatalog[]>
   callMcpTool(serverId: string, name: string, args: JsonObject): Promise<McpCallResult>
 }
+
+// The stub's RPC mapping of these recursive JSON types is too deep for tsc,
+// so the registry is typed against the app's own interface here.
+// oxlint-disable-next-line anti-slop/no-chained-type-assertions
 const mcp = () => registry() as unknown as McpRpc
 
 /**
@@ -19,7 +21,7 @@ const mcp = () => registry() as unknown as McpRpc
  * an unhandled rejection.
  */
 async function failure(call: Promise<unknown>): Promise<string> {
-  return call.then(() => 'no error', (error: unknown) => (error instanceof Error ? error.message : String(error)))
+  return call.then(() => 'no error', (cause: unknown) => errorMessage(cause))
 }
 
 /** A fresh test server under a unique name, since tests share the registry. */

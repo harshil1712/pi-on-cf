@@ -4,29 +4,37 @@ import {
   fauxProvider,
   fauxText,
   fauxToolCall,
+  type FauxProviderState,
   type Message,
   type Model,
-  type Provider,
+  type SimpleStreamOptions,
   type TranscriptContext,
 } from '@earendil-works/pi-ai'
 import { getWorkspace } from '@cloudflare/computer'
 import type { GitClient } from '@cloudflare/computer/git'
 import { callable } from 'agents'
-import type { PiModel } from 'agents/harness/pi'
 import type { SkillSource } from 'agents/skills'
 import { PiRegistry as AppPiRegistry } from '~/server/pi-registry'
-import { PiSession as AppPiSession, type ModelChoice } from '~/server/pi-session'
+import { PiSession as AppPiSession } from '~/server/pi-session'
+import type { TestMcp } from './test-mcp'
 import type { ModelOption, RunStatus, SessionTask } from '~/contract'
 import { bucketSkills, builtInSkills } from '~/server/skills'
 import { webFetchTool, type WebFetchSource } from 'agents/webfetch/pi'
 import { webSearchTool, type WebSearchSource } from 'agents/websearch/pi'
 import type { ToolRegistration } from '@earendil-works/pi-durable'
-import type { TestMcp } from './test-mcp'
+
+/** The test worker's bindings, typed to the classes it registers. */
+export type TestBindings = Omit<Env, 'PiRegistry' | 'PiSession'> & {
+  PiRegistry: DurableObjectNamespace<PiRegistry>
+  PiSession: DurableObjectNamespace<PiSession>
+  TestMcp: DurableObjectNamespace<TestMcp>
+}
 
 /** The page every `web_fetch` in tests reads back. */
 const FAKE_FETCH: WebFetchSource = {
   fetch({ url }) {
     const content = '# Fake page\n\nHello from the fake source.'
+
     return Promise.resolve({
       url,
       finalUrl: url,
@@ -55,15 +63,20 @@ const FAKE_SEARCH: WebSearchSource = {
 }
 
 export { ComputerTest } from './computer-test'
+
 export { TestMcp } from './test-mcp'
+
 export { WorkspaceProxy, WorkspaceServiceProxy } from '@cloudflare/computer'
+
 // The browser tool's codemode runtime is a facet of each session.
 export { CodemodeRuntime } from '@cloudflare/codemode'
 
 function textOf(content: Message['content'] | undefined): string {
   if (content === undefined) return ''
-  if (typeof content === 'string') return content
-  return content.map((part) => ('text' in part && typeof part.text === 'string' ? part.text : '')).join('')
+
+  if (!Array.isArray(content)) return content
+
+  return content.map((part) => ('text' in part ? part.text : '')).join('')
 }
 
 /**
@@ -81,55 +94,75 @@ function textOf(content: Message['content'] | undefined): string {
  * - After a tool result it answers `tool said: <result>`.
  * - Anything else is echoed back.
  */
-function script(context: TranscriptContext, _options: unknown, _state: unknown, model: Model<string>): AssistantMessage {
+function script(context: TranscriptContext, _options: SimpleStreamOptions | undefined, _state: FauxProviderState, model: Model<string>): AssistantMessage {
   // pi places system-prompt changes positionally, so one can follow the input.
   const last = context.messages.filter((message) => message.role !== 'system').at(-1)
+
   if (last?.role === 'toolResult') {
     return fauxAssistantMessage([fauxText(`${last.isError ? 'tool failed' : 'tool said'}: ${textOf(last.content)}`)])
   }
+
   const prompt = last?.role === 'user' ? textOf(last.content) : ''
+
   if (prompt === 'model') return fauxAssistantMessage([fauxText(`model: ${model.id}`)])
+
   if (prompt === 'fail') return fauxAssistantMessage([], { stopReason: 'error', errorMessage: 'faux model failure' })
+
   if (prompt === 'slow') return fauxAssistantMessage([fauxText('slow '.repeat(1500))])
   const section = prompt === 'catalog' ? 'skills' : /^section (\S+)$/.exec(prompt)?.[1]
+
   if (section) {
     // Replaying system messages in order yields the current sections.
     let text: string | null = null
+
     for (const message of context.messages) {
       if (message.role === 'system' && message.sections && section in message.sections) text = message.sections[section] ?? null
     }
+
     return fauxAssistantMessage([fauxText(`${prompt === 'catalog' ? 'catalog' : section}: ${text ?? 'none'}`)])
   }
+
   const tool = /^tool (\S+) (\{[\s\S]*\})$/.exec(prompt)
+
   if (tool) {
     return fauxAssistantMessage([fauxToolCall(tool[1]!, JSON.parse(tool[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: 'toolUse' })
   }
+
   const resource = /^resource (\S+) (\S+)$/.exec(prompt)
+
   if (resource) {
     return fauxAssistantMessage([fauxToolCall('read_skill_resource', { name: resource[1], path: resource[2] })], { stopReason: 'toolUse' })
   }
+
   const skill = /^skill (\S+)$/.exec(prompt)
+
   if (skill) {
     return fauxAssistantMessage([fauxToolCall('activate_skill', { name: skill[1] })], { stopReason: 'toolUse' })
   }
+
   const exec = /^exec (\S+) ([\s\S]+)$/.exec(prompt)
+
   if (exec) {
     return fauxAssistantMessage([fauxToolCall('exec', { backend: exec[1], command: exec[2] })], { stopReason: 'toolUse' })
   }
+
   const write = /^write (\S+) ([\s\S]+)$/.exec(prompt)
+
   if (write) {
     return fauxAssistantMessage([fauxToolCall('write', { path: write[1], content: write[2] })], { stopReason: 'toolUse' })
   }
+
   return fauxAssistantMessage([fauxText(`echo: ${prompt}`)])
 }
 
 /** The application's PiSession, with pi-ai's faux provider instead of Workers AI. */
 export class PiSession extends AppPiSession {
   /** Two faux models on one provider, so tests can switch between them. */
-  protected override modelSource(): { provider: Provider; default: PiModel; choices: ModelChoice[] } {
+  protected override modelSource() {
     const faux = fauxProvider({ tokensPerSecond: 500, models: [{ id: 'faux-a' }, { id: 'faux-b' }] })
     faux.setResponses(Array.from({ length: 100 }, () => script))
     const [a, b] = faux.models
+
     return { provider: faux.provider, default: a, choices: [{ model: a, label: 'Faux A' }, { model: b, label: 'Faux B' }] }
   }
 
@@ -163,29 +196,34 @@ export class PiSession extends AppPiSession {
     const git = workspace.git as GitClient
     const dir = '/workspace/demo'
     await workspace.fs.mkdir(dir, { recursive: true })
+
     for (const [path, content] of Object.entries(files)) {
       const target = `${dir}/${path}`
       await workspace.fs.mkdir(target.slice(0, target.lastIndexOf('/')), { recursive: true })
       await workspace.fs.writeFile(target, content)
     }
+
     await git.init({ dir })
     await git.add({ dir, paths: Object.keys(files) })
     const { oid } = await git.commit({ dir, message: 'base' })
     await git.branch({ dir, name: 'pi/test', checkout: true })
     const task: SessionTask = { repo: 'octo/demo', baseBranch: 'main', baseCommit: oid, branch: 'pi/test', dir }
     this.setState({ ...this.state, task })
+
     return task
   }
 
   /** Sync the `mcp` tool with the registry now, as after a prompt; `true` when it changed. */
   async syncMcpToolsForTest(): Promise<boolean> {
     await this.harness.pi()
+
     return this.mcpTools.sync(this.registry)
   }
 
   /** Sync skills with the bucket now; `true` when the catalog changed. */
   async syncSkillsForTest(): Promise<boolean> {
     await this.harness.pi()
+
     return this.skills.sync(this.registry)
   }
 
@@ -201,6 +239,7 @@ export class PiSession extends AppPiSession {
   /** Submit and wait for pi's answer: its status, text and the transcript entry kinds. */
   async promptForTest(prompt: string): Promise<{ status: string; text?: string; kinds: string[] }> {
     const result = await this.harness.prompt(prompt)
+
     return { status: result.status, text: result.text, kinds: result.messages.map((entry) => entry.kind) }
   }
 }
@@ -215,15 +254,17 @@ export class PiRegistry extends AppPiRegistry {
 
   /** Add the test MCP server over RPC, as `connectMcpServer` adds a URL. */
   async connectTestMcpServerForTest(name = 'Test'): Promise<string> {
-    const binding = (this.env as unknown as { TestMcp: DurableObjectNamespace<TestMcp> }).TestMcp
+    const binding = (this.env as TestBindings).TestMcp
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_')
     await this.addMcpServer(name, binding, { id })
+
     return id
   }
 
   /** Break the server's connection, as a network failure would. */
   async dropMcpConnectionForTest(id: string): Promise<void> {
     const connection = this.mcp.mcpConnections[id]
+
     if (!connection) throw new Error(`No connection ${id}`)
     await this.mcp.closeConnection(id)
     // closeConnection forgets the connection; restore it in a failed state.
@@ -234,9 +275,12 @@ export class PiRegistry extends AppPiRegistry {
   /** The physical Agent name behind a catalog entry, or null once it is gone. */
   async sessionAgentNameForTest(sessionId: string): Promise<string | null> {
     const stub = await this.sessions.get(sessionId)
+
     if (!stub) return null
     const name = stub.id.name
+
     if (!name) throw new Error(`Session ${sessionId} has no Agent name`)
+
     return name
   }
 }

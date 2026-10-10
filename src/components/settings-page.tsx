@@ -8,9 +8,10 @@ import { Empty } from '@cloudflare/kumo/components/empty'
 import { Input } from '@cloudflare/kumo/components/input'
 import { Switch } from '@cloudflare/kumo/components/switch'
 import { PlugsConnectedIcon } from '@phosphor-icons/react'
-import type { ConnectMcpServerResult, McpServerState, McpServerSummary } from '~/contract'
+import type { ConnectMcpServerInput, ConnectMcpServerResult, McpServerState, McpServerSummary } from '~/contract'
 import { useSessionRegistry } from '~/hooks/use-session-registry'
 import { TopBar } from './top-bar'
+import { errorMessage } from '~/lib/error-message'
 
 const STATES: Record<McpServerState, { label: string; variant: BadgeVariant }> = {
   ready: { label: 'Connected', variant: 'success' },
@@ -36,7 +37,8 @@ export function SettingsPage({ mcpError }: { mcpError?: string }) {
   const { mcpRevision } = registry
   useEffect(() => {
     let ignore = false
-    registry.agent.stub.listMcpServers().then((list) => { if (!ignore) setServers(list) }, (caught: unknown) => { if (!ignore) setError(message(caught)) })
+    registry.agent.stub.listMcpServers().then((list) => { if (!ignore) setServers(list) }, (cause: unknown) => { if (!ignore) setError(errorMessage(cause)) })
+
     return () => { ignore = true }
   }, [registry.agent.stub, mcpRevision])
 
@@ -53,16 +55,22 @@ export function SettingsPage({ mcpError }: { mcpError?: string }) {
   async function act(key: string, operation: () => Promise<ConnectMcpServerResult | McpServerSummary | void>): Promise<boolean> {
     setBusy(key)
     setError('')
+
     try {
       const result = await operation()
+
       if (result && 'authUrl' in result && result.authUrl) {
         window.location.assign(result.authUrl)
+
         return true
       }
+
       if (result) update('server' in result ? result.server : result)
+
       return true
     } catch (caught) {
-      setError(message(caught))
+      setError(errorMessage(caught))
+
       return false
     } finally {
       setBusy(null)
@@ -131,6 +139,7 @@ function ServerRow({ server, busy, onConnect, onEnabledChange, onRemove }: {
 }) {
   const state = STATES[server.state]
   const canConnect = server.state === 'authenticating' || server.state === 'failed' || server.state === 'not-connected'
+
   return (
     <li className="flex flex-col gap-2 rounded-lg border border-kumo-hairline bg-kumo-base p-3">
       <div className="flex items-start gap-3">
@@ -166,7 +175,7 @@ function ServerRow({ server, busy, onConnect, onEnabledChange, onRemove }: {
 }
 
 /** Name, URL, and one optional header, such as `Authorization: Bearer <token>`. */
-function AddServerForm({ busy, onAdd }: { busy: boolean; onAdd: (input: { name: string; url: string; headers?: Record<string, string> }) => Promise<boolean> }) {
+function AddServerForm({ busy, onAdd }: { busy: boolean; onAdd: (input: ConnectMcpServerInput) => Promise<boolean> }) {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [headerName, setHeaderName] = useState('')
@@ -176,6 +185,7 @@ function AddServerForm({ busy, onAdd }: { busy: boolean; onAdd: (input: { name: 
     event.preventDefault()
     const header = headerName.trim()
     const added = await onAdd({ name, url, ...(header ? { headers: { [header]: headerValue } } : {}) })
+
     if (added) {
       setName('')
       setUrl('')
@@ -216,8 +226,4 @@ function RemoveServerDialog({ server, open, onOpenChange, onRemove }: { server: 
       </Dialog>
     </Dialog.Root>
   )
-}
-
-function message(caught: unknown): string {
-  return caught instanceof Error ? caught.message : String(caught)
 }

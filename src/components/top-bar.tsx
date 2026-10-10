@@ -8,6 +8,7 @@ import { cn } from '@cloudflare/kumo/utils'
  */
 export function TopBar({ children, actions, bordered = true }: { children?: ReactNode; actions?: ReactNode; bordered?: boolean }) {
   const { open, isMobile } = useSidebar()
+
   return (
     <header className={cn('flex h-[58px] shrink-0 items-center gap-2 pr-3 pl-3', bordered && 'border-b border-kumo-line bg-kumo-base')}>
       {(isMobile || !open) && <Sidebar.Trigger aria-label="Show sessions" title="Sessions" />}

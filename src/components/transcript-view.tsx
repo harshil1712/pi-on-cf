@@ -15,8 +15,10 @@ const HighlightedMarkdown = lazy(() => import('./highlighted-code').then((module
 function latestAssistantText(entries: TranscriptEntry[]) {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index]
+
     if (entry?.type === 'message' && entry.role === 'assistant') return entry.text
   }
+
   return ''
 }
 

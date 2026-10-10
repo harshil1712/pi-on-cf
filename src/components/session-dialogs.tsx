@@ -32,6 +32,7 @@ export function RenameSessionDialog({ name, open, onOpenChange, onRename }: Rena
 
 function RenameForm({ name, onCancel, onSubmit }: { name: string | undefined; onCancel: () => void; onSubmit: (name: string | undefined) => void }) {
   const [value, setValue] = useState(name ?? '')
+
   return (
     <form
       className="flex flex-col gap-4"

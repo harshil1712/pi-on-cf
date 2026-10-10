@@ -1,3 +1,4 @@
+import type { GitIdentity } from '@cloudflare/computer/git'
 import { createAppAuth } from '@octokit/auth-app'
 import type { Repository } from '~/contract'
 import { appInstallations, type Installation, installationOwner, installationRepositories, type RepoRef, repoInstallation, repoSlug } from './github'
@@ -15,12 +16,15 @@ function appAuth(config: GitHubAppConfig) {
   if (!config.GITHUB_APP_ID || !config.GITHUB_APP_PRIVATE_KEY || !config.GITHUB_OWNERS) {
     throw new Error('Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY and GITHUB_OWNERS to work on GitHub repositories.')
   }
+
   const key = `${config.GITHUB_APP_ID}:${config.GITHUB_APP_PRIVATE_KEY}`
   let auth = auths.get(key)
+
   if (!auth) {
     auth = createAppAuth({ appId: config.GITHUB_APP_ID, privateKey: config.GITHUB_APP_PRIVATE_KEY })
     auths.set(key, auth)
   }
+
   return auth
 }
 
@@ -31,6 +35,7 @@ function appAuth(config: GitHubAppConfig) {
  */
 export function isOwner(config: Pick<Env, 'GITHUB_OWNERS'>, login: string | undefined): boolean {
   if (!login) return false
+
   return (config.GITHUB_OWNERS ?? '').split(',').some((owner) => owner.trim().toLowerCase() === login.toLowerCase())
 }
 
@@ -47,10 +52,13 @@ const owned = (config: GitHubAppConfig, installation: Installation) => isOwner(c
 export async function repoToken(config: GitHubAppConfig, repo: RepoRef): Promise<string> {
   const auth = appAuth(config)
   const installation = await repoInstallation((await auth({ type: 'app' })).token, repo)
+
   if (!installation || !owned(config, installation)) {
     throw new Error(`The GitHub App is not installed on ${repoSlug(repo)}. Install it there, on an account in GITHUB_OWNERS, to work on it.`)
   }
+
   const { token } = await auth({ type: 'installation', installationId: installation.id, repositoryNames: [repo.name] })
+
   return token
 }
 
@@ -58,10 +66,13 @@ export async function repoToken(config: GitHubAppConfig, repo: RepoRef): Promise
 export async function listRepositories(config: GitHubAppConfig): Promise<Repository[]> {
   const auth = appAuth(config)
   const installations = (await appInstallations((await auth({ type: 'app' })).token)).filter((installation) => owned(config, installation))
+
   const lists = await Promise.all(installations.map(async (installation) => {
     const { token } = await auth({ type: 'installation', installationId: installation.id })
+
     return installationRepositories(token)
   }))
+
   return lists.flat()
     .sort((a, b) => b.pushedAt.localeCompare(a.pushedAt))
     .map(({ pushedAt: _pushedAt, ...repo }) => repo)
@@ -71,7 +82,8 @@ export async function listRepositories(config: GitHubAppConfig): Promise<Reposit
  * Who Pi commits as: the App's bot user, which GitHub links to the App.
  * The bot's user ID is in `https://api.github.com/users/<slug>%5Bbot%5D`.
  */
-export function botIdentity(env: Pick<Env, 'GITHUB_APP_SLUG' | 'GITHUB_APP_BOT_ID'>): { name: string; email: string } {
+export function botIdentity(env: Pick<Env, 'GITHUB_APP_SLUG' | 'GITHUB_APP_BOT_ID'>): GitIdentity {
   const name = `${env.GITHUB_APP_SLUG}[bot]`
+
   return { name, email: `${env.GITHUB_APP_BOT_ID}+${name}@users.noreply.github.com` }
 }

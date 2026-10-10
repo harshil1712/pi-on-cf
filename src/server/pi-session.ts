@@ -5,6 +5,7 @@ import {
   withWorkspace,
   type WorkspaceOptions,
 } from '@cloudflare/computer'
+import type { ArtifactClient } from '@cloudflare/computer/artifacts'
 import { ContainerBackend, withWorkspaceContainer } from '@cloudflare/computer/backends/container'
 import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-javascript'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
@@ -80,6 +81,7 @@ const preamble = (web: string[]) =>
   ].join('\n')
 
 const FILE_LIST_LIMIT = 1000
+
 /**
  * Computer anchors exclude globs at the listed root, so `**\/` is needed to
  * skip these at any depth. Matching the directory itself also stops the walk
@@ -89,8 +91,10 @@ const FILE_LIST_EXCLUDE = ['**/node_modules', '**/.git']
 
 /** Storage key of this session's catalog entry ID, set by the registry. */
 const CATALOG_ENTRY_KEY = 'pi-on-cf:catalog-entry'
+
 /** Storage key of the GitHub issue a mention started the session from. */
 const THREAD_KEY = 'pi-on-cf:github-thread'
+
 /** Storage key of the run status last reported to the registry. */
 const RUN_STATUS_KEY = 'pi-on-cf:run-status'
 
@@ -109,29 +113,35 @@ class PiSessionHost extends withWorkspaceContainer(class extends Agent<Env, PiSe
     instance: 'standard-2',
     ignore: CONTAINER_LOCAL_PATHS,
   })
-}
 
-function workspaceOptions(self: PiSessionHost): WorkspaceOptions {
-  const { ctx, env } = self as unknown as { ctx: DurableObjectState; env: Env }
-  const ref = { binding: 'PiSession', id: ctx.id.toString() }
-  return {
-    storage: ctx.storage as unknown as DurableObjectStorageLike,
-    backends: [
-      new WorkerShellBackend({ id: 'shell', loader: env.LOADER, workspace: ref, ctx }),
-      new WorkerJavaScriptBackend({
-        id: 'javascript',
-        loader: env.LOADER,
-        root: WORKSPACE_ROOT,
-        allowGitNetwork: true,
-        allowArtifactNetwork: true,
-      }),
-      self.container,
-    ],
-    git: createGitClient(),
-    defaultGitIdentity: botIdentity(env),
-    // Scoped to this session, so its repos can be found and deleted with it.
-    artifacts: env.ARTIFACTS ? { binding: env.ARTIFACTS, sessionId: ctx.id.toString() } : undefined,
-    observer: createCloudflareObserver({ tracing }),
+  /**
+   * Computer's options for this session's workspace. Static, so it can read
+   * the protected `ctx` and `env` without making them callable over RPC.
+   */
+  static workspaceOptions(this: void, self: PiSessionHost): WorkspaceOptions {
+    const { ctx, env } = self
+    const ref = { binding: 'PiSession', id: ctx.id.toString() }
+
+    return {
+      // SAFETY: this is the storage Computer is built for; its type differs only in `sql.exec`'s generic row type.
+      storage: ctx.storage as DurableObjectStorageLike,
+      backends: [
+        new WorkerShellBackend({ id: 'shell', loader: env.LOADER, workspace: ref, ctx }),
+        new WorkerJavaScriptBackend({
+          id: 'javascript',
+          loader: env.LOADER,
+          root: WORKSPACE_ROOT,
+          allowGitNetwork: true,
+          allowArtifactNetwork: true,
+        }),
+        self.container,
+      ],
+      git: createGitClient(),
+      defaultGitIdentity: botIdentity(env),
+      // Scoped to this session, so its repos can be found and deleted with it.
+      artifacts: env.ARTIFACTS ? { binding: env.ARTIFACTS, sessionId: ctx.id.toString() } : undefined,
+      observer: createCloudflareObserver({ tracing }),
+    }
   }
 }
 
@@ -139,7 +149,7 @@ function workspaceOptions(self: PiSessionHost): WorkspaceOptions {
  * One Pi session: a pi-durable conversation hosted by `PiHarness`, and a
  * Computer workspace, in one Durable Object.
  */
-export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
+export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.workspaceOptions) {
   /**
    * Clients reach a session through the registry by its catalog entry ID.
    * The identity frame would hand them this Agent's physical name, which
@@ -156,7 +166,10 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   readonly mcpTools = new McpToolset({
     ctx: this.ctx,
     loader: this.env.LOADER,
-    // Typed here: the stub's mapping of the registry's recursive JSON types is too deep for tsc.
+    // The registry implements McpSource, but tsc cannot check it: the stub's
+    // mapping of the recursive Json type is too deep. One hop is checked too.
+    // SAFETY: PiRegistry declares listMcpTools and callMcpTool with McpSource's signatures.
+    // oxlint-disable-next-line anti-slop/no-chained-type-assertions
     source: () => getAgentByName(this.env.PiRegistry, PI_REGISTRY_INSTANCE) as unknown as Promise<McpSource>,
   })
   /**
@@ -191,25 +204,27 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
           openRepository: (input) => this.#openRepository(input),
           onPullRequest: async (pullRequest) => {
             const { task } = this.state
+
             if (task) await this.#setTask({ ...task, pullRequest })
           },
           thread: () => this.ctx.storage.get<GitHubThread>(THREAD_KEY),
         }), ...createSkillTools({
           bucket: this.env.BUCKET,
           workspace,
-          onChange: () => this.skills.reload(this.registry),
+          onChange: async () => { await this.skills.reload(this.registry) },
         }), ...web],
       })
       // Skills are optional: an unreachable bucket must not stop pi opening.
-      await this.skills.sync(this.registry).catch((error: unknown) => {
-        console.error('Could not load skills', error)
+      await this.skills.sync(this.registry).catch((cause: unknown) => {
+        console.error('Could not load skills', cause)
       })
       // So are MCP servers: pi opens without them if the registry can't list them.
-      await this.mcpTools.sync(this.registry).catch((error: unknown) => {
-        console.error('Could not load MCP tools', error)
+      await this.mcpTools.sync(this.registry).catch((cause: unknown) => {
+        console.error('Could not load MCP tools', cause)
       })
       const models = createModels()
       models.setProvider(this.model.provider)
+
       return Harness.open(storage, {
         models,
         registry: this.registry,
@@ -229,6 +244,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
+
     if (this.browser) this.lifecycle.use(this.browser)
     // Lifecycle disposes in reverse order, so this teardown runs before
     // the harness closes, and the browser closes last.
@@ -241,9 +257,10 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
    * choice must be on `provider`, since pi resolves models there. Tests
    * override this with pi-ai's faux provider.
    */
-  protected modelSource(): { provider: Provider; default: PiModel; choices: ModelChoice[] } {
+  protected modelSource(): ModelSource {
     const ai = createAI({ binding: this.env.AI, id: this.env.AI_GATEWAY_ID || 'default' })
     const choices = modelOptions(this.env.AI_MODEL).map(({ id, label }) => ({ model: ai(id), label }))
+
     return { provider: ai.provider, default: ai(this.env.AI_MODEL), choices }
   }
 
@@ -281,6 +298,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   override fetch(request: Request): Promise<Response> {
     // computerd dials back to `/api` through the container egress.
     if (new URL(request.url).pathname === '/api') return this.container.handleFetch(request)
+
     return super.fetch(request)
   }
 
@@ -306,6 +324,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     // writeFile does not create parents, so the root must exist up front.
     await (await getWorkspace(this)).fs.mkdir(WORKSPACE_ROOT, { recursive: true })
     await this.#watchStatus()
+
     for (const connection of this.getConnections()) await this.#watch(connection)
   }
 
@@ -325,6 +344,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     // first prompt gives the session. It never throws.
     await this.#touchRegistry(prompt)
     this.ctx.waitUntil(this.#syncCatalogs())
+
     return { operationId: receipt.operationId, accepted: receipt.accepted }
   }
 
@@ -332,6 +352,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   async steer(prompt: string) {
     const receipt = await this.harness.session().steer(validPrompt(prompt))
     this.ctx.waitUntil(this.#syncCatalogs())
+
     return { operationId: receipt.operationId, accepted: receipt.accepted }
   }
 
@@ -342,8 +363,8 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
    */
   @callable()
   abort(): void {
-    this.ctx.waitUntil(this.harness.abort().catch((error: unknown) => {
-      console.error('Could not abort the session', error)
+    this.ctx.waitUntil(this.harness.abort().catch((cause: unknown) => {
+      console.error('Could not abort the session', cause)
     }))
   }
 
@@ -356,6 +377,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   @callable()
   async setModel(id: string): Promise<void> {
     const choice = this.model.choices.find(({ model }) => model.id === id)
+
     if (!choice) throw new Error(`Unknown model: ${id}`)
     await this.harness.session().setModel(choice.model)
     this.setState({ ...this.state, model: id })
@@ -367,6 +389,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     if (!this.browser) return null
     // Page only, with its address bar: DevTools beside it is noise for watching or logging in.
     const view = await this.browser.liveView({ mode: 'tab' })
+
     // Browser Run keeps a blank tab open; it is nothing to watch.
     return (view?.targets ?? [])
       .filter((target) => target.type === 'page' && target.pageUrl !== 'about:blank')
@@ -376,29 +399,36 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   @callable()
   async listFiles(): Promise<WorkspaceFile[]> {
     const workspace = await getWorkspace(this)
+
     const found = await workspace.fs.find(WORKSPACE_ROOT, '**', {
       exclude: FILE_LIST_EXCLUDE,
       limit: FILE_LIST_LIMIT,
     })
+
     const files = await Promise.all(found
       .filter((entry) => entry.type === 'file')
       .map(async ({ path }) => {
         const stat = await workspace.fs.stat(path)
+
         return { path, size: stat.size, mtime: new Date(stat.mtime).toISOString() }
       }))
+
     return files.sort((a, b) => a.path.localeCompare(b.path))
   }
 
   @callable()
   async listChanges(): Promise<TaskChange[]> {
     const { task } = this.state
+
     return task ? listChanges(await getWorkspace(this), task) : []
   }
 
   @callable()
   async readChange(path: string): Promise<string> {
     const { task } = this.state
+
     if (!task) throw new Error('This session has no repository.')
+
     return readChange(await getWorkspace(this), task, path)
   }
 
@@ -407,7 +437,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     path = workspacePath(path)
     const workspace = await getWorkspace(this)
     const [content, stat] = await Promise.all([workspace.fs.readFile(path, 'utf8'), workspace.fs.stat(path)])
+
     if (!stat.isFile) throw new Error(`Not a file: ${path}`)
+
     return { path, content, size: stat.size, mtime: new Date(stat.mtime).toISOString() }
   }
 
@@ -440,18 +472,21 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     const task = await cloneTask(await getWorkspace(this), token, { ...input, branch: `pi/${entryId.slice(0, 8)}` })
     await this.#setTask(task)
     // Offer the repository's own skills from the next model request.
-    await this.skills.sync(this.registry).catch((error: unknown) => {
-      console.error('Could not load the repository\'s skills', error)
+    await this.skills.sync(this.registry).catch((cause: unknown) => {
+      console.error('Could not load the repository\'s skills', cause)
     })
+
     return task
   }
 
   /** Set the task, and copy what the catalog lists to the registry. */
   async #setTask(task: SessionTask): Promise<void> {
     this.setState({ ...this.state, task })
+
     // The catalog's copy is for display: failing to update it must not fail the caller.
     try {
       const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY)
+
       if (!entryId) return
       const registry = await getAgentByName(this.env.PiRegistry, PI_REGISTRY_INSTANCE)
       await registry.setTask(entryId, { repo: task.repo, branch: task.branch, ...(task.pullRequest ? { pullRequest: task.pullRequest } : {}) })
@@ -472,16 +507,19 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     this.#watches.clear()
     this.#statusWatch = undefined
     await Promise.allSettled(watches.map((watch) => watch.stop()))
+
     if (this.ctx.container?.running) {
-      await this.ctx.container.destroy().catch((error: unknown) => {
-        console.error('Could not stop the session container', error)
+      await this.ctx.container.destroy().catch((cause: unknown) => {
+        console.error('Could not stop the session container', cause)
       })
     }
+
     // Artifacts repos live outside the object's storage, so the wipe misses them.
     if (this.env.ARTIFACTS) {
       try {
-        const { artifacts } = await getWorkspace(this)
-        const repos = await artifacts.list() as { name: string }[]
+        // Computer declares `WorkspaceClient.artifacts` as `any`; it is an ArtifactClient's methods over RPC.
+        const artifacts: Pick<ArtifactClient, 'list' | 'delete'> = (await getWorkspace(this)).artifacts
+        const repos = await artifacts.list()
         await Promise.all(repos.map((repo) => artifacts.delete(repo.name)))
       } catch (error) {
         console.error('Could not delete the session\'s Artifacts repos', error)
@@ -497,8 +535,10 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     stream.start(async (events) => {
       if (connection.readyState !== WebSocket.OPEN) {
         await this.#unwatch(connection)
+
         return
       }
+
       send(connection, { type: 'pi:events', events })
     })
   }
@@ -529,13 +569,17 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   /** Record a run status, and copy it to the registry when it changed. Never throws. */
   async #reportStatus(status: RunStatus, always = false): Promise<void> {
     const changed = status !== this.#status
+
     if (!changed && !always) return
+
     try {
       if (changed) {
         this.#status = status
         await this.ctx.storage.put(RUN_STATUS_KEY, status)
       }
+
       const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY)
+
       if (!entryId) return
       const registry = await getAgentByName(this.env.PiRegistry, PI_REGISTRY_INSTANCE)
       await registry.setStatus(entryId, status)
@@ -546,6 +590,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
 
   async #unwatch(connection: Connection): Promise<void> {
     const watch = this.#watches.get(connection.id)
+
     if (!watch) return
     this.#watches.delete(connection.id)
     await watch.stop()
@@ -561,12 +606,14 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
       await this.harness.pi()
     } catch (error) {
       console.error('Could not open pi', error)
+
       return
     }
+
     await Promise.all([
-      this.skills.sync(this.registry).catch((error: unknown) => console.error('Could not refresh skills', error)),
+      this.skills.sync(this.registry).catch((cause: unknown) => console.error('Could not refresh skills', cause)),
       // A server enabled, disabled or added in Settings reaches the session from its next model request.
-      this.mcpTools.sync(this.registry).catch((error: unknown) => console.error('Could not refresh MCP tools', error)),
+      this.mcpTools.sync(this.registry).catch((cause: unknown) => console.error('Could not refresh MCP tools', cause)),
     ])
   }
 
@@ -574,6 +621,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   async #touchRegistry(prompt: string): Promise<void> {
     try {
       const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY)
+
       if (!entryId) return
       const registry = await getAgentByName(this.env.PiRegistry, PI_REGISTRY_INSTANCE)
       await registry.touchSession(entryId, prompt)
@@ -586,6 +634,9 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
 /** A model the picker offers, as pi resolves it and as the page shows it. */
 export type ModelChoice = { model: PiModel; label: string }
 
+/** The provider pi resolves models on, the model new sessions start with, and the picker's choices. */
+export type ModelSource = { provider: Provider; default: PiModel; choices: ModelChoice[] }
+
 function send(connection: Connection, message: PiEventsMessage): void {
   try {
     connection.send(JSON.stringify(message))
@@ -596,7 +647,10 @@ function send(connection: Connection, message: PiEventsMessage): void {
 
 function validPrompt(prompt: string): string {
   prompt = prompt.trim()
+
   if (!prompt) throw new Error('A prompt is required.')
+
   if (prompt.length > 20_000) throw new Error('Prompt exceeds 20,000 characters.')
+
   return prompt
 }

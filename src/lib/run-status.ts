@@ -15,6 +15,7 @@ export type RunStatus = 'idle' | 'running' | 'failed'
 export function unansweredReason(event: AgentEvent): string | undefined {
   if (event.type !== 'submission' || event.record.status !== 'unanswered') return undefined
   const { reason } = event.record
+
   return reason === 'aborted' || reason === 'withdrawn' ? undefined : reason
 }
 
@@ -31,6 +32,7 @@ function reduceRunStatusEvent(status: RunStatus, event: AgentEvent): RunStatus {
   switch (event.type) {
     case 'snapshot':
       if (event.run !== undefined) return 'running'
+
       return status === 'running' ? 'idle' : status
     case 'run_start':
       return 'running'

@@ -19,6 +19,7 @@ export const LINK_SAFETY: LinkSafetyConfig = {
 
 function LinkSafetyDialog({ isOpen, onClose, onConfirm, url }: LinkSafetyModalProps) {
   const [copied, setCopied] = useState(false)
+
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <Dialog size="base" className="flex flex-col gap-3 p-6">

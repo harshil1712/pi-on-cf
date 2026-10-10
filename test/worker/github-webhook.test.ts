@@ -5,32 +5,29 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_ROUTES } from '~/server/agent-routes'
 import { followUpPrompt, type GitHubMention, handleGitHubWebhook, issuePrompt, mentionFromEvent } from '~/server/github-webhook'
 import { type PiEventsMessage, sessionBasePath } from '~/contract'
-import type { PiRegistry as TestPiRegistry, PiSession as TestPiSession } from './entry'
-
-const registry = () => env.PiRegistry.getByName('singleton') as unknown as DurableObjectStub<TestPiRegistry>
-
-async function session(id: string): Promise<DurableObjectStub<TestPiSession>> {
-  const name = await registry().sessionAgentNameForTest(id)
-  if (!name) throw new Error(`No session behind ${id}`)
-  return env.PiSession.getByName(name) as unknown as DurableObjectStub<TestPiSession>
-}
+import type { EntryRecord } from '@earendil-works/pi-durable'
+import type { Json } from '~/lib/json'
+import { registry, session } from './stubs'
 
 /** The text of the session's prompts, from the snapshot a browser gets on connect. */
 async function prompts(id: string): Promise<string> {
   const response = await routeAgentRequest(new Request(`http://localhost/${sessionBasePath(id)}`, { headers: { Upgrade: 'websocket' } }), env, AGENT_ROUTES)
   const socket = response!.webSocket!
   socket.accept()
+
   try {
-    const entries = await new Promise<{ kind: string; model?: unknown }[]>((resolve, reject) => {
+    const entries = await new Promise<readonly EntryRecord[]>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('No pi:events frame')), 5_000)
       socket.addEventListener('message', (event) => {
         const data = JSON.parse(String(event.data)) as PiEventsMessage
         const snapshot = data.type === 'pi:events' ? data.events[0] : undefined
+
         if (snapshot?.type !== 'snapshot') return
         clearTimeout(timer)
-        resolve(snapshot.entries as unknown as { kind: string; model?: unknown }[])
+        resolve(snapshot.entries)
       })
     })
+
     return JSON.stringify(entries.filter((entry) => entry.kind === 'pi.user'))
   } finally {
     socket.close()
@@ -40,11 +37,13 @@ async function prompts(id: string): Promise<string> {
 const config = { GITHUB_WEBHOOK_SECRET: 'test-webhook-secret', GITHUB_APP_SLUG: 'pi-test', GITHUB_OWNERS: 'octo, Org' }
 
 let nextNumber = 100
+
 const user = (login: string, type = 'User') => ({ login, type })
 
 /** An `issue_comment` payload: on a pull request when `pullRequest` is set. */
 function issueComment(body: string, options: { sender?: string; senderType?: string; action?: string; number?: number; pullRequest?: boolean; issueAuthor?: string } = {}) {
   const number = options.number ?? ++nextNumber
+
   return {
     action: options.action ?? 'created',
     issue: {
@@ -88,6 +87,7 @@ describe('mentionFromEvent', () => {
       repository: { full_name: 'octo/demo' },
       sender: user('Octo'),
     }
+
     expect(mentionFromEvent('pull_request_review_comment', payload, config)).toMatchObject({
       number: 6,
       kind: 'pull_request',
@@ -105,8 +105,17 @@ describe('mentionFromEvent', () => {
       'a bot': issueComment('@pi-test please fix', { sender: 'octo', senderType: 'Bot' }),
       'an edit': issueComment('@pi-test please fix', { action: 'edited' }),
     }
+
     for (const [name, payload] of Object.entries(ignored)) expect(mentionFromEvent('issue_comment', payload, config), name).toBeNull()
     expect(mentionFromEvent('issues', issueComment('@pi-test'), config)).toBeNull()
+  })
+
+  it('ignores a payload without the fields a mention needs', () => {
+    const { comment: _comment, ...withoutComment } = issueComment('@pi-test please fix')
+    expect(mentionFromEvent('issue_comment', withoutComment, config)).toBeNull()
+    expect(mentionFromEvent('issue_comment', { ...issueComment('@pi-test please fix'), sender: null }, config)).toBeNull()
+    expect(mentionFromEvent('pull_request_review_comment', issueComment('@pi-test please fix'), config)).toBeNull()
+    expect(mentionFromEvent('issue_comment', [], config)).toBeNull()
   })
 })
 
@@ -134,11 +143,13 @@ describe('prompts', () => {
 })
 
 /** A delivery signed with the test secret, or with `signature` when given. */
-async function delivery(event: string, payload: unknown, signature?: string | null): Promise<Request> {
+async function delivery(event: string, payload: Json, signature?: string | null): Promise<Request> {
   const body = JSON.stringify(payload)
   const headers = new Headers({ 'X-GitHub-Event': event, 'X-GitHub-Delivery': crypto.randomUUID(), 'Content-Type': 'application/json' })
   const value = signature === undefined ? await sign('test-webhook-secret', body) : signature
+
   if (value) headers.set('X-Hub-Signature-256', value)
+
   return new Request('http://localhost/webhooks/github', { method: 'POST', headers, body })
 }
 

@@ -3,24 +3,24 @@ import { Collapsible } from '@cloudflare/kumo/components/collapsible'
 import { Loader } from '@cloudflare/kumo/components/loader'
 import { cn } from '@cloudflare/kumo/utils'
 import { ArrowCounterClockwiseIcon, BrainIcon, CaretRightIcon, ScissorsIcon, WarningCircleIcon, WrenchIcon } from '@phosphor-icons/react'
+import type { JsonObject } from '@earendil-works/pi-ai'
+import { isString } from '~/lib/json'
 import type { TranscriptEntry } from '~/lib/transcript'
 
-function toolArgumentSummary(args: unknown) {
-  if (!args || typeof args !== 'object') return ''
-  const values = args as Record<string, unknown>
+function toolArgumentSummary(args: JsonObject) {
   for (const key of ['path', 'command', 'source', 'pattern', 'query', 'search', 'name']) {
-    if (typeof values[key] === 'string') return values[key]
+    const value = args[key]
+
+    if (isString(value)) return value
   }
+
   return ''
 }
 
 function toolLabel(name: string) {
   const label = name.replaceAll('_', ' ')
-  return label.charAt(0).toUpperCase() + label.slice(1)
-}
 
-function stringify(value: unknown) {
-  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+  return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
 export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type: 'reasoning' | 'summary' | 'tool' }> }) {
@@ -47,7 +47,9 @@ export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type
     label = toolLabel(entry.name)
     detail = toolArgumentSummary(entry.args)
   }
+
   if (running && entry.type === 'tool') icon = <Loader size={14} aria-label="Tool running" />
+
   if (error) icon = <WarningCircleIcon size={14} aria-label="Failed" />
 
   return (
@@ -66,7 +68,7 @@ export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type
         {entry.type === 'tool' ? (
           <>
             <ActivitySection label="Input">{JSON.stringify(entry.args ?? {}, null, 2)}</ActivitySection>
-            {entry.result !== undefined && <ActivitySection label={error ? 'Error' : 'Output'}>{stringify(entry.result)}</ActivitySection>}
+            {entry.result !== undefined && <ActivitySection label={error ? 'Error' : 'Output'}>{entry.result}</ActivitySection>}
           </>
         ) : <div className="max-h-60 overflow-y-auto px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-kumo-subtle">{entry.text}</div>}
       </Collapsible.Panel>

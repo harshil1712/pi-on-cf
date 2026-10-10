@@ -1,24 +1,16 @@
-import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
+import type { Message } from '@earendil-works/pi-ai'
 import type { AgentEvent, EntryRecord } from '@earendil-works/pi-durable'
 import { describe, expect, it } from 'vitest'
 import { EMPTY_VIEW, messageText, reducePiEvents, transcriptEntries } from '~/lib/transcript'
-
-const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
-
-function assistant(content: AssistantMessage['content']): AssistantMessage {
-  return { role: 'assistant', content, api: 'faux', provider: 'faux', model: 'faux', usage, stopReason: 'stop', timestamp: 0 }
-}
+import { assistant, entry as entryWithId, runStart, snapshot, unanswered, usage } from '../pi-events'
 
 let nextId = 1
+
 function entry(kind: string, message?: Message, extra: Partial<EntryRecord> = {}): EntryRecord {
-  return { id: nextId++, conversationId: 1, kind, ...(message ? { model: [message] } : {}), ...extra } as EntryRecord
+  return { ...entryWithId(nextId++, kind, message), ...extra }
 }
 
 const user = (text: string) => entry('pi.user', { role: 'user', content: text, timestamp: 0 })
-
-function snapshot(entries: EntryRecord[], extra: Partial<Extract<AgentEvent, { type: 'snapshot' }>> = {}): AgentEvent {
-  return { type: 'snapshot', entries, tools: [], compactions: [], inbox: [], agent: {}, usage: { models: {}, tools: {} }, ...extra } as AgentEvent
-}
 
 describe('messageText', () => {
   it('reads string and block content', () => {
@@ -38,6 +30,7 @@ describe('pi event reducer', () => {
         { type: 'image', data: 'QUJD', mimeType: 'image/png' },
       ], isError: false, timestamp: 0 }),
     ])])
+
     const tool = transcriptEntries(view).entries.find((row) => row.type === 'tool' && row.name === 'browser')
     expect(tool && 'result' in tool ? tool.result : '').toBe('Screenshot of example.com')
     expect(tool && 'images' in tool ? tool.images : []).toEqual([{ alt: 'Screenshot', src: 'data:image/png;base64,QUJD' }])
@@ -50,6 +43,7 @@ describe('pi event reducer', () => {
         { type: 'image', data: 'data:image/jpeg;base64,AAAA', mimeType: 'image/jpeg' },
       ], isError: false, timestamp: 0 }),
     ])])
+
     const tool = transcriptEntries(view).entries.find((row) => row.type === 'tool' && row.name === 'browser')
     expect(tool && 'images' in tool ? tool.images : []).toEqual([{ alt: 'Screenshot', src: 'data:image/jpeg;base64,AAAA' }])
   })
@@ -57,7 +51,8 @@ describe('pi event reducer', () => {
   it('projects a snapshot into reasoning, tool calls, and responses', () => {
     const view = reducePiEvents(EMPTY_VIEW, [snapshot([
       user('Create a file'),
-      entry('pi.system', { role: 'system', content: 'prompt', timestamp: 0 } as unknown as Message),
+      // Bookkeeping the transcript does not show.
+      entry('pi.system'),
       entry('pi.assistant', assistant([
         { type: 'thinking', thinking: 'I should write it.' },
         { type: 'toolCall', id: 'call-1', name: 'write', arguments: { path: '/workspace/a.ts' } },
@@ -66,7 +61,7 @@ describe('pi event reducer', () => {
       entry('pi.assistant', assistant([{ type: 'text', text: 'Done.' }])),
     ])])
 
-    expect(transcriptEntries(view).entries.map((row) => ({ type: row.type, ...('status' in row ? { status: row.status } : {}) }))).toEqual([
+    expect(transcriptEntries(view).entries.map((row) => ('status' in row ? { type: row.type, status: row.status } : { type: row.type }))).toEqual([
       { type: 'message' },
       { type: 'reasoning', status: 'complete' },
       { type: 'tool', status: 'complete' },
@@ -77,7 +72,7 @@ describe('pi event reducer', () => {
 
   it('streams the live assistant message and settles it on message_end', () => {
     const final = entry('pi.assistant', assistant([{ type: 'text', text: 'Hello there' }]))
-    let view = reducePiEvents(EMPTY_VIEW, [snapshot([user('hi')]), { type: 'run_start', inputs: [] } as AgentEvent])
+    let view = reducePiEvents(EMPTY_VIEW, [snapshot([user('hi')]), runStart])
     view = reducePiEvents(view, [
       { type: 'message_start', message: assistant([]) },
       { type: 'message_update', usage, changes: [
@@ -142,8 +137,8 @@ describe('pi event reducer', () => {
   })
 
   it('reports unanswered submissions but not aborts', () => {
-    const failed = reducePiEvents(EMPTY_VIEW, [{ type: 'submission', record: { status: 'unanswered', reason: 'no_model' } } as unknown as AgentEvent])
-    const aborted = reducePiEvents(EMPTY_VIEW, [{ type: 'submission', record: { status: 'unanswered', reason: 'aborted' } } as unknown as AgentEvent])
+    const failed = reducePiEvents(EMPTY_VIEW, [unanswered('no_model')])
+    const aborted = reducePiEvents(EMPTY_VIEW, [unanswered('aborted')])
 
     expect(failed.error).toMatch(/no_model/)
     expect(aborted.error).toBe('')

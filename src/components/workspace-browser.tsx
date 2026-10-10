@@ -7,16 +7,20 @@ import { cn } from '@cloudflare/kumo/utils'
 import { ArrowLeftIcon, CheckIcon, CopyIcon, DownloadSimpleIcon, FileTextIcon, FolderOpenIcon } from '@phosphor-icons/react'
 import type { WorkspaceFile } from '~/contract'
 import { CODE_VIEWER } from './code-viewer'
+import { isOneOf } from '~/lib/one-of'
 
 // Shiki and the Markdown renderer load on demand, outside the main bundle.
 const HighlightedFile = lazy(() => import('./highlighted-code').then((module) => ({ default: module.HighlightedFile })))
+
 const MarkdownFile = lazy(() => import('./highlighted-code').then((module) => ({ default: module.MarkdownFile })))
 
 const isMarkdownPath = (path: string) => /\.(md|markdown|mdx)$/i.test(path)
 
 function formatBytes(bytes: number) {
   if (bytes < 1_000) return `${bytes} B`
+
   if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`
+
   return `${(bytes / 1_000_000).toFixed(1)} MB`
 }
 
@@ -36,6 +40,7 @@ type WorkspaceBrowserProps = {
 function splitPath(path: string) {
   const index = path.lastIndexOf('/')
   const dir = path.slice(0, index).replace(/^\/workspace/, '')
+
   return { name: path.slice(index + 1), dir: dir ? `${dir}/` : '' }
 }
 
@@ -55,6 +60,7 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
   useEffect(() => {
     if (!copied) return
     const timer = window.setTimeout(() => setCopied(false), 1500)
+
     return () => window.clearTimeout(timer)
   }, [copied])
 
@@ -87,6 +93,7 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
         {files.map((file) => {
           const { name, dir } = splitPath(file.path)
           const selected = selectedPath === file.path
+
           return (
             <button
               className={cn('flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2.5 text-left md:py-1.5', selected ? 'bg-kumo-fill' : 'hover:bg-kumo-tint active:bg-kumo-fill')}
@@ -129,7 +136,7 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
                       variant="segmented"
                       tabs={[{ value: 'preview', label: 'Preview' }, { value: 'source', label: 'Source' }]}
                       value={markdownView}
-                      onValueChange={(value) => setMarkdownView(value as 'preview' | 'source')}
+                      onValueChange={(value) => { if (isOneOf(['preview', 'source'], value)) setMarkdownView(value) }}
                     />
                   </div>
                 )}
