@@ -1,18 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Badge } from '@cloudflare/kumo/components/badge'
 import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button, buttonVariants } from '@cloudflare/kumo/components/button'
-import { Popover } from '@cloudflare/kumo/components/popover'
 import { Tabs } from '@cloudflare/kumo/components/tabs'
 import { cn } from '@cloudflare/kumo/utils'
-import { ArrowsOutSimpleIcon, GitBranchIcon, GitPullRequestIcon, GlobeIcon, PencilSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
-import type { BrowserTabView } from '~/contract'
+import { GitBranchIcon, GitPullRequestIcon, GlobeIcon, PencilSimpleIcon, SidebarSimpleIcon } from '@phosphor-icons/react'
+import { BrowserViewPanel } from './browser-view'
 import { RenameSessionDialog } from './session-dialogs'
 import { TopBar } from './top-bar'
 import { ChangesBrowser } from './changes-browser'
 import { PromptComposer } from './prompt-composer'
 import { TranscriptView } from './transcript-view'
 import { WorkspaceBrowser } from './workspace-browser'
+import { useBrowserView } from '~/hooks/use-browser-view'
 import { usePiSession } from '~/hooks/use-pi-session'
 
 export function SessionPage({ sessionId }: { sessionId: string }) {
@@ -29,21 +29,23 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const session = usePiSession(sessionId)
   const [filesOpen, setFilesOpen] = useState(true)
   const [renameOpen, setRenameOpen] = useState(false)
-  const [panel, setPanel] = useState<'files' | 'changes'>('changes')
-  // The browser's Live View tabs: the probe says whether the deployment runs a browser at all,
-  // each click mints fresh URLs because they only watch for about five minutes.
-  const [browserTabs, setBrowserTabs] = useState<BrowserTabView[] | null>(null)
-  const [browserOpen, setBrowserOpen] = useState(false)
-  const { browserLiveView, isReady } = session
-  useEffect(() => {
-    if (!isReady) return
-    void browserLiveView().then((tabs) => { if (tabs) setBrowserTabs(tabs) }).catch(() => {})
-  }, [isReady, browserLiveView])
-  const openBrowser = async () => {
-    setBrowserTabs((await browserLiveView()) ?? browserTabs)
-    setBrowserOpen(true)
-  }
+  const [panel, setPanel] = useState<'files' | 'changes' | 'browser'>('changes')
   const { task } = session
+  // Finished browser calls: each one lists Pi's tabs again while the Browser view is up.
+  const browserRuns = useMemo(() => session.entries.filter((entry) => entry.type === 'tool' && entry.name === 'browser' && entry.status !== 'running').length, [session.entries])
+  const browser = useBrowserView(session.browserLiveView, { isReady: session.isReady, active: panel === 'browser', browserRuns })
+  // What the Workspace panel shows: Changes only with a task, Browser only with a browser.
+  const view = panel === 'browser' && browser.available ? 'browser' : task && panel === 'changes' ? 'changes' : 'files'
+  const showPanel = (next: 'files' | 'changes' | 'browser') => {
+    setPanel(next)
+    // Live View URLs only connect for about five minutes, so opening the view mints fresh ones.
+    if (next === 'browser') void browser.refresh({ reconnect: true })
+  }
+  const openBrowser = () => {
+    showPanel('browser')
+    setFilesOpen(true)
+    session.setMobileView('workspace')
+  }
   const name = session.summary?.name || session.summary?.title || session.summary?.repo || `Untitled ${sessionId.slice(0, 8)}`
   const status = STATUS[!session.isReady ? 'connecting' : session.isRunning ? 'running' : 'ready']
   const chatView = session.mobileView === 'chat'
@@ -55,33 +57,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
     <main className="@container flex min-h-0 flex-1 flex-col overflow-hidden">
       <TopBar
         actions={<>
-          {browserTabs !== null && (
-            <Popover open={browserOpen} onOpenChange={setBrowserOpen}>
-              <Popover.Trigger render={
-                <Button variant="ghost" size="sm" icon={<GlobeIcon />} onClick={() => void openBrowser()} aria-label="Pi's browser" title="Pi's browser" />
-              } />
-              <Popover.Content side="bottom" align="end" className="w-80 p-2">
-                <span className="block px-2 pt-1 pb-1.5 text-xs font-medium text-kumo-subtle">Pi's browser tabs</span>
-                {browserTabs.length === 0 ? (
-                  <p className="px-2 pb-1 text-sm text-kumo-subtle">No tabs open. The browser closes after a few idle minutes; ask Pi to look at a page with its browser tool, then watch here.</p>
-                ) : (
-                  <ul>
-                    {browserTabs.map((tab, index) => (
-                      <li key={index}>
-                        <a href={tab.url} target="_blank" rel="noreferrer" className="flex items-start justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-kumo-tint">
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium">{tab.title || 'Untitled'}</span>
-                            <span className="block truncate text-xs text-kumo-subtle">{tab.pageUrl}</span>
-                          </span>
-                          <ArrowsOutSimpleIcon size={14} className="mt-1 shrink-0 text-kumo-subtle" aria-hidden="true" />
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <span className="block px-2 pt-1.5 text-xs text-kumo-subtle">Watch live for about five minutes; ask again after that.</span>
-              </Popover.Content>
-            </Popover>
+          {browser.available && (
+            <Button variant="ghost" size="sm" shape="square" className="size-8.5 @4xl:size-6.5" icon={<GlobeIcon />} onClick={openBrowser} aria-pressed={view === 'browser' && filesOpen} aria-label="Pi's browser" title="Pi's browser" />
           )}
           {task?.pullRequest && (
             <a href={task.pullRequest.url} target="_blank" rel="noreferrer" className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
@@ -159,27 +136,32 @@ function SessionView({ sessionId }: { sessionId: string }) {
           aria-label="Workspace"
           aria-labelledby="workspace-tab"
           className={cn(
-            'flex min-h-0 min-w-0 flex-1 bg-kumo-base @4xl:w-[clamp(320px,36cqw,480px)] @4xl:flex-none @4xl:border-l @4xl:border-kumo-hairline',
-            !filesOpen && '@4xl:hidden',
+            // One width for every view, wide enough for Pi's desktop-sized browser pages.
+            'flex min-h-0 min-w-0 flex-1 bg-kumo-base @4xl:w-[clamp(320px,45cqw,720px)] @4xl:flex-none @4xl:border-l @4xl:border-kumo-hairline',
             chatView && 'hidden @4xl:flex',
+            // Last: class merging keeps the last display class, so the toggle must win over `@4xl:flex`.
+            !filesOpen && '@4xl:hidden',
           )}
         >
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {task && (
+            {(task || browser.available) && (
               <div className="shrink-0 border-b border-kumo-hairline px-3 py-1.5">
                 <Tabs
                   size="sm"
                   variant="segmented"
                   tabs={[
-                    { value: 'changes', label: <>Changes<span className="ml-1 text-kumo-subtle">{session.changes.changes.length}</span></> },
+                    ...task ? [{ value: 'changes', label: <>Changes<span className="ml-1 text-kumo-subtle">{session.changes.changes.length}</span></> }] : [],
                     { value: 'files', label: <>Files<span className="ml-1 text-kumo-subtle">{session.files.length}</span></> },
+                    ...browser.available ? [{ value: 'browser', label: 'Browser' }] : [],
                   ]}
-                  value={panel}
-                  onValueChange={(value) => setPanel(value as 'files' | 'changes')}
+                  value={view}
+                  onValueChange={(value) => showPanel(value as 'files' | 'changes' | 'browser')}
                 />
               </div>
             )}
-            {task && panel === 'changes' ? (
+            {view === 'browser' ? (
+              <BrowserViewPanel browser={browser} />
+            ) : view === 'changes' && task ? (
               <ChangesBrowser changes={session.changes.changes} diff={session.changes.diff} diffError={session.changes.diffError} error={session.changes.error} loading={session.changes.loading} onRefresh={() => void session.changes.refresh()} onSelectPath={session.changes.setSelectedPath} selectedPath={session.changes.selectedPath} task={task} />
             ) : (
               <WorkspaceBrowser canDownload={session.canDownload} fileContent={session.fileContent} fileError={session.fileError} files={session.files} filesError={session.filesError} filesLoading={session.filesLoading} onDownload={session.downloadSelectedFile} onRefresh={() => void session.refreshFiles()} onSelectPath={session.setSelectedPath} selectedPath={session.selectedPath} />

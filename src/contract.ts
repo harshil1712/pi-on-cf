@@ -105,7 +105,9 @@ export type SessionSummary = {
 
 /** One of the tabs in the session's browser, as Live View offers it. */
 export type BrowserTabView = {
-  /** The embeddable Live View URL for the tab. */
+  /** The tab's CDP target ID, stable while it stays open. */
+  targetId: string
+  /** The embeddable Live View URL for the tab, a bearer credential that connects for about five minutes. */
   url: string
   /** What the tab is showing now. */
   pageUrl?: string

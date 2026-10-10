@@ -338,8 +338,12 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   @callable()
   async browserLiveView(): Promise<BrowserTabView[] | null> {
     if (!this.browser) return null
-    const view = await this.browser.liveView()
-    return (view?.targets ?? []).filter((target) => target.type === 'page').map(({ url, title, pageUrl }) => ({ url, title, pageUrl }))
+    // Page only, with its address bar: DevTools beside it is noise for watching or logging in.
+    const view = await this.browser.liveView({ mode: 'tab' })
+    // Browser Run keeps a blank tab open; it is nothing to watch.
+    return (view?.targets ?? [])
+      .filter((target) => target.type === 'page' && target.pageUrl !== 'about:blank')
+      .map(({ targetId, url, title, pageUrl }) => ({ targetId, url, title, pageUrl }))
   }
 
   @callable()

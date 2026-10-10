@@ -168,7 +168,7 @@ Pi reacts to the comment with 👀 when it takes the work. The webhook endpoint 
 
 ## Web tools
 
-Every session can read pages with `web_fetch`: it fetches the URL and returns it as readable Markdown (converted by Workers AI for HTML, PDFs and office documents), a window at a time. Every session also keeps its own persistent Chromium on [Browser Run](https://developers.cloudflare.com/browser-run/) (the `BROWSER` binding in `wrangler.jsonc`): Pi drives it with code for pages that need JavaScript, clicks, logins or screenshots. Browser Run is billed per browser-hour and limited to the public internet; it cannot reach a dev server running inside the session's container. In the app, the globe in a session's top bar lists the browser's tabs with Live View links to watch or take over, and screenshots show under the browser call that took them.
+Every session can read pages with `web_fetch`: it fetches the URL and returns it as readable Markdown (converted by Workers AI for HTML, PDFs and office documents), a window at a time. Every session also keeps its own persistent Chromium on [Browser Run](https://developers.cloudflare.com/browser-run/) (the `BROWSER` binding in `wrangler.jsonc`): Pi drives it with code for pages that need JavaScript, clicks, logins or screenshots. Browser Run is billed per browser-hour and limited to the public internet; it cannot reach a dev server running inside the session's container. In the app, the globe in a session's top bar opens the Workspace panel's Browser view: Live View of Pi's tab beside the chat, to watch Pi or take over to log in. Screenshots show under the browser call that took them.
 
 ### Web search
 

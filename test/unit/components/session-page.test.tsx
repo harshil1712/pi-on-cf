@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { AgentEvent, EntryRecord } from '@earendil-works/pi-durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PiSessionState, SessionSummary, SessionTask, WorkspaceFile, WorkspaceFileContent } from '~/contract'
+import type { BrowserTabView, PiSessionState, SessionSummary, SessionTask, WorkspaceFile, WorkspaceFileContent } from '~/contract'
 
 type AgentOptions = {
   agent: string
@@ -68,6 +68,12 @@ const file = (path: string, mtime = now): WorkspaceFile => ({ path, size: 10, mt
 const fileContent = (path: string, content: string, mtime = now): WorkspaceFileContent => ({ ...file(path, mtime), content })
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
 
+const tab = (targetId: string, url: string, pageUrl = 'https://example.com'): BrowserTabView => ({ targetId, url, pageUrl, title: pageUrl })
+const liveViewFrame = () => document.querySelector('iframe')
+const browserCall = (id: string): EntryRecord =>
+  ({ id: 10, conversationId: 1, kind: 'pi.assistant', model: [{ role: 'assistant', content: [{ type: 'toolCall', id, name: 'browser', arguments: { code: 'async () => 1' } }], api: 'faux', provider: 'faux', model: 'faux', usage, stopReason: 'toolUse', timestamp: 0 }] }) as unknown as EntryRecord
+const browserResult = (id: string): EntryRecord =>
+  ({ id: 11, conversationId: 1, kind: 'pi.tool-result', model: [{ role: 'toolResult', toolCallId: id, toolName: 'browser', content: [{ type: 'text', text: '{}' }], isError: false, timestamp: 0 }] }) as unknown as EntryRecord
 const userEntry = (text: string, id = 1): EntryRecord =>
   ({ id, conversationId: 1, kind: 'pi.user', model: [{ role: 'user', content: text, timestamp: 0 }] }) as unknown as EntryRecord
 
@@ -173,20 +179,54 @@ describe('SessionPage', () => {
     expect(screen.queryByText(/queued/)).toBeNull()
   })
 
-  it('offers the browser tabs Live View shows, minted when the probe and the click ask', async () => {
-    mocks.sessionAgent.stub.browserLiveView.mockResolvedValue([
-      { url: 'https://browser.run/live/abc', pageUrl: 'https://example.com', title: 'Example' },
-      { url: 'https://browser.run/live/def', pageUrl: 'about:blank' },
-    ])
+  it('opens Live View of Pi\'s browser inside the Workspace panel, with fresh URLs', async () => {
+    mocks.sessionAgent.stub.browserLiveView
+      .mockResolvedValueOnce([tab('t1', 'https://browser.run/live/probe'), tab('t2', 'https://browser.run/live/probe-2', 'https://example.org')])
+      .mockResolvedValue([tab('t1', 'https://browser.run/live/fresh'), tab('t2', 'https://browser.run/live/other', 'https://example.org')])
     renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
 
-    const button = await screen.findByRole('button', { name: "Pi's browser" })
-    fireEvent.click(button)
-    expect((await screen.findByRole('link', { name: /Example/ })).getAttribute('href')).toBe('https://browser.run/live/abc')
-    expect(screen.getByText('about:blank')).toBeTruthy()
-    // Once when the page probes, once when the click mints fresh URLs.
-    await waitFor(() => expect(mocks.sessionAgent.stub.browserLiveView).toHaveBeenCalledTimes(2))
+    fireEvent.click(await screen.findByRole('button', { name: "Pi's browser" }))
+    // Opening the view mints URLs again: the probe's may be too old to connect.
+    await waitFor(() => expect(liveViewFrame()?.getAttribute('src')).toBe('https://browser.run/live/fresh'))
+    expect(screen.getByRole('tab', { name: 'Browser' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('link', { name: 'Open in a new tab' }).getAttribute('href')).toBe('https://browser.run/live/fresh')
+    expect(mocks.sessionAgent.stub.browserLiveView).toHaveBeenCalledTimes(2)
+  })
+
+  it('follows the tab Pi opens when a browser call finishes', async () => {
+    mocks.sessionAgent.stub.browserLiveView
+      .mockResolvedValueOnce([tab('t1', 'https://browser.run/live/one')])
+      .mockResolvedValueOnce([tab('t1', 'https://browser.run/live/one')])
+      .mockResolvedValue([tab('t1', 'https://browser.run/live/one-again'), tab('t2', 'https://browser.run/live/two', 'https://example.org')])
+    renderSession(<SessionPage sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+    fireEvent.click(await screen.findByRole('button', { name: "Pi's browser" }))
+    await waitFor(() => expect(liveViewFrame()?.getAttribute('src')).toBe('https://browser.run/live/one'))
+
+    await deliver(snapshot([browserCall('call-1'), browserResult('call-1')]))
+    await waitFor(() => expect(liveViewFrame()?.getAttribute('src')).toBe('https://browser.run/live/two'))
+  })
+
+  it('says when Pi\'s browser is not open', async () => {
+    mocks.sessionAgent.stub.browserLiveView.mockResolvedValue([])
+    renderSession(<SessionPage sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+    fireEvent.click(await screen.findByRole('button', { name: "Pi's browser" }))
+    expect(await screen.findByText('Pi’s browser isn’t open')).toBeTruthy()
+    expect(liveViewFrame()).toBeNull()
+  })
+
+  it('closes the Workspace panel from the chat view, as well as opening it', async () => {
+    renderSession(<SessionPage sessionId="session-12345678" />)
+    await deliver(snapshot([]))
+    const panel = document.getElementById('workspace-panel')!
+    // The phone's chat view hides the panel but shows it in a wide page; the toggle must still win there.
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace', pressed: true }))
+    expect(panel.className.split(' ')).toContain('@4xl:hidden')
+    expect(panel.className.split(' ')).not.toContain('@4xl:flex')
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace', pressed: false }))
+    expect(panel.className.split(' ')).not.toContain('@4xl:hidden')
   })
 
   it('hides the browser when the deployment has none and says so with a fresh probe', async () => {
