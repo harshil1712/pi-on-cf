@@ -34,6 +34,7 @@ import { reduceRunStatus, type RunStatus } from '~/lib/run-status'
 import { type GitHubThread, parseRepo } from './github'
 import { botIdentity, repoToken } from './github-app'
 import { modelOptions } from './models'
+import { repoSkills } from './repo-skills'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
 import { cloneTask, createTaskTools, listChanges, readChange, taskSection } from './task'
@@ -235,12 +236,18 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   }
 
   /**
-   * Where pi's Agent Skills come from: the built-in skills, then `skills/`
-   * in the app's R2 bucket. Earlier sources win a name, so a shared skill
-   * cannot replace a built-in one. Tests override this.
+   * Where pi's Agent Skills come from: the built-in skills, then the cloned
+   * repository's, then `skills/` in the app's R2 bucket. Earlier sources win
+   * a name, so a shared skill cannot replace a built-in one, and a
+   * repository's own skill wins over a shared one. Tests override this.
    */
   protected skillSources(): SkillSource[] {
-    return [builtInSkills, bucketSkills(this.env.BUCKET)]
+    return [builtInSkills, this.repoSkillSource(), bucketSkills(this.env.BUCKET)]
+  }
+
+  /** The skills in the session's cloned repository; see repoSkills. */
+  protected repoSkillSource(): SkillSource {
+    return repoSkills(() => getWorkspace(this), () => this.state.task)
   }
 
   /**
@@ -412,6 +419,10 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     const token = await this.githubToken(input.repo)
     const task = await cloneTask(await getWorkspace(this), token, { ...input, branch: `pi/${entryId.slice(0, 8)}` })
     await this.#setTask(task)
+    // Offer the repository's own skills from the next model request.
+    await this.skills.sync(this.registry).catch((error: unknown) => {
+      console.error('Could not load the repository\'s skills', error)
+    })
     return task
   }
 

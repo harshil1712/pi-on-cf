@@ -185,7 +185,7 @@ Note: Exa is the one Web Search provider without Zero Data Retention for request
 
 ## Skills
 
-Pi offers [Agent Skills](https://developers.cloudflare.com/agents/runtime/execution/agent-skills/) from two sources: built-in skills in `src/server/bundled-skills`, which ship with the Worker, and shared skills under `skills/` in the bucket. Each skill is a directory holding a `SKILL.md` with `name` and `description` frontmatter, and optional `references/`, `scripts/` and `assets/`. A built-in skill wins a name, so a shared skill cannot replace one.
+Pi offers [Agent Skills](https://developers.cloudflare.com/agents/runtime/execution/agent-skills/) from three sources: built-in skills in `src/server/bundled-skills`, which ship with the Worker; the cloned repository's own skills, under `.agents/skills/`, `.claude/skills/`, `.pi/skills/` or `.github/skills/`; and shared skills under `skills/` in the bucket. Each skill is a directory holding a `SKILL.md` with `name` and `description` frontmatter, and optional `references/`, `scripts/` and `assets/`. A built-in skill wins a name, so a shared skill cannot replace one; a repository's skill wins over a shared one.
 
 ```bash
 npx wrangler r2 object put pi-on-cf/skills/release-notes/SKILL.md --file SKILL.md --remote

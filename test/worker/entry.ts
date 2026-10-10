@@ -133,7 +133,7 @@ export class PiSession extends AppPiSession {
 
   /** The app's sources, with the bucket listed on every refresh so tests see changes at once. */
   protected override skillSources(): SkillSource[] {
-    return [builtInSkills, bucketSkills(this.env.BUCKET, { refreshIntervalMs: 0 })]
+    return [builtInSkills, this.repoSkillSource(), bucketSkills(this.env.BUCKET, { refreshIntervalMs: 0 })]
   }
 
   /** Fake web sources, so the web tools run without the network or AI. */
@@ -161,7 +161,11 @@ export class PiSession extends AppPiSession {
     const git = workspace.git as GitClient
     const dir = '/workspace/demo'
     await workspace.fs.mkdir(dir, { recursive: true })
-    for (const [path, content] of Object.entries(files)) await workspace.fs.writeFile(`${dir}/${path}`, content)
+    for (const [path, content] of Object.entries(files)) {
+      const target = `${dir}/${path}`
+      await workspace.fs.mkdir(target.slice(0, target.lastIndexOf('/')), { recursive: true })
+      await workspace.fs.writeFile(target, content)
+    }
     await git.init({ dir })
     await git.add({ dir, paths: Object.keys(files) })
     const { oid } = await git.commit({ dir, message: 'base' })
