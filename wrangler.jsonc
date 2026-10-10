@@ -30,9 +30,12 @@
   "ai": {
     "binding": "AI",
   },
-  // Browser Run for pi's browser tool.
+  // Browser Run for pi's browser tool. Remote in local dev too, so Live View
+  // works there; local browser use bills Browser Run hours and cannot reach
+  // localhost.
   "browser": {
     "binding": "BROWSER",
+    "remote": true,
   },
   "durable_objects": {
     "bindings": [
