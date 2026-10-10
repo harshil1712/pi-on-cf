@@ -160,7 +160,7 @@ When you ask for changes, Pi commits with git like any developer, then calls `cr
 
 Mention the App's bot, `@<slug>`, in a comment on GitHub to give Pi work there. Only users in `GITHUB_OWNERS` can; Pi ignores everyone else and bots, itself included.
 
-- **On an issue**, the mention starts a session with the issue and your comment. Pi works on it like any task: it can clone the repository, open a pull request that fixes the issue, and answer on the issue with `comment_on_github`. A later mention on the same issue goes to the same session.
+- **On an issue**, the mention starts a session with the issue and your comment. Pi works on it like any task: it can clone the repository, open a pull request that fixes the issue, and answer on the issue with `comment_on_github`. In any session Pi can also read issues and pull requests with `read_github_issue` and open issues with `create_github_issue`, on repositories the App is installed on. A later mention on the same issue goes to the same session.
 - **On a pull request a session opened**, including in a review comment on the diff, the mention goes to that session, which makes the change, updates the pull request, and answers there.
 - **On any other pull request**, Pi reacts with 😕 and does nothing yet.
 
