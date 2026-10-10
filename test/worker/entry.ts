@@ -21,6 +21,7 @@ import { bucketSkills, builtInSkills } from '~/server/skills'
 import { webFetchTool, type WebFetchSource } from 'agents/webfetch/pi'
 import { webSearchTool, type WebSearchSource } from 'agents/websearch/pi'
 import type { ToolRegistration } from '@earendil-works/pi-durable'
+import type { TestMcp } from './test-mcp'
 
 /** The page every `web_fetch` in tests reads back. */
 const FAKE_FETCH: WebFetchSource = {
@@ -54,6 +55,7 @@ const FAKE_SEARCH: WebSearchSource = {
 }
 
 export { ComputerTest } from './computer-test'
+export { TestMcp } from './test-mcp'
 export { WorkspaceProxy, WorkspaceServiceProxy } from '@cloudflare/computer'
 // The browser tool's codemode runtime is a facet of each session.
 export { CodemodeRuntime } from '@cloudflare/codemode'
@@ -175,6 +177,12 @@ export class PiSession extends AppPiSession {
     return task
   }
 
+  /** Sync the `mcp` tool with the registry now, as after a prompt; `true` when it changed. */
+  async syncMcpToolsForTest(): Promise<boolean> {
+    await this.harness.pi()
+    return this.mcpTools.sync(this.registry)
+  }
+
   /** Sync skills with the bucket now; `true` when the catalog changed. */
   async syncSkillsForTest(): Promise<boolean> {
     await this.harness.pi()
@@ -203,6 +211,24 @@ export class PiRegistry extends AppPiRegistry {
   @callable()
   override listModels(): ModelOption[] {
     return [{ id: 'faux-a', label: 'Faux A' }, { id: 'faux-b', label: 'Faux B' }]
+  }
+
+  /** Add the test MCP server over RPC, as `connectMcpServer` adds a URL. */
+  async connectTestMcpServerForTest(name = 'Test'): Promise<string> {
+    const binding = (this.env as unknown as { TestMcp: DurableObjectNamespace<TestMcp> }).TestMcp
+    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+    await this.addMcpServer(name, binding, { id })
+    return id
+  }
+
+  /** Break the server's connection, as a network failure would. */
+  async dropMcpConnectionForTest(id: string): Promise<void> {
+    const connection = this.mcp.mcpConnections[id]
+    if (!connection) throw new Error(`No connection ${id}`)
+    await this.mcp.closeConnection(id)
+    // closeConnection forgets the connection; restore it in a failed state.
+    this.mcp.mcpConnections[id] = connection
+    connection.connectionState = 'failed'
   }
 
   /** The physical Agent name behind a catalog entry, or null once it is gone. */

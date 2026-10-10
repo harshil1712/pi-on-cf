@@ -5,7 +5,7 @@ import { DropdownMenu } from '@cloudflare/kumo/components/dropdown'
 import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar'
 import { useKumoToastManager } from '@cloudflare/kumo/components/toast'
 import { cn } from '@cloudflare/kumo/utils'
-import { ChatsCircleIcon, DotsThreeIcon, GitPullRequestIcon, NotePencilIcon, PencilSimpleIcon, TrashIcon, WarningCircleIcon } from '@phosphor-icons/react'
+import { ChatsCircleIcon, DotsThreeIcon, GearSixIcon, GitPullRequestIcon, NotePencilIcon, PencilSimpleIcon, TrashIcon, WarningCircleIcon } from '@phosphor-icons/react'
 import { PiMark } from './pi-mark'
 import { ThemeToggle } from './theme-toggle'
 import type { SessionSummary } from '~/contract'
@@ -147,8 +147,17 @@ export function SessionSidebar() {
             </Sidebar.Group>
           ))}
         </Sidebar.Content>
-        <Sidebar.Footer className="flex items-center justify-between px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <span className="text-xs text-kumo-subtle">Pi on Cloudflare</span>
+        <Sidebar.Footer className="flex items-center gap-0.5 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <span className="mr-auto text-xs text-kumo-subtle">Pi on Cloudflare</span>
+          <Button
+            shape="square"
+            size="sm"
+            variant="ghost"
+            aria-label="Settings"
+            title="Settings"
+            icon={<GearSixIcon size={16} />}
+            onClick={() => { closeOnMobile(); void navigate({ to: '/settings' }) }}
+          />
           <ThemeToggle />
         </Sidebar.Footer>
       </Sidebar>

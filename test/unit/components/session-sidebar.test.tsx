@@ -147,4 +147,10 @@ describe('SessionSidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New session' }))
     expect(mocks.navigate).toHaveBeenCalledWith({ to: '/' })
   })
+
+  it('opens Settings from the footer', async () => {
+    renderSidebar()
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/settings' })
+  })
 })

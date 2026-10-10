@@ -13,6 +13,8 @@ type SessionRegistry = {
   agent: ReturnType<typeof useAgent<PiRegistryContract, PiRegistryState>>
   error: string
   loading: boolean
+  /** Moves whenever an MCP server's connection changes, so Settings knows to reload them. */
+  mcpRevision: number
   reload: () => Promise<void>
   sessions: SessionSummary[]
 }
@@ -28,6 +30,7 @@ export function SessionRegistryProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [mcpRevision, setMcpRevision] = useState(0)
   const requestRef = useRef(0)
   const reloadRef = useRef<() => Promise<void>>(async () => {})
 
@@ -36,6 +39,8 @@ export function SessionRegistryProvider({ children }: { children: ReactNode }) {
     name: PI_REGISTRY_INSTANCE,
     prefix: PI_AGENT_PREFIX,
     onStateUpdate: () => void reloadRef.current(),
+    // The SDK pushes the registry's MCP servers on connect and on every change.
+    onMcpUpdate: () => setMcpRevision((revision) => revision + 1),
   })
 
   const reload = useCallback(async () => {
@@ -57,7 +62,7 @@ export function SessionRegistryProvider({ children }: { children: ReactNode }) {
     return () => { requestRef.current += 1 }
   }, [reload])
 
-  const value = useMemo(() => ({ agent, error, loading, reload, sessions }), [agent, error, loading, reload, sessions])
+  const value = useMemo(() => ({ agent, error, loading, mcpRevision, reload, sessions }), [agent, error, loading, mcpRevision, reload, sessions])
   return <SessionRegistryContext.Provider value={value}>{children}</SessionRegistryContext.Provider>
 }
 

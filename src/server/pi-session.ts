@@ -33,6 +33,7 @@ import {
 import { reduceRunStatus, type RunStatus } from '~/lib/run-status'
 import { type GitHubThread, parseRepo } from './github'
 import { botIdentity, repoToken } from './github-app'
+import { McpToolset, type McpSource } from './mcp-tools'
 import { modelOptions } from './models'
 import { repoSkills } from './repo-skills'
 import { createSkillTools } from './skill-tools'
@@ -151,6 +152,13 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   override initialState: PiSessionState = { task: null, model: this.model.default.id }
   readonly registry = createRegistry()
   readonly skills = new SkillCatalog(() => this.skillSources())
+  /** The `mcp` tool, over the MCP servers enabled on the registry. */
+  readonly mcpTools = new McpToolset({
+    ctx: this.ctx,
+    loader: this.env.LOADER,
+    // Typed here: the stub's mapping of the registry's recursive JSON types is too deep for tsc.
+    source: () => getAgentByName(this.env.PiRegistry, PI_REGISTRY_INSTANCE) as unknown as Promise<McpSource>,
+  })
   /**
    * The session's persistent browser on Browser Run, when the deployment has
    * a `BROWSER` binding. Tests and previews don't, and run without it.
@@ -195,6 +203,10 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
       // Skills are optional: an unreachable bucket must not stop pi opening.
       await this.skills.sync(this.registry).catch((error: unknown) => {
         console.error('Could not load skills', error)
+      })
+      // So are MCP servers: pi opens without them if the registry can't list them.
+      await this.mcpTools.sync(this.registry).catch((error: unknown) => {
+        console.error('Could not load MCP tools', error)
       })
       const models = createModels()
       models.setProvider(this.model.provider)
@@ -312,14 +324,14 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
     // Awaited, so a caller that reads the catalog next sees the title a
     // first prompt gives the session. It never throws.
     await this.#touchRegistry(prompt)
-    this.ctx.waitUntil(this.#syncSkills())
+    this.ctx.waitUntil(this.#syncCatalogs())
     return { operationId: receipt.operationId, accepted: receipt.accepted }
   }
 
   @callable()
   async steer(prompt: string) {
     const receipt = await this.harness.session().steer(validPrompt(prompt))
-    this.ctx.waitUntil(this.#syncSkills())
+    this.ctx.waitUntil(this.#syncCatalogs())
     return { operationId: receipt.operationId, accepted: receipt.accepted }
   }
 
@@ -540,17 +552,22 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   }
 
   /**
-   * Pick up skills added to or changed in the bucket. Runs beside the turn:
-   * the source lists the bucket at most once a minute, and pi applies a new
-   * catalog from its next model request.
+   * Pick up skills added to or changed in the bucket, and MCP servers
+   * changed in Settings. Runs beside the turn: the bucket is listed at most
+   * once a minute, and pi applies a new catalog from its next model request.
    */
-  async #syncSkills(): Promise<void> {
+  async #syncCatalogs(): Promise<void> {
     try {
       await this.harness.pi()
-      await this.skills.sync(this.registry)
     } catch (error) {
-      console.error('Could not refresh skills', error)
+      console.error('Could not open pi', error)
+      return
     }
+    await Promise.all([
+      this.skills.sync(this.registry).catch((error: unknown) => console.error('Could not refresh skills', error)),
+      // A server enabled, disabled or added in Settings reaches the session from its next model request.
+      this.mcpTools.sync(this.registry).catch((error: unknown) => console.error('Could not refresh MCP tools', error)),
+    ])
   }
 
   /** The prompt titles a session that has no title yet. */

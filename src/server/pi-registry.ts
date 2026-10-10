@@ -1,6 +1,19 @@
 import { Agent, callable, type Connection } from 'agents'
 import { type RoutedAgentEntry, RoutedAgents } from 'agents/routing'
-import { type ModelOption, PI_SESSIONS_ROUTE, type PiRegistryState, type PullRequest, type Repository, type RunStatus, type SessionSummary } from '~/contract'
+import {
+  type ConnectMcpServerInput,
+  type ConnectMcpServerResult,
+  type McpServerSummary,
+  type ModelOption,
+  PI_AGENT_PREFIX,
+  PI_SESSIONS_ROUTE,
+  type PiRegistryState,
+  type PullRequest,
+  type Repository,
+  type RunStatus,
+  type SessionSummary,
+} from '~/contract'
+import { cleanMcpServerInput, type JsonObject, type McpCallResult, type McpServerCatalog, McpServers } from './mcp-servers'
 import { titleFromPrompt } from './session-title'
 import { type GitHubThread, parseRepo, reactToComment } from './github'
 import { listRepositories, repoToken } from './github-app'
@@ -44,9 +57,19 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
     route: PI_SESSIONS_ROUTE,
   })
 
+  readonly mcpServers: McpServers
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.lifecycle.use(this.sessions)
+    this.mcpServers = new McpServers(this.mcp, ctx.storage.sql)
+    // You authorize in this tab, so OAuth comes back to Settings either way.
+    this.mcp.configureOAuthCallback({
+      customHandler: (result) => new Response(null, {
+        status: 302,
+        headers: { Location: result.authSuccess ? '/settings' : `/settings?mcp_error=${encodeURIComponent(result.authError)}` },
+      }),
+    })
   }
 
   @callable()
@@ -162,6 +185,66 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
   @callable()
   listModels(): ModelOption[] {
     return modelOptions(this.env.AI_MODEL)
+  }
+
+  /** The MCP servers connected for every session, for Settings. */
+  @callable()
+  listMcpServers(): McpServerSummary[] {
+    return this.mcpServers.list()
+  }
+
+  /**
+   * Add an MCP server, connect it and discover its tools. A server that
+   * wants OAuth answers with the `authUrl` to open; its callback is this
+   * Agent's route, which the SDK intercepts. A server that fails to connect
+   * is not kept.
+   */
+  @callable()
+  async connectMcpServer(input: ConnectMcpServerInput): Promise<ConnectMcpServerResult> {
+    const { name, url, headers } = cleanMcpServerInput(input, this.mcpServers.list())
+    const id = crypto.randomUUID().replaceAll('-', '').slice(0, 12)
+    try {
+      const result = await this.addMcpServer(name, url, {
+        id,
+        // The callback is `/api/agents/pi-registry/singleton/callback` on the page's host.
+        agentsPrefix: PI_AGENT_PREFIX,
+        transport: headers ? { headers } : {},
+      })
+      return { server: this.mcpServers.get(id), ...(result.state === 'authenticating' ? { authUrl: result.authUrl } : {}) }
+    } catch (error) {
+      await this.removeMcpServer(id).catch(() => {})
+      throw error
+    }
+  }
+
+  /** Connect a server again: after a failure, or to authorize, when it answers with an `authUrl`. */
+  @callable()
+  async reconnectMcpServer(id: string): Promise<ConnectMcpServerResult> {
+    this.mcpServers.get(id)
+    const { authUrl } = await this.mcpServers.connect(id)
+    return { server: this.mcpServers.get(id), ...(authUrl ? { authUrl } : {}) }
+  }
+
+  @callable()
+  setMcpServerEnabled(id: string, enabled: boolean): McpServerSummary {
+    return this.mcpServers.setEnabled(id, enabled)
+  }
+
+  @callable()
+  async deleteMcpServer(id: string): Promise<void> {
+    this.mcpServers.get(id)
+    await this.removeMcpServer(id)
+    this.mcpServers.forget(id)
+  }
+
+  /** Called by a PiSession for the MCP tools it can offer. */
+  async listMcpTools(): Promise<McpServerCatalog[]> {
+    return this.mcpServers.tools()
+  }
+
+  /** Called by a PiSession to run an MCP tool, so credentials never leave the registry. */
+  async callMcpTool(serverId: string, name: string, args: JsonObject): Promise<McpCallResult> {
+    return this.mcpServers.call(serverId, name, args)
   }
 
   @callable()

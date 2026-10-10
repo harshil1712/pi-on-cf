@@ -129,6 +129,41 @@ export interface PiSessionContract {
   browserLiveView(): Promise<BrowserTabView[] | null>
 }
 
+/**
+ * Where an MCP server's connection stands, as the Agents SDK reports it.
+ * `not-connected` is a saved server with no connection yet, such as right
+ * after the registry wakes.
+ */
+export type McpServerState = 'ready' | 'authenticating' | 'connecting' | 'connected' | 'discovering' | 'failed' | 'not-connected'
+
+/** One MCP server connected on the registry, for the Settings page. Never carries credentials. */
+export type McpServerSummary = {
+  id: string
+  name: string
+  url: string
+  state: McpServerState
+  error?: string
+  /** Where to authorize, while `state` is `authenticating`. */
+  authUrl?: string
+  /** Tools the connected server offers. */
+  toolCount: number
+  /** Whether sessions can use the server. */
+  enabled: boolean
+}
+
+export type ConnectMcpServerInput = {
+  name: string
+  url: string
+  /** Sent with every request, e.g. `Authorization: Bearer <token>`. Without them the server may ask for OAuth. */
+  headers?: Record<string, string>
+}
+
+/** A server just added or reconnected; `authUrl` when it waits for OAuth in the browser. */
+export type ConnectMcpServerResult = {
+  server: McpServerSummary
+  authUrl?: string
+}
+
 /** The registry's Agent state: a revision every catalog change bumps, so pages know to reload the list. */
 export type PiRegistryState = {
   revision: number
@@ -143,4 +178,9 @@ export interface PiRegistryContract {
   deleteSession(sessionId: string): Promise<void>
   listRepositories(): Promise<Repository[]>
   listModels(): Promise<ModelOption[]>
+  listMcpServers(): Promise<McpServerSummary[]>
+  connectMcpServer(input: ConnectMcpServerInput): Promise<ConnectMcpServerResult>
+  reconnectMcpServer(id: string): Promise<ConnectMcpServerResult>
+  setMcpServerEnabled(id: string, enabled: boolean): Promise<McpServerSummary>
+  deleteMcpServer(id: string): Promise<void>
 }

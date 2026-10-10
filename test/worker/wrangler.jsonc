@@ -16,13 +16,19 @@
     "bindings": [
       { "name": "PiSession", "class_name": "PiSession" },
       { "name": "PiRegistry", "class_name": "PiRegistry" },
-      { "name": "ComputerTest", "class_name": "ComputerTest" }
+      { "name": "ComputerTest", "class_name": "ComputerTest" },
+      { "name": "TestMcp", "class_name": "TestMcp" },
+      // Only so the test pool treats the codemode runtime as a Durable Object
+      // class: the mcp tool's runtime is a facet of each session.
+      { "name": "CodemodeRuntime", "class_name": "CodemodeRuntime" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["PiSession"] },
     { "tag": "v2", "new_sqlite_classes": ["PiRegistry"] },
-    { "tag": "v3", "new_sqlite_classes": ["ComputerTest"] }
+    { "tag": "v3", "new_sqlite_classes": ["ComputerTest"] },
+    { "tag": "v4", "new_sqlite_classes": ["TestMcp"] },
+    { "tag": "v5", "new_sqlite_classes": ["CodemodeRuntime"] }
   ],
   "r2_buckets": [
     { "binding": "BUCKET", "bucket_name": "pi-on-cf-test" }

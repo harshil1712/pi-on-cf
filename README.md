@@ -183,6 +183,14 @@ To set it up:
 
 Note: Exa is the one Web Search provider without Zero Data Retention for requests routed through Cloudflare, so search terms are logged at Exa.
 
+## MCP servers
+
+Connect [MCP](https://modelcontextprotocol.io/) servers once, under **Settings** (the gear in the sidebar footer), and every session can use their tools through one `mcp` tool: Pi writes a short script that finds tools with `codemode.search` and calls them as `<server>.<tool>(args)`, so a server with hundreds of tools costs no more context than one with two. A server added or turned off reaches running sessions from their next prompt. The registry keeps each server's URL, headers and OAuth tokens in its own SQLite through the Agents SDK's MCP client, and calls tools for sessions over RPC, so credentials never reach a session. A server is added either with OAuth, for servers that support dynamic client registration (you authorize in the same tab, and the callback at `/api/agents/pi-registry/singleton/callback` returns you to Settings), or with a header such as `Authorization: Bearer <token>`. Header values are never sent back to the browser. Turn a server off to hide it from sessions without deleting it.
+
+Servers worth starting with: Cloudflare's API server, `https://mcp.cloudflare.com/mcp` (OAuth, or an API token as a Bearer header), and Cloudflare's docs server, `https://docs.mcp.cloudflare.com/mcp` (no auth). GitHub's remote server has no dynamic client registration, so it needs a personal access token in a header, and acts as you rather than the GitHub App.
+
+MCP tools act with your credentials, and what a server returns can carry instructions, like a web page. Any session can call any enabled server, including sessions started from GitHub; connect only servers you trust.
+
 ## Skills
 
 Pi offers [Agent Skills](https://developers.cloudflare.com/agents/runtime/execution/agent-skills/) from three sources: built-in skills in `src/server/bundled-skills`, which ship with the Worker; the cloned repository's own skills, under `.agents/skills/`, `.claude/skills/`, `.pi/skills/` or `.github/skills/`; and shared skills under `skills/` in the bucket. Each skill is a directory holding a `SKILL.md` with `name` and `description` frontmatter, and optional `references/`, `scripts/` and `assets/`. A built-in skill wins a name, so a shared skill cannot replace one; a repository's skill wins over a shared one.
