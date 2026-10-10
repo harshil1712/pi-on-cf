@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { PiSession as TestPiSession } from './entry'
-import { publishSkill, SKILLS_PREFIX } from '~/server/skills'
+import { deleteSharedSkill, publishSkill, SKILLS_PREFIX } from '~/server/skills'
 
 const session = () => env.PiSession.getByName(crypto.randomUUID()) as unknown as DurableObjectStub<TestPiSession>
 
@@ -193,6 +193,23 @@ describe('the agent\'s skill tools', () => {
     expect(listed((await pi.promptForTest('catalog')).text)).toEqual(['skill-creator'])
   })
 
+  it('deletes a skill that is only a SKILL.md, which R2 would refuse an empty delete for', async () => {
+    await publishSkill(env.BUCKET, 'solo', new Map([['SKILL.md', skillFile('solo', 'Alone.', 'x')]]))
+    // Miniflare accepts an empty key list; production R2 does not.
+    const strict = new Proxy(env.BUCKET, {
+      get(target, key) {
+        if (key === 'delete') return (keys: string | string[]) => {
+          if (Array.isArray(keys) && !keys.length) throw new Error('delete: no keys')
+          return target.delete(keys)
+        }
+        const value = Reflect.get(target, key) as unknown
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    expect(await deleteSharedSkill(strict, 'solo')).toBe(true)
+    expect(await keys('')).toEqual([])
+  })
+
   it('reports what went wrong, and changes nothing', async () => {
     const pi = session()
     await draft(pi, 'mismatch/SKILL.md', skillFile('other', 'x', 'x'))
@@ -223,5 +240,47 @@ describe('the agent\'s skill tools', () => {
       expect(String(error)).toContain(message)
     }
     expect(await keys('')).toEqual([])
+  })
+})
+
+describe('skills in the cloned repository', () => {
+  beforeEach(clearBucket)
+
+  it('offers a repository\'s skills once it is cloned, with their resources', async () => {
+    const pi = session()
+    expect(listed((await pi.promptForTest('catalog')).text)).toEqual(['skill-creator'])
+    await pi.setTaskForTest({
+      'README.md': 'demo',
+      '.agents/skills/run-tests/SKILL.md': skillFile('run-tests', 'Run the test suite.', 'Run npm test.'),
+      '.agents/skills/run-tests/references/flaky.md': 'Retry the e2e suite once.',
+      '.claude/skills/review/SKILL.md': skillFile('review', 'Review a change.', 'Check the diff.'),
+      // A later directory loses a name to an earlier one, and a bad SKILL.md is skipped.
+      '.claude/skills/run-tests/SKILL.md': skillFile('run-tests', 'Shadowed.', 'Shadowed.'),
+      '.pi/skills/broken/SKILL.md': 'No frontmatter.',
+    })
+    expect(await pi.syncSkillsForTest()).toBe(true)
+
+    expect(listed((await pi.promptForTest('catalog')).text)).toEqual(['skill-creator', 'run-tests', 'review'])
+    const activated = (await pi.promptForTest('skill run-tests')).text
+    expect(activated).toContain('Run npm test.')
+    expect(activated).toContain('at /workspace/demo/.agents/skills/run-tests')
+    expect(activated).toContain('references/flaky.md')
+    expect(activated).not.toContain('Shadowed.')
+    expect((await pi.promptForTest('resource run-tests references/flaky.md')).text).toContain('Retry the e2e suite once.')
+    expect((await pi.promptForTest('resource run-tests ../review/SKILL.md')).text).toContain('Skill resource not found')
+  })
+
+  it('wins a name over a shared skill, and picks up a skill the agent writes', async () => {
+    await publishSkill(env.BUCKET, 'review', new Map([['SKILL.md', skillFile('review', 'Shared review.', 'Shared.')]]))
+    const pi = session()
+    await pi.setTaskForTest({ '.agents/skills/review/SKILL.md': skillFile('review', 'Repo review.', 'From the repo.') })
+    await pi.syncSkillsForTest()
+    expect((await pi.promptForTest('catalog')).text).toContain('- review: Repo review.')
+    expect((await pi.promptForTest('skill review')).text).toContain('From the repo.')
+
+    expect(await pi.syncSkillsForTest()).toBe(false)
+    await pi.promptForTest(`write /workspace/demo/.pi/skills/deploy/SKILL.md ${skillFile('deploy', 'Deploy it.', 'Ship.')}`)
+    expect(await pi.syncSkillsForTest()).toBe(true)
+    expect((await pi.promptForTest('catalog')).text).toContain('- deploy: Deploy it.')
   })
 })

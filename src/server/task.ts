@@ -3,8 +3,11 @@ import type { GitClient } from '@cloudflare/computer/git'
 import { Type } from '@earendil-works/pi-ai'
 import type { PromptSection, ToolRegistration } from '@earendil-works/pi-durable'
 import type { PullRequest, SessionTask, TaskChange } from '~/contract'
-import { cloneUrl, commentOnIssue, defaultBranch, type GitHubThread, gitAuth, gitAuthHeaders, parseRepo, repoSlug, upsertPullRequest } from './github'
+import { cloneUrl, commentOnIssue, createIssue, defaultBranch, type GitHubThread, gitAuth, gitAuthHeaders, type IssueThread, parseRepo, readIssue, repoSlug, upsertPullRequest } from './github'
 import { WORKSPACE_ROOT } from './workspace-root'
+
+/** Characters of an issue thread returned to the model; the rest is cut. */
+const ISSUE_TEXT_LIMIT = 60_000
 
 /** Devin's limit for an injected AGENTS.md; longer files are cut, and the agent can read the rest. */
 const AGENTS_MD_LIMIT = 16 * 1024
@@ -45,6 +48,9 @@ export async function readChange(workspace: WorkspaceClient, task: SessionTask, 
   return git(workspace).diff({ dir: task.dir, ref: task.baseCommit, paths: [path] })
 }
 
+/** What no GitHub tool's own description says: that only they can reach GitHub. */
+const GITHUB_CREDENTIALS = 'Only the GitHub tools have GitHub credentials: gh, git push and curl to the GitHub API do not.'
+
 /** How to reach GitHub repositories, then the cloned one and its AGENTS.md, before every model request. */
 export function taskSection(task: () => SessionTask | null, workspace: () => Promise<WorkspaceClient>): PromptSection {
   return {
@@ -54,13 +60,14 @@ export function taskSection(task: () => SessionTask | null, workspace: () => Pro
       if (!current) {
         return [
           'The user refers to GitHub repositories as @owner/name, or @owner/name#branch for a branch other than the default.',
-          'When you need a repository\'s code, to answer questions about it or to change it, call clone_repository. Do not clone for questions you can answer without the code. A session clones one repository.',
+          'Call clone_repository only when you need a repository\'s code, to answer about it or change it. A session clones one repository.',
+          GITHUB_CREDENTIALS,
         ].join('\n')
       }
       const lines = [
-        `You cloned the GitHub repository ${current.repo} at ${current.dir}.`,
-        `You are on the branch ${current.branch}, started from ${current.baseBranch}. Keep any changes on this branch.`,
-        'If the user wants changes, commit them with git once they are done and checked, and call create_pull_request. It pushes the branch and opens a draft pull request, or updates the one already open. Pushing with git yourself fails: only create_pull_request has GitHub credentials. Do not open a pull request when the user only asked about the code.',
+        `You cloned ${current.repo} at ${current.dir}, on the branch ${current.branch} from ${current.baseBranch}. Keep your changes on this branch, and pass cwd: ${current.dir} to exec.`,
+        'When the user asks you to commit or open a pull request, commit with git once your changes are checked, then call create_pull_request. Do not open a pull request when the user only asked about the code.',
+        GITHUB_CREDENTIALS,
       ]
       const agents = await (await workspace()).fs.readFile(`${current.dir}/AGENTS.md`, 'utf8').catch(() => '')
       if (agents) {
@@ -87,7 +94,9 @@ type TaskToolsOptions = {
 /**
  * `clone_repository`, which the model calls when it needs a repository's
  * code, `create_pull_request`, the only way its work leaves the workspace,
- * and `comment_on_github`, to answer on the session's issue or pull request.
+ * `comment_on_github`, to answer on the session's issue or pull request,
+ * and `create_github_issue` and `read_github_issue`, for issues anywhere the
+ * GitHub App is installed.
  */
 export function createTaskTools({ workspace, task, token, openRepository, onPullRequest, thread }: TaskToolsOptions): ToolRegistration[] {
   const cloneParameters = Type.Object({
@@ -98,6 +107,23 @@ export function createTaskTools({ workspace, task, token, openRepository, onPull
     body: Type.String({ description: 'The comment, in Markdown.' }),
     on: Type.Optional(Type.Union([Type.Literal('pull_request'), Type.Literal('issue')], { description: 'Where to post: the session\'s pull request, or the issue it started from. Defaults to the pull request when there is one.' })),
   })
+  const repoParameter = Type.Optional(Type.String({ description: 'The repository, as owner/name. Defaults to the session\'s repository, or the one its issue is on.' }))
+  const createIssueParameters = Type.Object({
+    title: Type.String({ description: 'The issue title.' }),
+    body: Type.String({ description: 'The issue description, in Markdown.' }),
+    repo: repoParameter,
+    labels: Type.Optional(Type.Array(Type.String(), { description: 'Labels to add. Each must already exist in the repository.' })),
+  })
+  const readIssueParameters = Type.Object({
+    number: Type.Integer({ minimum: 1, description: 'The issue or pull request number.' }),
+    repo: repoParameter,
+  })
+  /** The repository a GitHub tool works on: the one asked for, else the task's, else the thread's. */
+  async function targetRepo(repo: string | undefined): Promise<string | null> {
+    const asked = repo?.trim().replace(/^@/, '')
+    if (asked) return repoSlug(parseRepo(asked))
+    return task()?.repo ?? (await thread())?.repo ?? null
+  }
   const parameters = Type.Object({
     title: Type.String({ description: 'The pull request title.' }),
     body: Type.String({ description: 'The pull request description in Markdown: what changed, why, and how you checked it.' }),
@@ -179,7 +205,53 @@ export function createTaskTools({ workspace, task, token, openRepository, onPull
         return failure(error instanceof Error ? error.message : String(error))
       }
     },
+  }, {
+    name: 'create_github_issue',
+    description: 'Open an issue on a GitHub repository the GitHub App is installed on. Only open one when the user asks for it.',
+    parameters: createIssueParameters as unknown as ToolRegistration['parameters'],
+    // The default, `unsafe`: an interrupted call is not run again, so an issue is never opened twice.
+    async execute(args) {
+      const { title, body, repo, labels } = args as { title: string; body: string; repo?: string; labels?: string[] }
+      try {
+        const target = await targetRepo(repo)
+        if (!target) return failure('Name the repository, as owner/name: this session has none.')
+        const issue = await createIssue(await token(target), parseRepo(target), { title, body, labels })
+        return success(`Opened issue ${target}#${issue.number}: ${issue.url}`)
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : String(error))
+      }
+    },
+  }, {
+    name: 'read_github_issue',
+    description: 'Read a GitHub issue or pull request: its title, state, labels, description and comments. Pull request diffs are not included; clone the repository for the code.',
+    parameters: readIssueParameters as unknown as ToolRegistration['parameters'],
+    replay: 'safe',
+    async execute(args) {
+      const { number, repo } = args as { number: number; repo?: string }
+      try {
+        const target = await targetRepo(repo)
+        if (!target) return failure('Name the repository, as owner/name: this session has none.')
+        return success(renderIssue(target, await readIssue(await token(target), parseRepo(target), number)))
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : String(error))
+      }
+    },
   }]
+}
+
+/** An issue thread as text for the model, cut at ISSUE_TEXT_LIMIT characters. */
+export function renderIssue(repo: string, issue: IssueThread): string {
+  const kind = issue.pullRequest ? 'Pull request' : 'Issue'
+  const lines = [
+    `${kind} ${repo}#${issue.number}: ${issue.title}`,
+    `State: ${issue.state}. Opened by @${issue.author}.${issue.labels.length ? ` Labels: ${issue.labels.join(', ')}.` : ''}`,
+    issue.url,
+    '',
+    issue.body || '(no description)',
+    ...issue.comments.flatMap((comment) => ['', `--- @${comment.author} commented at ${comment.createdAt}:`, '', comment.body]),
+  ]
+  const text = lines.join('\n')
+  return text.length > ISSUE_TEXT_LIMIT ? `${text.slice(0, ISSUE_TEXT_LIMIT)}\n\n[Cut at ${ISSUE_TEXT_LIMIT} characters; see ${issue.url} for the rest.]` : text
 }
 
 function cloned(task: SessionTask): string {

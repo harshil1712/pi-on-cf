@@ -159,3 +159,48 @@ export async function upsertPullRequest(token: string, repo: RepoRef, input: { b
   })
   return { ...pullRequest(created), created: true }
 }
+
+/** Open an issue; returns its number and URL. */
+export async function createIssue(token: string, repo: RepoRef, input: { title: string; body: string; labels?: string[] }): Promise<{ number: number; url: string }> {
+  const issue = await github<Schema['issue']>(token, `/repos/${repoSlug(repo)}/issues`, {
+    method: 'POST',
+    body: { title: input.title, body: input.body, ...(input.labels?.length ? { labels: input.labels } : {}) },
+  })
+  return { number: issue.number, url: issue.html_url }
+}
+
+/** An issue or pull request with its conversation, as GitHub's issues API sees it. */
+export type IssueThread = {
+  number: number
+  url: string
+  title: string
+  state: string
+  author: string
+  pullRequest: boolean
+  labels: string[]
+  body: string
+  comments: { author: string; createdAt: string; body: string }[]
+}
+
+/** Pages of 100 comments read with an issue; enough for any thread worth reading whole. */
+const COMMENT_PAGES = 3
+
+/** Read an issue or pull request and its comments. */
+export async function readIssue(token: string, repo: RepoRef, number: number): Promise<IssueThread> {
+  const path = `/repos/${repoSlug(repo)}/issues/${number}`
+  const [issue, comments] = await Promise.all([
+    github<Schema['issue']>(token, path),
+    githubAll<Schema['issue-comment']>(token, `${path}/comments?per_page=100`, COMMENT_PAGES),
+  ])
+  return {
+    number: issue.number,
+    url: issue.html_url,
+    title: issue.title,
+    state: issue.state,
+    author: issue.user?.login ?? 'ghost',
+    pullRequest: Boolean(issue.pull_request),
+    labels: issue.labels.map((label) => (typeof label === 'string' ? label : label.name ?? '')).filter(Boolean),
+    body: issue.body ?? '',
+    comments: comments.map((comment) => ({ author: comment.user?.login ?? 'ghost', createdAt: comment.created_at, body: comment.body ?? '' })),
+  }
+}

@@ -215,3 +215,19 @@ describe('comment_on_github', () => {
     expect((await pi.promptForTest('tool comment_on_github {"body":"hi","on":"issue"}')).text).toBe('tool failed: This session has no issue to comment on.')
   })
 })
+
+describe('create_github_issue and read_github_issue', () => {
+  it('need a repository when the session has none', async () => {
+    const { id } = await registry().createSession()
+    const pi = await session(id)
+    expect((await pi.promptForTest('tool create_github_issue {"title":"Bug","body":"x"}')).text).toBe('tool failed: Name the repository, as owner/name: this session has none.')
+    expect((await pi.promptForTest('tool read_github_issue {"number":1}')).text).toBe('tool failed: Name the repository, as owner/name: this session has none.')
+    expect((await pi.promptForTest('tool create_github_issue {"title":"Bug","body":"x","repo":"not a repo"}')).text).toMatch(/^tool failed: "not a repo" is not a GitHub repository/)
+  })
+
+  it('use the GitHub App for the repository asked for', async () => {
+    const { id } = await registry().createSession()
+    const reply = await (await session(id)).promptForTest('tool create_github_issue {"title":"Bug","body":"x","repo":"@octo/demo"}')
+    expect(reply.text).toMatch(/^tool failed: Set GITHUB_APP_ID/)
+  })
+})

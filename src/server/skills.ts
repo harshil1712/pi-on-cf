@@ -61,7 +61,9 @@ export async function deleteSharedSkill(bucket: R2Bucket, name: string): Promise
   // SKILL.md first, so a skill is never listed with only some of its files.
   const skillFile = `${SKILLS_PREFIX}${name}/SKILL.md`
   if (keys.includes(skillFile)) await bucket.delete(skillFile)
-  await bucket.delete(keys.filter((key) => key !== skillFile))
+  // R2 refuses an empty list, which a skill of only SKILL.md would leave.
+  const rest = keys.filter((key) => key !== skillFile)
+  if (rest.length) await bucket.delete(rest)
   return true
 }
 

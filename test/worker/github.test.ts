@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { commentOnIssue, installationRepositories, nextPage, reactToComment } from '~/server/github'
+import { commentOnIssue, createIssue, installationRepositories, nextPage, reactToComment, readIssue } from '~/server/github'
+import { renderIssue } from '~/server/task'
 
 const API = 'https://api.github.com'
 
@@ -79,5 +80,41 @@ describe('comments and reactions', () => {
       { method: 'POST', url: `${API}/repos/octo/demo/issues/comments/1/reactions`, body: { content: 'eyes' } },
       { method: 'POST', url: `${API}/repos/octo/demo/pulls/comments/2/reactions`, body: { content: 'confused' } },
     ])
+  })
+})
+
+describe('issues', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('opens an issue, with labels only when given', async () => {
+    const calls: { method: string; url: string; body: unknown }[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      calls.push({ method: init?.method ?? 'GET', url: input instanceof Request ? input.url : input.toString(), body: JSON.parse(init?.body as string) })
+      return Response.json({ number: 7, html_url: 'https://github.com/octo/demo/issues/7' }, { status: 201 })
+    })
+    expect(await createIssue('t', { owner: 'octo', name: 'demo' }, { title: 'Bug', body: 'It breaks.' })).toEqual({ number: 7, url: 'https://github.com/octo/demo/issues/7' })
+    await createIssue('t', { owner: 'octo', name: 'demo' }, { title: 'Bug', body: 'x', labels: ['bug'] })
+    expect(calls).toEqual([
+      { method: 'POST', url: `${API}/repos/octo/demo/issues`, body: { title: 'Bug', body: 'It breaks.' } },
+      { method: 'POST', url: `${API}/repos/octo/demo/issues`, body: { title: 'Bug', body: 'x', labels: ['bug'] } },
+    ])
+  })
+
+  it('reads an issue with its comments, and renders it for the model', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url.includes('/comments')) return Response.json([{ user: { login: 'bob' }, created_at: '2026-01-02T00:00:00Z', body: 'Me too.' }])
+      return Response.json({ number: 7, html_url: 'https://github.com/octo/demo/issues/7', title: 'Bug', state: 'open', user: { login: 'alice' }, labels: [{ name: 'bug' }, 'p1'], body: 'It breaks.' })
+    })
+    const issue = await readIssue('t', { owner: 'octo', name: 'demo' }, 7)
+    expect(issue).toEqual({
+      number: 7, url: 'https://github.com/octo/demo/issues/7', title: 'Bug', state: 'open', author: 'alice', pullRequest: false,
+      labels: ['bug', 'p1'], body: 'It breaks.', comments: [{ author: 'bob', createdAt: '2026-01-02T00:00:00Z', body: 'Me too.' }],
+    })
+    const text = renderIssue('octo/demo', issue)
+    expect(text).toContain('Issue octo/demo#7: Bug')
+    expect(text).toContain('Labels: bug, p1.')
+    expect(text).toContain('--- @bob commented at 2026-01-02T00:00:00Z:\n\nMe too.')
+    expect(renderIssue('octo/demo', { ...issue, body: 'x'.repeat(70_000) })).toMatch(/\[Cut at 60000 characters; see https:\/\/github.com\/octo\/demo\/issues\/7 for the rest.\]$/)
   })
 })

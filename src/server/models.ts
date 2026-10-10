@@ -6,7 +6,7 @@ import type { ModelOption } from '~/contract'
  * these take tools and long contexts.
  */
 export const MODEL_OPTIONS: readonly ModelOption[] = [
-  { id: '@cf/zai-org/glm-5.2', label: 'GLM 5.2' },
+  { id: '@cf/zai-org/glm-5.3-flash', label: 'GLM 5.3 Flash' },
   { id: '@cf/zai-org/glm-5.3', label: 'GLM 5.3' },
   { id: '@cf/moonshotai/kimi-k2.7-code', label: 'Kimi K2.7 Code' },
   { id: '@cf/moonshotai/kimi-k2.6', label: 'Kimi K2.6' },
