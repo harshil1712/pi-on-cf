@@ -41,6 +41,14 @@
   body { @apply bg-kumo-canvas text-base text-kumo-default antialiased; }
 }
 
+/*
+ * iOS Safari zooms into any focused field under 16px (Kumo's text-base is 14px).
+ * Unlayered so it beats Kumo's utility classes; scoped to touch so desktop keeps the denser type.
+ */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px; }
+}
+
 /* Assistant replies */
 .message-markdown [data-streamdown="paragraph"] { margin: 0 0 0.75em; }
 .message-markdown [data-streamdown="paragraph"]:last-child { margin-bottom: 0; }
