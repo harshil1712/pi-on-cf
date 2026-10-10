@@ -1,0 +1,29 @@
+README.md
+  s_5b33eead5a8a3c::t_a89f6bce6cbb01 163
+docs/architecture.md
+  s_5b33eead5a8a3c::t_299d5250d6e745 43,95
+src/server/github.ts
+  s_5b33eead5a8a3c::t_46ccf6bfe8c370 162-206
+src/server/task.ts
+  s_5b33eead5a8a3c::t_282fbfb6c85612 6,9-11,51-53,64,71,98-100,111-127,209-239,243-257
+test/worker/github-webhook.test.ts
+  s_5b33eead5a8a3c::t_e774aaad9418c6 218-233
+test/worker/github.test.ts
+  s_5b33eead5a8a3c::t_57cbcdf1aaffda 2-3,85-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9a6b9ef79d997b6d764f0c04e5ba6d2e46ffc97e",
+  "prompts": {},
+  "sessions": {
+    "s_5b33eead5a8a3c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a126c3-27fe-7165-9bc8-bf035a3ff7c8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
