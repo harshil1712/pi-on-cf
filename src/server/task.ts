@@ -48,8 +48,8 @@ export async function readChange(workspace: WorkspaceClient, task: SessionTask, 
   return git(workspace).diff({ dir: task.dir, ref: task.baseCommit, paths: [path] })
 }
 
-/** What the model is told about its GitHub tools. */
-const GITHUB_TOOLS = 'Read an issue or pull request with read_github_issue, open an issue with create_github_issue, and reply on one with comment_on_github. Only these tools have GitHub credentials: gh, git push and curl to the GitHub API do not.'
+/** What no GitHub tool's own description says: that only they can reach GitHub. */
+const GITHUB_CREDENTIALS = 'Only the GitHub tools have GitHub credentials: gh, git push and curl to the GitHub API do not.'
 
 /** How to reach GitHub repositories, then the cloned one and its AGENTS.md, before every model request. */
 export function taskSection(task: () => SessionTask | null, workspace: () => Promise<WorkspaceClient>): PromptSection {
@@ -60,15 +60,14 @@ export function taskSection(task: () => SessionTask | null, workspace: () => Pro
       if (!current) {
         return [
           'The user refers to GitHub repositories as @owner/name, or @owner/name#branch for a branch other than the default.',
-          'When you need a repository\'s code, to answer questions about it or to change it, call clone_repository. Do not clone for questions you can answer without the code. A session clones one repository.',
-          GITHUB_TOOLS,
+          'Call clone_repository only when you need a repository\'s code, to answer about it or change it. A session clones one repository.',
+          GITHUB_CREDENTIALS,
         ].join('\n')
       }
       const lines = [
-        `You cloned the GitHub repository ${current.repo} at ${current.dir}.`,
-        `You are on the branch ${current.branch}, started from ${current.baseBranch}. Keep any changes on this branch.`,
-        'If the user wants changes, commit them with git once they are done and checked, and call create_pull_request. It pushes the branch and opens a draft pull request, or updates the one already open. Pushing with git yourself fails: only create_pull_request has GitHub credentials. Do not open a pull request when the user only asked about the code.',
-        GITHUB_TOOLS,
+        `You cloned ${current.repo} at ${current.dir}, on the branch ${current.branch} from ${current.baseBranch}. Keep your changes on this branch, and pass cwd: ${current.dir} to exec.`,
+        'When the user asks you to commit or open a pull request, commit with git once your changes are checked, then call create_pull_request. Do not open a pull request when the user only asked about the code.',
+        GITHUB_CREDENTIALS,
       ]
       const agents = await (await workspace()).fs.readFile(`${current.dir}/AGENTS.md`, 'utf8').catch(() => '')
       if (agents) {

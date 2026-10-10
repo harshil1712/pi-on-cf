@@ -77,7 +77,7 @@ describe('repository sessions', () => {
     const pi = await session(id)
     const result = await pi.promptForTest('tool clone_repository {"repo":"octo/demo"}')
     expect(result.text).toBe('tool failed: Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY and GITHUB_OWNERS to work on GitHub repositories.')
-    expect((await pi.promptForTest('section repository')).text).toContain('call clone_repository')
+    expect((await pi.promptForTest('section repository')).text).toContain('Call clone_repository')
     expect(await registry().getSession(id)).not.toHaveProperty('repo')
   })
 

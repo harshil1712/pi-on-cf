@@ -21,14 +21,15 @@ export function createWebTools(env: Env, session: { ctx: DurableObjectState; bro
   return tools
 }
 
+/** When to pick each web tool; what each does is in its own description. */
 const GUIDANCE: Record<string, string> = {
-  web_fetch: 'web_fetch to read a page as readable Markdown',
-  web_search: 'web_search to find a page first',
-  browser: 'browser for pages that need JavaScript, to interact with them, or to look at them',
+  web_fetch: 'web_fetch to read a page',
+  web_search: 'web_search to find one',
+  browser: 'browser only for pages that need JavaScript or interaction, or to see them',
 }
 
 /** The preamble's line on the web tools the session has. */
 export function webToolGuidance(tools: ToolRegistration[]): string[] {
   const uses = tools.flatMap((tool) => GUIDANCE[tool.name] ?? [])
-  return uses.length ? [`For the web, use ${uses.join('; ')}. Prefer these to curl in the container, which gets raw HTML.`] : []
+  return uses.length ? [`- For the web, use ${uses.join('; ')}. Do not curl from the container, which gets only raw HTML.`] : []
 }

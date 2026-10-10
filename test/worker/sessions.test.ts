@@ -175,11 +175,12 @@ describe('pi session', () => {
     expect(result.kinds).toEqual(expect.arrayContaining(['pi.user', 'pi.assistant']))
   })
 
-  it('tells the model its git identity and to keep exit codes', async () => {
+  it('tells the model where to commit, to ask first, and to keep exit codes', async () => {
     const { id } = await registry().createSession()
     const { text } = await (await session(id)).promptForTest('section preamble')
-    expect(text).toContain('Run git in shell')
-    expect(text).toContain('commits as pi-test[bot] <1+pi-test[bot]@users.noreply.github.com> already, so do not set user.name or user.email')
+    expect(text).toContain('Commit with git in the shell backend')
+    expect(text).toContain('do not set user.name or user.email, or pass -c')
+    expect(text).toContain('Do not commit, or open or update a pull request, unless the user asked you to')
     expect(text).toContain('do not pipe tests, builds, lint or type checks into head, tail or grep')
     expect(text).toContain('set -o pipefail')
   })
