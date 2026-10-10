@@ -1,0 +1,19 @@
+wrangler.jsonc
+  s_83767864ac5e8d::t_aebe8b2c22f232 33-35,38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e64182eeec0b5320e2e41260b90fca5291c6bffa",
+  "prompts": {},
+  "sessions": {
+    "s_83767864ac5e8d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1224a-510d-7165-9bc8-beff076eab53",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
