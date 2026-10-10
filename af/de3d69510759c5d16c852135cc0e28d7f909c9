@@ -1,0 +1,19 @@
+test/worker/task.test.ts
+  s_a0bc0ff4a10ce7::t_cf003a18cd5f38 80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "afde3d69510759c5d16c852135cc0e28d7f909c9",
+  "prompts": {},
+  "sessions": {
+    "s_a0bc0ff4a10ce7": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a126e8-c680-7165-9bc8-bf048f397cee",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
