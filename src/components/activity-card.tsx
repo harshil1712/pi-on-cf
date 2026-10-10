@@ -67,14 +67,14 @@ export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type
           <>
             <ActivitySection label="Input">{JSON.stringify(entry.args ?? {}, null, 2)}</ActivitySection>
             {entry.result !== undefined && <ActivitySection label={error ? 'Error' : 'Output'}>{stringify(entry.result)}</ActivitySection>}
-            {entry.images?.map((image, index) => (
-              <a key={index} href={image.src} target="_blank" rel="noreferrer" title={image.alt} className="block">
-                <img src={image.src} alt={image.alt} loading="lazy" className="max-h-72 w-full rounded-b-lg object-cover object-top" />
-              </a>
-            ))}
           </>
         ) : <div className="max-h-60 overflow-y-auto px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-kumo-subtle">{entry.text}</div>}
       </Collapsible.Panel>
+      {/* A tool's images (the browser's screenshots) show with the card collapsed, where they were taken.
+          Not linked: browsers refuse to open a data: URL in a new tab. */}
+      {entry.type === 'tool' && entry.images?.map((image, index) => (
+        <img key={index} src={image.src} alt={image.alt} loading="lazy" className="mt-1 block max-h-60 max-w-full rounded-lg border border-kumo-hairline" />
+      ))}
     </Collapsible.Root>
   )
 }

@@ -63,7 +63,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
               <Popover.Content side="bottom" align="end" className="w-80 p-2">
                 <span className="block px-2 pt-1 pb-1.5 text-xs font-medium text-kumo-subtle">Pi's browser tabs</span>
                 {browserTabs.length === 0 ? (
-                  <p className="px-2 pb-1 text-sm text-kumo-subtle">No tab is open yet. Ask Pi to look at a page with its browser tool, then watch here.</p>
+                  <p className="px-2 pb-1 text-sm text-kumo-subtle">No tabs open. The browser closes after a few idle minutes; ask Pi to look at a page with its browser tool, then watch here.</p>
                 ) : (
                   <ul>
                     {browserTabs.map((tab, index) => (

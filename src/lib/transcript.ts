@@ -153,7 +153,8 @@ function toolResult(message: Extract<Message, { role: 'toolResult' }>): ToolResu
   for (const part of message.content) {
     if (part.type === 'text') texts.push(part.text)
     else if (part.type === 'image') {
-      images.push({ alt: texts[0]?.trim().split('\n')[0] || 'Screenshot', src: part.data.startsWith('data:') ? part.data : `data:${part.mimeType};base64,${part.data}` })
+      // The text beside it is the tool's JSON output, not a caption.
+      images.push({ alt: 'Screenshot', src: part.data.startsWith('data:') ? part.data : `data:${part.mimeType};base64,${part.data}` })
     }
   }
   return { text: texts.join(''), isError: message.isError, images }

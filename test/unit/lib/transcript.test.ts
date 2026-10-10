@@ -40,10 +40,10 @@ describe('pi event reducer', () => {
     ])])
     const tool = transcriptEntries(view).entries.find((row) => row.type === 'tool' && row.name === 'browser')
     expect(tool && 'result' in tool ? tool.result : '').toBe('Screenshot of example.com')
-    expect(tool && 'images' in tool ? tool.images : []).toEqual([{ alt: 'Screenshot of example.com', src: 'data:image/png;base64,QUJD' }])
+    expect(tool && 'images' in tool ? tool.images : []).toEqual([{ alt: 'Screenshot', src: 'data:image/png;base64,QUJD' }])
   })
 
-  it('passes a data URL through and falls back to a generic alt', () => {
+  it('passes a data URL through', () => {
     const view = reducePiEvents(EMPTY_VIEW, [snapshot([
       entry('pi.assistant', assistant([{ type: 'toolCall', id: 'call-8', name: 'browser', arguments: {} }])),
       entry('pi.tool-result', { role: 'toolResult', toolCallId: 'call-8', toolName: 'browser', content: [
