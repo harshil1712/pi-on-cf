@@ -191,6 +191,8 @@ Pi offers [Agent Skills](https://developers.cloudflare.com/agents/runtime/execut
 npx wrangler r2 object put pi-on-cf/skills/release-notes/SKILL.md --file SKILL.md --remote
 ```
 
+This repository's own development skills live in `.agents/skills/`, the Agent Skills location Pi discovers in a project: `agents-sdk` and `durable-objects`, vendored from [cloudflare/skills](https://github.com/cloudflare/skills) under the Apache License 2.0, and `pi-on-cf-dev`, the guide to working on this repository. That directory is the source of truth; the bucket holds the published copies sessions load, so refresh the bucket with the command above when a skill changes. A repository Pi clones can carry a `.agents/skills/` of its own, but the deployment loads only its built-in and bucket sources, never a clone's directory, so such files are never more than text to read.
+
 Only each skill's name and description go into the system prompt. The model loads a skill's body with `activate_skill` and reads its files with `read_skill_resource`; skill scripts do not run. A session lists the bucket when it starts and again at most once a minute after a prompt, so new and changed skills reach running sessions without a deploy.
 
 The agent manages shared skills too. The built-in `skill-creator` skill, adapted from Anthropic's [skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator) under the Apache License 2.0, teaches it to draft a skill in `/workspace/skills/<name>/` and publish it with `save_skill`. `open_skill` copies a shared skill into the workspace to edit, and `delete_skill` deletes one. Built-in skills cannot be changed.
