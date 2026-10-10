@@ -63,7 +63,7 @@ The UI is Kumo (`@cloudflare/kumo`), imported per component (`@cloudflare/kumo/c
 
 ## Skills, in this app
 
-Built-in skills live in `src/server/bundled-skills/` and are bundled by the Agents Vite plugin (`agents()` in `vite.config.ts`); a change to one needs a deploy, not just a session restart. A built-in skill wins its name, so a shared skill in the `BUCKET` R2 bucket cannot replace one. Shared skills live under `skills/` in the bucket and are managed at runtime by the agent's `open_skill`, `save_skill`, and `delete_skill` tools; `SkillCatalog` in `src/server/skills.ts` refreshes them without a deploy. Add a new bundled skill as a directory with a `SKILL.md` whose frontmatter `name` matches the directory, plus optional `references/`, `scripts/`, `assets/`.
+Skills come from three sources: built-ins in `src/server/bundled-skills/`, bundled by the Agents Vite plugin (`agents()` in `vite.config.ts`) — a change to one needs a deploy, not just a session restart; the cloned repository's own skills under `.agents/skills/`, `.claude/skills/`, `.pi/skills/` or `.github/skills/` (`src/server/repo-skills.ts`), which a session offers as soon as it has a clone; and shared skills under `skills/` in the R2 bucket, managed at runtime by the agent's `open_skill`, `save_skill`, and `delete_skill` tools. `SkillCatalog` in `src/server/skills.ts` refreshes all of them, and `clone_repository` syncs the catalog at once. A built-in skill wins a name; a repository's skill wins over a shared one. This repository keeps its development skills — including this one — in `.agents/skills/`; a new bundled skill is a directory with a `SKILL.md` whose frontmatter `name` matches the directory, plus optional `references/`, `scripts/`, `assets/`.
 
 ## Platform gotchas
 
@@ -74,4 +74,4 @@ Built-in skills live in `src/server/bundled-skills/` and are bundled by the Agen
 
 ## Definition of done
 
-`npm run check` passes (it is exactly what CI runs: lint, typecheck, both test projects) and `npm run build` succeeds. Commit with the workspace git; the GitHub App's bot identity is already configured.
+`npm run check` passes (it is exactly what CI runs: lint, typecheck, both test projects) and `npm run build` succeeds. Commit only when the user asks; the workspace git already commits as the GitHub App's bot.
