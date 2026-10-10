@@ -1,0 +1,21 @@
+src/server/skills.ts
+  s_5b33eead5a8a3c::t_00e4a6b2753bf1 64-66
+test/worker/skills.test.ts
+  s_5b33eead5a8a3c::t_47621517b68b43 4,196-212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "85227cce694132c94364af28dd7562de3812e7d3",
+  "prompts": {},
+  "sessions": {
+    "s_5b33eead5a8a3c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a126c3-27fe-7165-9bc8-bf035a3ff7c8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
