@@ -1,0 +1,55 @@
+README.md
+  s_893b6de552078d::t_c7199ac718be5c 186-193
+docs/architecture.md
+  s_893b6de552078d::t_ea7cb6528db623 59-62,135-136,141
+package-lock.json
+  s_893b6de552078d::t_9b4a19337e3bd2 15,33,51-52,2045-2054,8906,9089,9266,9288,10148,10175,10314,10320,13250,14992-14994
+package.json
+  s_893b6de552078d::t_288db6702513fe 29,47,65-66
+src/components/session-sidebar.tsx
+  s_893b6de552078d::t_1b57baff192e0b 8,150-160
+src/components/settings-page.tsx
+  s_893b6de552078d::t_ef397691164e0f 1-223
+src/contract.ts
+  s_893b6de552078d::t_53bfdd6942affd 132-166,181-185
+src/hooks/use-session-registry.tsx
+  s_893b6de552078d::t_4eef4c91202a29 16-17,33,42-43,65
+src/routeTree.gen.ts
+  s_893b6de552078d::t_9a631995545ad8 13,21-25,34,39,45,50,52-53,58,71-77,90
+src/routes/settings.tsx
+  s_893b6de552078d::t_c4dc797c9bd392 1-13
+src/server/mcp-tools.ts
+  s_893b6de552078d::t_f8d9819e113b62 1-170
+src/server/pi-registry.ts
+  s_893b6de552078d::t_754b4c33efdad9 3-16,60-61,65-72,190-249
+src/server/pi-session.ts
+  s_893b6de552078d::t_5ad4169c5473f2 36,155-161,207-210,327,334,555-557,559,563-564,566-570
+test/unit/components/session-sidebar.test.tsx
+  s_893b6de552078d::t_080e4b11a1edb7 150-155
+test/unit/components/settings-page.test.tsx
+  s_893b6de552078d::t_7a6c807d2ee50c 1-150
+test/worker/entry.ts
+  s_893b6de552078d::t_2a06fed9290360 24,58,180-185,216-233
+test/worker/mcp-servers.test.ts
+  s_893b6de552078d::t_d103305d87df41 1-102
+test/worker/mcp-tools.test.ts
+  s_893b6de552078d::t_e8ef3c7f94acd4 1-79
+test/worker/wrangler.jsonc
+  s_893b6de552078d::t_e064dd143322eb 19-23,29-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c867b949602e711e449c0c830519f0d9f3fc9f5a",
+  "prompts": {},
+  "sessions": {
+    "s_893b6de552078d": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a12770-ac63-7165-9bc8-bf0624910d06",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
