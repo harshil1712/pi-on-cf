@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { PiSession as TestPiSession } from './entry'
-import { publishSkill, SKILLS_PREFIX } from '~/server/skills'
+import { deleteSharedSkill, publishSkill, SKILLS_PREFIX } from '~/server/skills'
 
 const session = () => env.PiSession.getByName(crypto.randomUUID()) as unknown as DurableObjectStub<TestPiSession>
 
@@ -191,6 +191,23 @@ describe('the agent\'s skill tools', () => {
     expect((await pi.promptForTest(call('delete_skill', { name: 'deploy' }))).text).toBe('tool said: Deleted deploy. Other sessions stop offering it within a minute.')
     expect(await keys('')).toEqual([])
     expect(listed((await pi.promptForTest('catalog')).text)).toEqual(['skill-creator'])
+  })
+
+  it('deletes a skill that is only a SKILL.md, which R2 would refuse an empty delete for', async () => {
+    await publishSkill(env.BUCKET, 'solo', new Map([['SKILL.md', skillFile('solo', 'Alone.', 'x')]]))
+    // Miniflare accepts an empty key list; production R2 does not.
+    const strict = new Proxy(env.BUCKET, {
+      get(target, key) {
+        if (key === 'delete') return (keys: string | string[]) => {
+          if (Array.isArray(keys) && !keys.length) throw new Error('delete: no keys')
+          return target.delete(keys)
+        }
+        const value = Reflect.get(target, key) as unknown
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    expect(await deleteSharedSkill(strict, 'solo')).toBe(true)
+    expect(await keys('')).toEqual([])
   })
 
   it('reports what went wrong, and changes nothing', async () => {
