@@ -172,12 +172,14 @@ Every session can read pages with `web_fetch`: it fetches the URL and returns it
 
 ### Web search
 
-`web_search` is off by default, because searches bill whoever the gateway says. This deployment brings its own free Exa key: Exa's Starter plan gives 10 dollars of credits each month with no payment method, which is about two thousand searches.
+`web_search` searches with Exa, the one Web Search provider whose free tier renews: Exa's Free Tier gives 10 dollars of credits with no payment method, reset on the first of every month. Web Search runs Exa's `auto` search, at 7 dollars per thousand, so that is about 1,400 searches a month. The deployment uses its own Exa key, so searches never spend AI Gateway credits. Ceramic gives 1,000 free queries and Linkup 4,000, once each, not every month.
+
+To set it up:
 
 1. Sign up at [exa.ai](https://exa.ai/) and copy the API key.
-2. In the dashboard, go to **AI Gateway**, pick the gateway (`default` unless you changed `AI_GATEWAY_ID`), then **Provider Keys**, and add the Exa key with the alias `pi-search`.
-3. In `wrangler.jsonc`, set the two vars commented there: `WEB_SEARCH_PROVIDER` to `exa` and `WEB_SEARCH_BYOK_ALIAS` to `pi-search`. The Worker holds no secret, only the alias.
-4. Deploy. When the month's free credits are gone, searches fail with `payment required` and Pi is told to carry on without them; to keep searching, add a payment method to Exa, or load AI Gateway credits and drop `WEB_SEARCH_BYOK_ALIAS`.
+2. In the dashboard, go to **AI Gateway**, pick the gateway (`default` unless you changed `AI_GATEWAY_ID`), then **Provider Keys**, and add the Exa key with the alias `pi-search`. If Exa is not in the provider list, add it first under **Configure custom providers**: name `Exa`, slug `exa`, base URL `https://api.exa.ai`. Then add the key for that provider.
+3. `wrangler.jsonc` already sets `WEB_SEARCH_PROVIDER` to `exa`, which turns `web_search` on, and `WEB_SEARCH_BYOK_ALIAS` to `pi-search`. The Worker holds no secret, only the alias. Because the alias is set, a gateway without the key fails the search instead of billing credits. To turn search off, remove `WEB_SEARCH_PROVIDER`.
+4. Deploy. When the month's free credits are gone, searches fail and Pi is told to carry on without them; to keep searching, add a payment method to Exa, or load AI Gateway credits and drop `WEB_SEARCH_BYOK_ALIAS`.
 
 Note: Exa is the one Web Search provider without Zero Data Retention for requests routed through Cloudflare, so search terms are logged at Exa.
 

@@ -11,10 +11,11 @@
   "vars": {
     "AI_GATEWAY_ID": "default",
     "AI_MODEL": "@cf/zai-org/glm-5.3",
-    // Web search, off by default: set both to install pi's web_search tool,
-    // after storing the provider's key on the AI Gateway ("Web search" in
-    // the README). "WEB_SEARCH_PROVIDER": "exa",
-    // "WEB_SEARCH_BYOK_ALIAS": "pi-search",
+    // Pi's web_search tool, on Exa's monthly free tier: the Exa key is stored
+    // on the AI Gateway under this alias ("Web search" in the README).
+    // Without WEB_SEARCH_PROVIDER there is no web_search tool.
+    "WEB_SEARCH_PROVIDER": "exa",
+    "WEB_SEARCH_BYOK_ALIAS": "pi-search",
   },
   // The GitHub App sessions clone, push and open pull requests as, and the
   // secret its webhooks are signed with; see "GitHub App" in the README. Only

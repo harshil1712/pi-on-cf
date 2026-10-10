@@ -48,11 +48,12 @@ Tool calls in a round run sequentially. Reads, searches, `write`, and `delete` a
 
 ### Web
 
-The web tools come from the Agents SDK's pi adapters (`createWebTools` in `src/server/web-tools.ts`), and each one exists only when its binding or vars make it usable:
+The web tools come from the Agents SDK's pi adapters (`createWebTools` in `src/server/web-tools.ts`). The preamble's line on the web lists the tools the session has:
 
 - `web_fetch` (`agents/webfetch/pi`) reads a URL as Markdown, converted by `env.AI.toMarkdown()` when needed, in windows that keep long pages out of the transcript; it is a replay-safe read.
-- `web_search` (`agents/websearch/pi`) searches the Web Search API when `WEB_SEARCH_PROVIDER` and `WEB_SEARCH_BYOK_ALIAS` are both set; the README explains the key setup. A search bills whoever the gateway says, per search.
-- `browser` (`agents/browser/pi`) drives the session's own persistent browser, a `Browser` on the Lifecycle over the `BROWSER` Browser Run binding. Tabs, cookies and logins carry over between runs; screenshots come back as image parts for models that accept them. The tool's codemode runtime is a facet of the session's Durable Object, exported from `src/server.ts`, and teardown closes the browser after the harness.
+- `web_search` (`agents/websearch/pi`) searches the Web Search API when `WEB_SEARCH_PROVIDER` is set, billed to the provider key `WEB_SEARCH_BYOK_ALIAS` names, or to AI Gateway credits without one; the README explains the key setup. A search bills whoever the gateway says, per search.
+- `browser` (`agents/browser/pi`), with a `BROWSER` binding, drives the session's own persistent browser, a `Browser` on the Lifecycle over the `BROWSER` Browser Run binding. Tabs, cookies and logins carry over between runs; screenshots come back as image parts for models that accept them. The tool's codemode runtime is a facet of the session's Durable Object, exported from `src/server.ts`, and teardown closes the browser after the harness.
+
 
 The model comes from `createAI({ binding: env.AI })`. New sessions start on `AI_MODEL` at the `medium` thinking level. The composer's model picker switches a session to any model in the curated list in `src/server/models.ts`, with `AI_MODEL` added when the list lacks it: `setModel` checks the ID against that list, calls pi's `session.setModel`, and records the ID in the Agent state, which the picker shows. Pi uses the new model from its next request. The UI only offers the switch while the session is idle; pi itself would accept it mid-run. The home page's picker reads the same list, default first, from the registry's `listModels`; `createSession({ prompt, model })` checks the model against it before creating an entry, then sets it on the new session before submitting the prompt.
 

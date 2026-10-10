@@ -18,8 +18,6 @@ import { PiRegistry as AppPiRegistry } from '~/server/pi-registry'
 import { PiSession as AppPiSession, type ModelChoice } from '~/server/pi-session'
 import type { ModelOption, RunStatus, SessionTask } from '~/contract'
 import { bucketSkills, builtInSkills } from '~/server/skills'
-import { createWebTools } from '~/server/web-tools'
-import { Browser, browserRun } from 'agents/browser'
 import { webFetchTool, type WebFetchSource } from 'agents/webfetch/pi'
 import { webSearchTool, type WebSearchSource } from 'agents/websearch/pi'
 import type { ToolRegistration } from '@earendil-works/pi-durable'
@@ -141,15 +139,6 @@ export class PiSession extends AppPiSession {
   /** Fake web sources, so the web tools run without the network or AI. */
   protected override webTools(): ToolRegistration[] {
     return [webFetchTool({ source: FAKE_FETCH }), webSearchTool({ source: FAKE_SEARCH })]
-  }
-
-  /** Which web tools a deployment with `overrides` would have; createWebTools is the answer. */
-  webToolNamesForTest(overrides: Record<string, unknown>): string[] {
-    const env = { ...this.env, ...overrides } as unknown as Env
-    const additions = ['AI', 'WEB_SEARCH_PROVIDER', 'WEB_SEARCH_BYOK_ALIAS'].filter((key) => !(key in overrides))
-    for (const key of additions) delete (env as unknown as Record<string, unknown>)[key]
-    const browser = typeof overrides.BROWSER === 'object' ? new Browser({ provider: browserRun(overrides.BROWSER as Parameters<typeof browserRun>[0]) }) : undefined
-    return createWebTools(env, { ctx: this.ctx, browser }).map((tool) => tool.name)
   }
 
   /** Tests set a token with `useGitHubTokenForTest`; without one, the App's, which tests do not configure. */

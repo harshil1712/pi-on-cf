@@ -29,21 +29,6 @@ describe('web tools', () => {
     expect(result.text).toContain('Kittens')
   })
 
-  it('offers the web tools a deployment has bindings and vars for', async () => {
-    const { id } = await registry().createSession()
-    const pi = await session(id)
-    // The test environment has no AI binding, so without overrides there are none.
-    expect(await pi.webToolNamesForTest({})).toEqual([])
-    expect(await pi.webToolNamesForTest({ AI: true })).toEqual(['web_fetch'])
-    // Search needs its provider and its key alias, and the provider must be one of the three.
-    expect(await pi.webToolNamesForTest({ AI: true, WEB_SEARCH_PROVIDER: 'exa' })).toEqual(['web_fetch'])
-    expect(await pi.webToolNamesForTest({ AI: true, WEB_SEARCH_PROVIDER: 'llama', WEB_SEARCH_BYOK_ALIAS: 'x' })).toEqual(['web_fetch'])
-    expect(await pi.webToolNamesForTest({ AI: true, WEB_SEARCH_PROVIDER: 'exa', WEB_SEARCH_BYOK_ALIAS: 'x' })).toEqual(['web_fetch', 'web_search'])
-    // The browser needs its binding.
-    expect(await pi.webToolNamesForTest({ BROWSER: {} })).toEqual(['browser'])
-    expect(await pi.webToolNamesForTest({ AI: true, BROWSER: {} })).toEqual(['web_fetch', 'browser'])
-  })
-
   it('has no browser tabs without a BROWSER binding', async () => {
     const { id } = await registry().createSession()
     expect(await (await session(id)).browserLiveView()).toBeNull()

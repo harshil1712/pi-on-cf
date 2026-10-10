@@ -150,10 +150,11 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
   readonly harness = new PiHarness({
     harness: async ({ storage, context }) => {
       const workspace = await getWorkspace(this)
+      const web = this.webTools()
       this.registry.install({
         name: 'pi-on-cf',
         sections: [
-          { key: 'preamble', render: () => preamble(botIdentity(this.env), webToolGuidance(this.env)), tag: false },
+          { key: 'preamble', render: () => preamble(botIdentity(this.env), webToolGuidance(web)), tag: false },
           taskSection(() => this.state.task, () => getWorkspace(this)),
         ],
         tools: [...createWorkspaceTools({
@@ -180,7 +181,7 @@ export class PiSession extends withWorkspace(PiSessionHost, workspaceOptions) {
           bucket: this.env.BUCKET,
           workspace,
           onChange: () => this.skills.reload(this.registry),
-        }), ...this.webTools()],
+        }), ...web],
       })
       // Skills are optional: an unreachable bucket must not stop pi opening.
       await this.skills.sync(this.registry).catch((error: unknown) => {
