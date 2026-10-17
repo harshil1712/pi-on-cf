@@ -10,7 +10,8 @@
     "GITHUB_APP_SLUG": "pi-test",
     "GITHUB_APP_BOT_ID": "1",
     "GITHUB_OWNERS": "octo",
-    "GITHUB_WEBHOOK_SECRET": "test-webhook-secret"
+    "GITHUB_WEBHOOK_SECRET": "test-webhook-secret",
+    "WEBHOOK_SECRET": "test-generic-secret"
   },
   "durable_objects": {
     "bindings": [

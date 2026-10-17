@@ -65,7 +65,7 @@ Open `http://localhost:3000`.
 
 The model picker in the composer chooses between the Workers AI models curated in `src/server/models.ts`; edit that list to offer others. `AI_MODEL` is always offered, and listed first. On the home page it picks the model a new session starts on; in a session it switches the model from the next request, and is disabled while Pi is running.
 
-Sessions reach GitHub as a GitHub App, set up as described in [GitHub App](#github-app). Its six settings are declared as required secrets in `wrangler.jsonc`, so `wrangler deploy` fails until each is set. Only the private key and the webhook secret are sensitive, but all six are per deployment. Set them with `npx wrangler secret put <NAME>`, and locally in `.dev.vars`. Because `wrangler.jsonc` declares `secrets`, `.dev.vars` and `.env` load only the secrets listed there.
+Sessions reach GitHub as a GitHub App, set up as described in [GitHub App](#github-app). Its six settings and the generic webhook's secret are declared as required secrets in `wrangler.jsonc`, so `wrangler deploy` fails until each is set. Only the private key and the two webhook secrets are sensitive, but all seven are per deployment. Set them with `npx wrangler secret put <NAME>`, and locally in `.dev.vars`. Because `wrangler.jsonc` declares `secrets`, `.dev.vars` and `.env` load only the secrets listed there.
 
 | Secret | Value |
 |---|---|
@@ -75,6 +75,7 @@ Sessions reach GitHub as a GitHub App, set up as described in [GitHub App](#gith
 | `GITHUB_APP_BOT_ID` | The user ID of the App's bot, `<slug>[bot]`. |
 | `GITHUB_OWNERS` | The accounts whose installations Pi uses, comma-separated: your user and your orgs. Only these users can direct Pi from GitHub. |
 | `GITHUB_WEBHOOK_SECRET` | The App's webhook secret, which GitHub signs every delivery with. |
+| `WEBHOOK_SECRET` | The secret senders give the [generic webhook](#webhooks), such as the output of `openssl rand -hex 32`. Set one even if you do not use it. |
 
 `BUCKET` is the app's R2 bucket, `pi-on-cf`. It is a remote binding, so local development reads the real bucket. Create it once with `npx wrangler r2 bucket create pi-on-cf`.
 
@@ -166,6 +167,27 @@ Mention the App's bot, `@<slug>`, in a comment on GitHub to give Pi work there. 
 
 Pi reacts to the comment with 👀 when it takes the work. The webhook endpoint answers GitHub at once and queues the mention on the registry, which retries it if it fails. An issue's description by a user outside `GITHUB_OWNERS` goes into the prompt marked as information, not instructions.
 
+## Webhooks
+
+`/webhooks/generic` starts a session from any service that can POST to a URL with a shared secret. It was made for [Workers Issues](https://developers.cloudflare.com/workers/observability/issues/automations/) automations, so a recurring failure in one of your Workers reaches Pi with its diagnostic context, and it takes any other Cloudflare notification, JSON or text.
+
+The sender authenticates with `WEBHOOK_SECRET`, in the `cf-webhook-auth` header, which Cloudflare Notifications sends, or as `Authorization: Bearer <secret>`. Every accepted delivery starts its own session; the endpoint answers `202` at once and queues the work on the registry, which retries it if it fails. Add `repo=owner/name`, and optionally `branch=<name>`, to the URL to tie a destination to one repository: Pi clones it when it needs the code, and opens a draft pull request when it can fix the cause. Without them, Pi investigates from the payload alone, or clones a repository it can tell from it.
+
+To send a Worker's issues to Pi:
+
+1. Turn on Issues for the Worker: `"observability": { "issues": { "enabled": true } }` in its Wrangler configuration, then deploy. Upload source maps so stack traces point at your source.
+2. On the Worker's **Issues** page, select **Automations → Add automation**, and choose a trigger: an occurrence threshold, or a recurrence after inactivity.
+3. Create a destination of type **Generic Webhook**, with the URL `https://<your Worker>/webhooks/generic?repo=<owner>/<name>` and the value of `WEBHOOK_SECRET` as the webhook secret. Cloudflare's test message gets `200` and starts nothing.
+4. Turn on **Enabled** and create the automation. To try it at once, open an issue and send it to the destination from its actions.
+
+Pi gets the notification's text and its whole payload, up to 64 KiB, marked as information rather than instructions: error messages, logs and request details in it can come from anyone who can reach the Worker. The notification does not let Pi query your account; connect Cloudflare's API MCP server under [MCP servers](#mcp-servers) and Pi uses it to read the Worker's logs and traces.
+
+Like the GitHub webhook, the path needs an Access bypass: add `webhooks/generic` as a second path on the application from [Let GitHub reach the webhook](#let-github-reach-the-webhook). Check that the Worker answers it with `401`:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://<your Worker>/webhooks/generic -d '{}'
+```
+
 ## Web tools
 
 Every session can read pages with `web_fetch`: it fetches the URL and returns it as readable Markdown (converted by Workers AI for HTML, PDFs and office documents), a window at a time. Every session also keeps its own persistent Chromium on [Browser Run](https://developers.cloudflare.com/browser-run/) (the `BROWSER` binding in `wrangler.jsonc`): Pi drives it with code for pages that need JavaScript, clicks, logins or screenshots. Browser Run is billed per browser-hour and limited to the public internet; it cannot reach a dev server running inside the session's container. In the app, the globe in a session's top bar opens the Workspace panel's Browser view: Live View of Pi's tab beside the chat, to watch Pi or take over to log in. Screenshots show under the browser call that took them.
@@ -213,7 +235,7 @@ A shared skill instructs every session, including its container with network acc
 
 ## Production
 
-Protect the entire Worker with Cloudflare Access or another authentication layer before deploying. The application does not enforce this itself. Exempt only `/webhooks/github`, as [Let GitHub reach the webhook](#let-github-reach-the-webhook) describes, so GitHub's deliveries reach the Worker.
+Protect the entire Worker with Cloudflare Access or another authentication layer before deploying. The application does not enforce this itself. Exempt only `/webhooks/github` and `/webhooks/generic`, as [Let GitHub reach the webhook](#let-github-reach-the-webhook) and [Webhooks](#webhooks) describe, so deliveries reach the Worker.
 
 ```bash
 npm run deploy

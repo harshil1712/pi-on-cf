@@ -16,11 +16,11 @@ Read `docs/architecture.md` for the full system design before changing anything 
 | `npm test` | `vitest run`, both projects. |
 | `npm run test:unit` / `test:worker` | One project: browser units (jsdom) / Worker tests (workerd). |
 | `npm run build` | `vite build`. |
-| `npm run deploy` | Build, then `wrangler deploy`. Fails until every GitHub App secret is set. |
+| `npm run deploy` | Build, then `wrangler deploy`. Fails until every required secret is set. |
 | `npm run generate-routes` | Regenerate `src/routeTree.gen.ts` after adding routes; never edit that file. |
 | `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` after changing `wrangler.jsonc` bindings. |
 
-`npm run dev` needs Docker, for the Computer container, and a `wrangler login`, because the `AI`, `BUCKET`, and Artifacts bindings are remote in local development. Local Durable Object state lands in `.wrangler/` and can hold transcripts and workspace files; do not publish it. Set the GitHub App secrets locally in `.dev.vars` or `.env`, and keep account-specific configuration in an ignored `wrangler.local.jsonc` (`CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite, `--config` for Wrangler). Press `t + Enter` in `npm run dev` for a Quick Tunnel when testing the GitHub webhook locally.
+`npm run dev` needs Docker, for the Computer container, and a `wrangler login`, because the `AI`, `BUCKET`, and Artifacts bindings are remote in local development. Local Durable Object state lands in `.wrangler/` and can hold transcripts and workspace files; do not publish it. Set the GitHub App secrets and `WEBHOOK_SECRET` locally in `.dev.vars` or `.env`, and keep account-specific configuration in an ignored `wrangler.local.jsonc` (`CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite, `--config` for Wrangler). Press `t + Enter` in `npm run dev` for a Quick Tunnel when testing the GitHub webhook locally.
 
 ## Layout
 
@@ -36,6 +36,7 @@ src/
     ├── pi-registry.ts   singleton catalog Durable Object, the only route to a session
     ├── agent-routes.ts  routing; refuses direct /api/agents/pi-session/* requests
     ├── skills.ts        skill sources and publishing; repo-skills.ts the clone's own skills
+    ├── github-webhook.ts, generic-webhook.ts   /webhooks/github and /webhooks/generic
     ├── workspace-tools.ts, web-tools.ts, task.ts, github-app.ts, models.ts
     └── bundled-skills/  built-in skills, bundled by the Agents Vite plugin at build time
 test/
@@ -80,7 +81,7 @@ Skills in this app come from three sources: built-ins in `src/server/bundled-ski
 - `compatibility_date` in `wrangler.jsonc` is the newest date the bundled workerd supports. `package.json` overrides the `miniflare` and `wrangler` that `@cloudflare/vitest-pool-workers` pins so dev, tests, and deploys share one runtime; bump the date together with Wrangler, and drop the override once the pool ships a matching Miniflare.
 - Never edit an old Durable Object migration; always add a new tag.
 - Worker Previews (`npx wrangler preview`) inherit nothing from the main config: `previews` in `wrangler.jsonc` repeats bindings, and R2/Artifacts point at separate `-preview` resources.
-- `wrangler deploy` refuses to run until all six GitHub App secrets are set (`npx wrangler secret put <NAME>`).
+- `wrangler deploy` refuses to run until all seven required secrets — the six GitHub App ones and `WEBHOOK_SECRET` — are set (`npx wrangler secret put <NAME>`).
 
 ## Definition of done
 

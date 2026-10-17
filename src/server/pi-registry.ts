@@ -19,6 +19,7 @@ import { titleFromPrompt } from './session-title'
 import { type GitHubThread, parseRepo, reactToComment } from './github'
 import { listRepositories, repoToken } from './github-app'
 import { followUpPrompt, type GitHubMention, issuePrompt } from './github-webhook'
+import { type WebhookEvent, webhookPrompt } from './generic-webhook'
 import { modelOptions } from './models'
 import type { PiSession } from './pi-session'
 
@@ -190,6 +191,20 @@ export class PiRegistry extends Agent<Env, PiRegistryState> {
     await this.#react(mention, 'eyes')
     const thread = { repo: mention.repo, number: mention.number }
     await this.#create({ title: `${mention.repo}#${mention.number}: ${mention.title}`, thread }, { prompt: issuePrompt(mention), thread })
+  }
+
+  /**
+   * Called by the generic webhook endpoint for an authenticated delivery.
+   * Queued like a GitHub mention, and keyed by the body's digest, so a
+   * delivery the sender repeats while the first still waits replaces it.
+   */
+  async receiveWebhook(event: WebhookEvent, deliveryId: string): Promise<void> {
+    await this.queue('handleWebhook', event, { id: `webhook:${deliveryId}` })
+  }
+
+  /** Each delivery starts its own session. */
+  async handleWebhook(event: WebhookEvent): Promise<void> {
+    await this.#create({ title: event.title }, { prompt: webhookPrompt(event) })
   }
 
   /** Reactions only tell you Pi saw the comment; failing one must not stop the work. */

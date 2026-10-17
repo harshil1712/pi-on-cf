@@ -18,13 +18,14 @@
     "WEB_SEARCH_BYOK_ALIAS": "pi-search",
   },
   // The GitHub App sessions clone, push and open pull requests as, and the
-  // secret its webhooks are signed with; see "GitHub App" in the README. Only
-  // the private key and webhook secret are sensitive, but every value is per
-  // deployment, and declaring them here makes `wrangler deploy` refuse to
-  // run until each is set. Set them with `wrangler secret put`, or in
-  // `.dev.vars` locally.
+  // secret its webhooks are signed with; see "GitHub App" in the README.
+  // WEBHOOK_SECRET guards the generic webhook ("Webhooks" in the README).
+  // Only the private key and the two webhook secrets are sensitive, but every
+  // value is per deployment, and declaring them here makes `wrangler deploy`
+  // refuse to run until each is set. Set them with `wrangler secret put`, or
+  // in `.dev.vars` locally.
   "secrets": {
-    "required": ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG", "GITHUB_APP_BOT_ID", "GITHUB_OWNERS", "GITHUB_WEBHOOK_SECRET"],
+    "required": ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_SLUG", "GITHUB_APP_BOT_ID", "GITHUB_OWNERS", "GITHUB_WEBHOOK_SECRET", "WEBHOOK_SECRET"],
   },
   // Workers AI and AI Gateway for pi, through agents/models/pi-ai.
   "ai": {

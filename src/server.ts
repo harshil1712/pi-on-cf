@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers'
 import { routeAgentRequest } from 'agents'
 import { AGENT_ROUTES } from './server/agent-routes'
 import { GITHUB_WEBHOOK_PATH, handleGitHubWebhook } from './server/github-webhook'
+import { GENERIC_WEBHOOK_PATH, handleGenericWebhook } from './server/generic-webhook'
 
 export { PiSession } from './server/pi-session'
 
@@ -17,7 +18,11 @@ export { CodemodeRuntime } from '@cloudflare/codemode'
 
 export default createServerEntry({
   async fetch(request) {
-    if (new URL(request.url).pathname === GITHUB_WEBHOOK_PATH) return handleGitHubWebhook(request, env)
+    const { pathname } = new URL(request.url)
+
+    if (pathname === GITHUB_WEBHOOK_PATH) return handleGitHubWebhook(request, env)
+
+    if (pathname === GENERIC_WEBHOOK_PATH) return handleGenericWebhook(request, env)
     const agentResponse = await routeAgentRequest(request, env, AGENT_ROUTES)
 
     return agentResponse ?? handler.fetch(request)
