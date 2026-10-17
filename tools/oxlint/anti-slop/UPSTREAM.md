@@ -32,8 +32,7 @@ Dependencies: `oxlint` and `@oxlint/plugins` pinned together at the same exact v
 ## Configuration choices (`.oxlintrc.json`)
 
 - `no-runtime-typeof` runs with `allowInTypeGuards: true`. Untrusted payloads in the Worker are
-  checked with TypeBox, which pi-ai and pi-durable already ship there; the guards in
-  `src/lib/json.ts` cover the rest, including the browser, which does not bundle TypeBox.
+  validated with zod; the guards in `src/lib/json.ts` cover the rest, including the browser.
 - `require-safety-comment-for-type-assertion` is off under `test/**`, where fixtures and
   Testing Library queries assert by construction and a wrong assertion fails the test
   itself. Every other rule, `no-chained-type-assertions` included, applies to tests.

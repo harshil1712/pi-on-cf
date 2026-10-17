@@ -12,6 +12,21 @@
     "react/rules-of-hooks": "error",
     "react/react-in-jsx-scope": "off",
 
+    "no-restricted-imports": ["error", {
+      "patterns": [{
+        "group": ["typebox", "typebox/*"],
+        "message": "Validate payloads with zod, and take Type for tool parameters from @earendil-works/pi-ai: a module-scope TypeBox Compile breaks every tool call in production (AGENTS.md)."
+      }, {
+        "group": ["zod/compile"],
+        "message": "zod/compile generates code with new Function, which Workers refuse inside a request. Plain zod never does (AGENTS.md)."
+      }]
+    }],
+    "no-restricted-properties": ["error", {
+      "object": "z",
+      "property": "compile",
+      "message": "z.compile generates code with new Function, which Workers refuse inside a request. Plain zod never does (AGENTS.md)."
+    }],
+
     "oxc/no-accumulating-spread": "error",
     "anti-slop/no-array-filter-map": "error",
     "anti-slop/no-reduce-accumulator-copy": "error",

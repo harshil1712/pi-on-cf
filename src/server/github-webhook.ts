@@ -3,8 +3,7 @@ import { getAgentByName } from 'agents'
 import { PI_REGISTRY_INSTANCE } from '~/contract'
 import type { GitHubThread } from './github'
 import { isOwner } from './github-app'
-import { Type, type Static } from 'typebox'
-import { Compile } from 'typebox/compile'
+import { z } from 'zod'
 import type { Json } from '~/lib/json'
 
 /** Where GitHub sends the App's webhooks; set as the App's webhook URL. */
@@ -29,36 +28,27 @@ type WebhookEnv = Pick<Env, 'GITHUB_WEBHOOK_SECRET' | 'GITHUB_APP_SLUG' | 'GITHU
  * The parts of GitHub's webhook payloads a mention is made from. Only these
  * fields are checked; GitHub's many others pass through unexamined.
  */
-const Account = Type.Object({ login: Type.String(), type: Type.Optional(Type.String()) })
+const Account = z.object({ login: z.string(), type: z.string().optional() })
 
-const Author = Type.Union([Account, Type.Null()])
+const Delivery = { action: z.string(), repository: z.object({ full_name: z.string() }), sender: Account }
 
-const Body = Type.Union([Type.String(), Type.Null()])
+const Comment = { id: z.number(), body: z.string(), html_url: z.string() }
 
-const Delivery = { action: Type.String(), repository: Type.Object({ full_name: Type.String() }), sender: Account }
+const Thread = { number: z.number(), title: z.string(), html_url: z.string(), body: z.string().nullable(), user: Account.nullable() }
 
-const Comment = { id: Type.Number(), body: Type.String(), html_url: Type.String() }
-
-const Thread = { number: Type.Number(), title: Type.String(), html_url: Type.String(), body: Body, user: Author }
-
-const IssueComment = Compile(Type.Object({
+const IssueComment = z.object({
   ...Delivery,
-  issue: Type.Object({ ...Thread, pull_request: Type.Optional(Type.Object({})) }),
-  comment: Type.Object(Comment),
-}))
+  issue: z.object({ ...Thread, pull_request: z.object({}).optional() }),
+  comment: z.object(Comment),
+})
 
-const ReviewComment = Compile(Type.Object({
+const ReviewComment = z.object({
   ...Delivery,
-  pull_request: Type.Object(Thread),
-  comment: Type.Object({
-    ...Comment,
-    path: Type.String(),
-    line: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
-    diff_hunk: Type.String(),
-  }),
-}))
+  pull_request: z.object(Thread),
+  comment: z.object({ ...Comment, path: z.string(), line: z.number().nullish(), diff_hunk: z.string() }),
+})
 
-type Account = Static<typeof Account>
+type Account = z.infer<typeof Account>
 
 /**
  * The App's webhook endpoint. GitHub signs each delivery with the webhook
@@ -108,8 +98,11 @@ function mentions(slug: string, text: string): boolean {
  * one, or one from a bot or an untrusted user.
  */
 export function mentionFromEvent(event: string | null, payload: Json, env: WebhookEnv): GitHubMention | null {
-  if (event === 'issue_comment' && IssueComment.Check(payload)) {
-    const { action, issue, comment, repository, sender } = payload
+  const issueComment = event === 'issue_comment' ? IssueComment.safeParse(payload).data : undefined
+  const reviewComment = event === 'pull_request_review_comment' ? ReviewComment.safeParse(payload).data : undefined
+
+  if (issueComment) {
+    const { action, issue, comment, repository, sender } = issueComment
 
     if (action !== 'created' || !accepted(env, sender, comment.body)) return null
 
@@ -126,8 +119,8 @@ export function mentionFromEvent(event: string | null, payload: Json, env: Webho
     }
   }
 
-  if (event === 'pull_request_review_comment' && ReviewComment.Check(payload)) {
-    const { action, pull_request, comment, repository, sender } = payload
+  if (reviewComment) {
+    const { action, pull_request, comment, repository, sender } = reviewComment
 
     if (action !== 'created' || !accepted(env, sender, comment.body)) return null
 
