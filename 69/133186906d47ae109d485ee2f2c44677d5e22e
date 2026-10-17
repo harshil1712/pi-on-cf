@@ -1,0 +1,25 @@
+test/worker/entry.ts
+  s_506219ce91b3f8::t_685662bde5aa34 239-245
+test/worker/generic-webhook.test.ts
+  s_506219ce91b3f8::t_ab36aa0a5f293d 5,115,121
+test/worker/github-webhook.test.ts
+  s_506219ce91b3f8::t_a17b0b8d003685 10,178
+test/worker/stubs.ts
+  s_506219ce91b3f8::t_6c12e371a0ba39 2,14-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "69133186906d47ae109d485ee2f2c44677d5e22e",
+  "prompts": {},
+  "sessions": {
+    "s_506219ce91b3f8": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a14a51-1b94-7337-9495-64ad43d52711",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
