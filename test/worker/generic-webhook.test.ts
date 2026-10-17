@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers'
 import { describe, expect, it } from 'vitest'
 import { eventFromBody, handleGenericWebhook, MAX_WEBHOOK_BYTES, type WebhookEvent, webhookPrompt } from '~/server/generic-webhook'
 import type { Json } from '~/lib/json'
-import { registry } from './stubs'
+import { registry, settledSession } from './stubs'
 
 const SECRET = 'test-generic-secret'
 
@@ -112,12 +112,12 @@ describe('the generic webhook endpoint', () => {
     const title = `Issue ${crypto.randomUUID().slice(0, 8)} in shop`
     const response = await handleGenericWebhook(delivery(json(notification(title)), { query: '?repo=octo/shop' }), env)
     expect(response.status).toBe(202)
-    await expect.poll(async () => (await registry().listSessions()).some((entry) => entry.title === title), { timeout: 10_000 }).toBe(true)
+    await settledSession(title)
   })
 
   it('takes the secret as a bearer token', async () => {
     const response = await handleGenericWebhook(delivery('Deploy failed', { headers: { Authorization: `Bearer ${SECRET}`, 'Content-Type': 'text/plain' } }), env)
     expect(response.status).toBe(202)
-    await expect.poll(async () => (await registry().listSessions()).some((entry) => entry.title === 'Deploy failed'), { timeout: 10_000 }).toBe(true)
+    await settledSession('Deploy failed')
   })
 })

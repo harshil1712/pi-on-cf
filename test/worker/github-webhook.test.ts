@@ -7,7 +7,7 @@ import { followUpPrompt, type GitHubMention, handleGitHubWebhook, issuePrompt, m
 import { type PiEventsMessage, sessionBasePath } from '~/contract'
 import type { EntryRecord } from '@earendil-works/pi-durable'
 import type { Json } from '~/lib/json'
-import { registry, session } from './stubs'
+import { registry, session, settledSession } from './stubs'
 
 /** The text of the session's prompts, from the snapshot a browser gets on connect. */
 async function prompts(id: string): Promise<string> {
@@ -175,8 +175,7 @@ describe('the webhook endpoint', () => {
     const payload = issueComment('@pi-test please fix')
     const response = await handleGitHubWebhook(await delivery('issue_comment', payload), env)
     expect(response.status).toBe(202)
-    const title = `octo/demo#${payload.issue.number}: Crash on start`
-    await expect.poll(async () => (await registry().listSessions()).some((entry) => entry.title === title), { timeout: 10_000 }).toBe(true)
+    await settledSession(`octo/demo#${payload.issue.number}: Crash on start`)
   })
 })
 

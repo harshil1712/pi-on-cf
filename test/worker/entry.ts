@@ -236,6 +236,13 @@ export class PiSession extends AppPiSession {
     await this.onStart()
   }
 
+  /** Whether pi has taken a prompt and is done with it: nothing running or queued. */
+  async settledForTest(): Promise<boolean> {
+    const [messages, busy, pending] = await Promise.all([this.harness.messages(), this.harness.session().busy(), this.harness.pending()])
+
+    return messages.some((entry) => entry.kind === 'pi.user') && !busy && pending.length === 0
+  }
+
   /** Submit and wait for pi's answer: its status, text and the transcript entry kinds. */
   async promptForTest(prompt: string): Promise<{ status: string; text?: string; kinds: string[] }> {
     const result = await this.harness.prompt(prompt)
