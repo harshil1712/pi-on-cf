@@ -231,7 +231,7 @@ A shared skill instructs every session, including its container with network acc
 
 `container/Dockerfile` pins the `computerd` image; keep its version in step with `@cloudflare/computer`.
 
-`compatibility_date` is the newest date the bundled workerd supports. `package.json` overrides the `miniflare` and `wrangler` that `@cloudflare/vitest-pool-workers` pins, so dev, tests, and deploys share one runtime. Bump the date together with Wrangler, and drop the override once the pool ships a matching Miniflare.
+`compatibility_date` is the newest date the bundled workerd supports. `package.json` overrides the `miniflare` and `wrangler` that `@cloudflare/vite-plugin` pins, so dev, tests, and deploys share one runtime with `@cloudflare/vitest-plugin`, which already pins the same ones. Bump the date together with Wrangler, and drop the override once the Vite plugin pins a matching Wrangler.
 
 ## Production
 

@@ -67,7 +67,7 @@ The UI is Kumo (`@cloudflare/kumo`), imported per component (`@cloudflare/kumo/c
 
 - Browser code is tested in `test/unit` at the same path as the code it tests (`src/lib/transcript.ts` → `test/unit/lib/transcript.test.ts`).
 - Shared fixtures: pi-durable agent events in `test/unit/pi-events.ts`; Durable Object stubs typed to the test subclasses in `test/worker/stubs.ts`.
-- Everything that runs in the Worker, pure modules included, is tested in `test/worker` under workerd, with `@cloudflare/vitest-pool-workers` and the config in `test/worker/wrangler.jsonc`. The suite drives a real `PiSession` with pi-ai's faux models — no live inference, container, or GitHub.
+- Everything that runs in the Worker, pure modules included, is tested in `test/worker` under workerd, with `@cloudflare/vitest-plugin` and the config in `test/worker/wrangler.jsonc`. The suite drives a real `PiSession` with pi-ai's faux models — no live inference, container, or GitHub.
 - New bundled skills change the built-in catalog: update the assertions in `test/worker/skills.test.ts` that list the built-in skill names.
 
 ## Skills
@@ -78,7 +78,10 @@ Skills in this app come from three sources: built-ins in `src/server/bundled-ski
 
 ## Platform gotchas
 
-- `compatibility_date` in `wrangler.jsonc` is the newest date the bundled workerd supports. `package.json` overrides the `miniflare` and `wrangler` that `@cloudflare/vitest-pool-workers` pins so dev, tests, and deploys share one runtime; bump the date together with Wrangler, and drop the override once the pool ships a matching Miniflare.
+- `compatibility_date` in `wrangler.jsonc` (and `test/worker/wrangler.jsonc`) is the newest date the bundled workerd supports. `package.json` overrides the `miniflare` and `wrangler` that `@cloudflare/vite-plugin` pins so dev, tests, and deploys share one runtime with `@cloudflare/vitest-plugin`; bump the date together with Wrangler, and drop the override once the Vite plugin pins a matching Wrangler.
+- pi-durable is experimental and `agents` supports one pi minor at a time (`~1.4.0`): upgrade `@earendil-works/pi-durable`, `pi-ai`, and `chord` together with `agents`, to the versions its peer dependencies name.
+- `container/Dockerfile` builds on Debian trixie: computerd 0.8 needs libfuse 3.17 or newer, which bookworm lacks. Check computerd's libfuse requirement when bumping `@cloudflare/computer`.
+- oxlint stays pinned at 1.76: 1.90 turns on React Compiler rules (`react(refs)`, `react(set-state-in-effect)`, `react(purity)`) that the hooks do not pass yet.
 - Never edit an old Durable Object migration; always add a new tag.
 - Worker Previews (`npx wrangler preview`) inherit nothing from the main config: `previews` in `wrangler.jsonc` repeats bindings, and R2/Artifacts point at separate `-preview` resources.
 - `wrangler deploy` refuses to run until all seven required secrets — the six GitHub App ones and `WEBHOOK_SECRET` — are set (`npx wrangler secret put <NAME>`).

@@ -2,6 +2,10 @@ import { type DurableObjectStorageLike, getWorkspace, withWorkspace, type Worksp
 import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-javascript'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient } from '@cloudflare/computer/git'
+import { createArtifactsModule } from '@cloudflare/computer/modules/artifacts'
+import { createGitModule } from '@cloudflare/computer/modules/git'
+import jqCommands from '@cloudflare/computer/shell/jq'
+import { BACKGROUND_CONTEXT, withAbortSignal } from '@earendil-works/chord/context'
 import type { ToolExecutionApi } from '@earendil-works/pi-durable'
 import { DurableObject } from 'cloudflare:workers'
 import type { JsonObject } from '~/lib/json'
@@ -22,8 +26,14 @@ class ComputerTestHost extends DurableObject<Env> {
           loader: self.env.LOADER,
           workspace: { binding: 'ComputerTest', id: self.ctx.id.toString() },
           ctx: self.ctx,
+          commands: [jqCommands],
         }),
-        new WorkerJavaScriptBackend({ id: 'javascript', loader: self.env.LOADER, root: WORKSPACE_ROOT }),
+        new WorkerJavaScriptBackend({
+          id: 'javascript',
+          loader: self.env.LOADER,
+          root: WORKSPACE_ROOT,
+          modules: { 'ws:git': createGitModule({ allowNetwork: true }), 'ws:artifacts': createArtifactsModule({ allowNetwork: true }) },
+        }),
       ],
       git: createGitClient(),
     }
@@ -109,10 +119,10 @@ export class ComputerTest extends withWorkspace(ComputerTestHost, ComputerTestHo
       const result = await byName.get(name)!.execute(
         args,
         { callId: `call-${name}` } as ToolExecutionApi,
-        { abortSignal: new AbortController().signal, value: () => undefined, toString: () => '' },
+        withAbortSignal(new AbortController().signal, BACKGROUND_CONTEXT),
       )
 
-      const text = (result.content ?? []).map((part) => part.type === 'text' ? part.text : '').join('')
+      const text = (result.output ?? []).map((part) => part.type === 'text' ? part.text : '').join('')
 
       return { isError: result.isError === true, text }
     }

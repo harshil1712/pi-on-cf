@@ -90,9 +90,9 @@ export function createSkillTools({ bucket, workspace, onChange }: SkillToolsOpti
 }
 
 function success(text: string) {
-  return { content: [{ type: 'text' as const, text }] }
+  return { output: [{ type: 'text' as const, text }] }
 }
 
 function failure(text: string) {
-  return { content: [{ type: 'text' as const, text }], isError: true }
+  return { output: [{ type: 'text' as const, text }], isError: true }
 }

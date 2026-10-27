@@ -25,7 +25,7 @@ const RESOURCE_EXCLUDE = ['**/node_modules', '**/.git']
  * clone, or a skill the agent writes, shows up at the next
  * `SkillCatalog.sync`. Without a clone it has no skills.
  */
-export function repoSkills(workspace: () => Promise<WorkspaceClient>, task: () => SessionTask | null): SkillSource {
+export function repoSkills(workspace: () => PromiseLike<WorkspaceClient>, task: () => SessionTask | null): SkillSource {
   let current: SkillSource | undefined
 
   const refresh = async () => {

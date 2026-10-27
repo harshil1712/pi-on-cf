@@ -24,7 +24,7 @@ export function entry(id: number, kind: string, message?: Message): EntryRecord 
 }
 
 export function snapshot(entries: readonly EntryRecord[], extra: Partial<SnapshotEvent> = {}): SnapshotEvent {
-  return { type: 'snapshot', entries, tools: [], compactions: [], inbox: [], agent: {}, usage: { models: {}, tools: {} }, ...extra }
+  return { type: 'snapshot', entries, tools: [], nestedTools: [], compactions: [], inbox: [], agent: {}, usage: { models: {}, tools: {} }, ...extra }
 }
 
 export const runStart: AgentEvent = { type: 'run_start', inputs: [] }

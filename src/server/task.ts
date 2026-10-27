@@ -58,7 +58,7 @@ export async function readChange(workspace: WorkspaceClient, task: SessionTask, 
 const GITHUB_CREDENTIALS = 'Only the GitHub tools have GitHub credentials: gh, git push and curl to the GitHub API do not.'
 
 /** How to reach GitHub repositories, then the cloned one and its AGENTS.md, before every model request. */
-export function taskSection(task: () => SessionTask | null, workspace: () => Promise<WorkspaceClient>): PromptSection {
+export function taskSection(task: () => SessionTask | null, workspace: () => PromiseLike<WorkspaceClient>): PromptSection {
   return {
     key: 'repository',
     async render() {
@@ -297,9 +297,9 @@ function cloned(task: SessionTask): string {
 }
 
 function success(text: string) {
-  return { content: [{ type: 'text' as const, text }] }
+  return { output: [{ type: 'text' as const, text }] }
 }
 
 function failure(text: string) {
-  return { content: [{ type: 'text' as const, text }], isError: true }
+  return { output: [{ type: 'text' as const, text }], isError: true }
 }

@@ -34,7 +34,7 @@ export function createWorkspaceTools(options: CreatePiToolsOptions): ToolRegistr
         { abortSignal: context.abortSignal },
       )
 
-      return { content, isError }
+      return { output: content, isError }
     },
   }))
 }

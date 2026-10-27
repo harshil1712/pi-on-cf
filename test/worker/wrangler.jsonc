@@ -1,7 +1,7 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "pi-on-cf-test",
-  "compatibility_date": "2026-10-01",
+  "compatibility_date": "2026-10-23",
   "compatibility_flags": ["nodejs_compat", "experimental"],
   "main": "./entry.ts",
   "vars": {

@@ -10,6 +10,9 @@ import { ContainerBackend, withWorkspaceContainer } from '@cloudflare/computer/b
 import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-javascript'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient } from '@cloudflare/computer/git'
+import { createArtifactsModule } from '@cloudflare/computer/modules/artifacts'
+import { createGitModule } from '@cloudflare/computer/modules/git'
+import jqCommands from '@cloudflare/computer/shell/jq'
 import { createCloudflareObserver } from '@cloudflare/computer/observe/cloudflare'
 import type { Provider } from '@earendil-works/pi-ai'
 import type { ToolRegistration } from '@earendil-works/pi-durable'
@@ -126,13 +129,16 @@ class PiSessionHost extends withWorkspaceContainer(class extends Agent<Env, PiSe
       // SAFETY: this is the storage Computer is built for; its type differs only in `sql.exec`'s generic row type.
       storage: ctx.storage as DurableObjectStorageLike,
       backends: [
-        new WorkerShellBackend({ id: 'shell', loader: env.LOADER, workspace: ref, ctx }),
+        // The shell's core has the text utilities; jq is a group of its own.
+        new WorkerShellBackend({ id: 'shell', loader: env.LOADER, workspace: ref, ctx, commands: [jqCommands] }),
         new WorkerJavaScriptBackend({
           id: 'javascript',
           loader: env.LOADER,
           root: WORKSPACE_ROOT,
-          allowGitNetwork: true,
-          allowArtifactNetwork: true,
+          modules: {
+            'ws:git': createGitModule({ allowNetwork: true }),
+            'ws:artifacts': createArtifactsModule({ allowNetwork: true }),
+          },
         }),
         self.container,
       ],
@@ -178,7 +184,7 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
    */
   readonly browser = this.env.BROWSER ? new Browser({ provider: browserRun(this.env.BROWSER) }) : undefined
   readonly harness = new PiHarness({
-    harness: async ({ storage, context }) => {
+    harness: async ({ storage, context, onWake }) => {
       const workspace = await getWorkspace(this)
       const web = this.webTools()
       this.registry.install({
@@ -228,10 +234,13 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
       return Harness.open(storage, {
         models,
         registry: this.registry,
+        // Pi tells the harness when its tasks next wake, and arms no timer
+        // of its own, so the object can hibernate while they sleep.
+        onWake,
         // A round's tool calls run in order, so a clone finishes before the
         // log that reads it.
         settings: { toolExecution: 'sequential' },
-        onReport: (error) => console.warn('pi report', error),
+        onReport: (error, info) => console.warn('pi report', info.type, error),
       }, context)
     },
     defaults: { model: this.model.default, thinkingLevel: 'medium' },

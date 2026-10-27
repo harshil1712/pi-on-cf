@@ -1,6 +1,6 @@
 # Pi on Cloudflare Architecture
 
-This document describes the current Pi on Cloudflare system design and its known limitations. It reflects the migration to `@earendil-works/pi-durable` 1.0, `agents` 0.26, and `@cloudflare/computer` 0.4.
+This document describes the current Pi on Cloudflare system design and its known limitations. It reflects `@earendil-works/pi-durable` 1.4, `agents` 0.30, and `@cloudflare/computer` 0.8.
 
 ## System Overview
 
@@ -33,7 +33,9 @@ Each session ID is a `PiRegistry` catalog entry that names one `PiSession`, an A
 
 ### Pi
 
-`PiHarness` opens pi-durable over the object's SQLite, in tables prefixed `pi_`, and registers with the Agent's Lifecycle. Pi owns everything about a run: the transcript, the inbox of steers and follow-ups, generation and tool tasks, retries, automatic compaction, and crash recovery. While Pi has work, the harness keeps one Lifecycle job per session; if the object is evicted mid-run, that job's alarm restarts it and Pi resumes from its last commit. The application does not override `alarm()`.
+`PiHarness` opens pi-durable over the object's SQLite, in tables prefixed `pi_`, and registers with the Agent's Lifecycle. Pi owns everything about a run: the transcript, the inbox of steers and follow-ups, generation and tool tasks, retries, automatic compaction, and crash recovery. While Pi has work, the harness keeps one Lifecycle job per session; if the object is evicted mid-run, that job's alarm restarts it and Pi resumes from its last commit. The factory passes the harness's `onWake` to `Harness.open`, so when Pi's tasks only sleep, as during a generation's retry backoff, Pi arms no timer of its own: the job is due when the first task wakes, and the object can hibernate until then. The application does not override `alarm()`.
+
+Pi parks a task that a crash or eviction cuts off five times in a row without progress (pi-durable's `restartLimit`), so a task that keeps resetting the object stops restarting it. Pi's reports go to `onReport` with their type, such as `task_parked` or `session_failed`. Opening Pi migrates its tables to pi-durable's storage schema 2, so a deployment cannot roll back to pi-durable 1.3 or earlier.
 
 The session uses Pi's root conversation. The harness factory installs one Pi extension containing:
 
@@ -60,13 +62,15 @@ The app watches what the session watches. The Workspace panel's Browser view (th
 
 `McpToolset` (`src/server/mcp-tools.ts`) gives the session one codemode tool, `mcp`, over the MCP servers enabled on the registry, however many servers and tools there are. Each server is a codemode `McpConnector` whose tools come from the registry's `listMcpTools` and whose `callTool` calls the registry's `callMcpTool` over RPC, so the session holds no connection and no credential. In the sandbox the model finds tools with `codemode.search` and `codemode.describe`, which generate TypeScript types from each tool's JSON Schema, then calls `<server>.<tool>(args)`; the tool description lists each server with up to twenty of its tool names, and tool schemas cost no prompt tokens. The runtime is a facet of the session's Durable Object, like the browser's, and keeps each run's log; results are truncated before the model sees them. A run can mix reads and writes, so the tool is not replay-safe. The session syncs the tool when pi opens and after each accepted prompt, and reinstalls the `mcp` extension only when the catalog changed; pi-durable uses it from the next model request. Without enabled servers there is no `mcp` tool.
 
-The model comes from `createAI({ binding: env.AI })`. New sessions start on `AI_MODEL` at the `medium` thinking level. The composer's model picker switches a session to any model in the curated list in `src/server/models.ts`, with `AI_MODEL` added when the list lacks it: `setModel` checks the ID against that list, calls pi's `session.setModel`, and records the ID in the Agent state, which the picker shows. Pi uses the new model from its next request. The UI only offers the switch while the session is idle; pi itself would accept it mid-run. The home page's picker reads the same list, default first, from the registry's `listModels`; `createSession({ prompt, model })` checks the model against it before creating an entry, then sets it on the new session before submitting the prompt.
+### Models
+
+The model comes from `createAI({ binding: env.AI, id: env.AI_GATEWAY_ID })`, Workers AI through the AI Gateway `AI_GATEWAY_ID` names (`default` when it is empty). New sessions start on `AI_MODEL` at the `medium` thinking level. The composer's model picker switches a session to any model in the curated list in `src/server/models.ts`, with `AI_MODEL` added when the list lacks it: `setModel` checks the ID against that list, calls pi's `session.setModel`, and records the ID in the Agent state, which the picker shows. Pi uses the new model from its next request. The UI only offers the switch while the session is idle; pi itself would accept it mid-run. The home page's picker reads the same list, default first, from the registry's `listModels`; `createSession({ prompt, model })` checks the model against it before creating an entry, then sets it on the new session before submitting the prompt.
 
 ### Transport
 
 The browser connects to `/api/agents/pi-registry/singleton/sessions/{id}`, which the registry forwards to the session's Agent; the Agent then owns the socket, so session traffic never wakes the registry. `PiSession` sets `sendIdentityOnConnect: false`, so its physical name never reaches the browser.
 
-Commands are `@callable` methods: `submit`, `steer`, `abort`, `listFiles`, `readWorkspaceFile`, `listChanges`, `readChange`, `listModels`, and `setModel`. `submit` resolves once Pi has durably accepted the prompt, before the model runs.
+Commands are `@callable` methods: `submit`, `steer`, `abort`, `listFiles`, `readWorkspaceFile`, `listChanges`, `readChange`, `listModels`, `setModel`, and `browserLiveView`. `submit` resolves once Pi has durably accepted the prompt, before the model runs.
 
 Each WebSocket connection gets its own `session.events()` watch. The first frame is a `snapshot`; each later frame is one batch of Pi agent events per commit. The client folds them with the reducer in `src/lib/transcript.ts`. Watches live in memory, so `onStart` re-watches every connection that outlived the previous isolate and sends a fresh snapshot. A reconnecting browser always starts from the current state, including an in-flight answer.
 
@@ -82,8 +86,8 @@ The Computer workspace is rooted at `/workspace` and has three `exec` backends:
 
 | Backend | Runtime |
 | --- | --- |
-| `shell` | Worker Shell: just-bash with text utilities and git, in a Dynamic Worker |
-| `javascript` | Worker JavaScript: ES modules with `node:fs/promises`, `ws:git`, and `ws:artifacts` |
+| `shell` | Worker Shell: just-bash with Computer's core commands, the `jq` command group, and git, in a Dynamic Worker |
+| `javascript` | Worker JavaScript: ES modules with `node:fs/promises` and the `ws:git` and `ws:artifacts` host modules, both allowed the network |
 | `container` | `ContainerBackend`: a Durable Object-scheduled Cloudflare Container running `computerd`, with direct egress |
 
 The container dials back to the object at `/api` through `WorkspaceProxy`; `PiSession.fetch` hands that upgrade to the backend. The workspace also has git and session Artifacts. Git follows Computer's recommended setup: `createGitClient()` (isomorphic-git) on the workspace, behind the shell backend's `git` command and `ws:git`, committing as the GitHub App's bot, `<slug>[bot]` with its `users.noreply.github.com` address, through `defaultGitIdentity`, built from `GITHUB_APP_SLUG` and `GITHUB_APP_BOT_ID`. The exec tool's backend descriptions and the preamble send git to the shell backend. The container image keeps git, as Computer's agent examples do, for tools that read the repository; it has no identity, so a commit there fails instead of bypassing the workspace's. The image sets `EXEC_SHELL=/bin/bash`, so container commands support `set -o pipefail`, which the preamble suggests so piped test and build output keeps its exit code.
@@ -151,10 +155,9 @@ Local `.wrangler/` state can contain transcripts and workspace files.
 From the current SDKs:
 
 - `pi-durable` and `PiHarness` are experimental and beta; their APIs change between releases.
-- Pi's conversations are linear. There is no in-session tree, leaf navigation, labels, or branch summaries; branching in pi-durable means forking a conversation, which this application does not expose yet.
-- Pi's retry and polling timers live in memory. `PiHarness` covers generation backoff, but a custom task's sleep is not durable.
+- Pi's conversations are linear. There is no in-session tree, leaf navigation, labels, or branch summaries; branching in pi-durable means forking a conversation.
 - A single model stream longer than an alarm's 15-minute wall time is at the platform's mercy.
-- Abort waits for tools to honor their abort signal. In Computer 0.4, killing a Worker Shell `exec` blocks until the command exits, so aborting a long shell command takes as long as the command; container commands stop at once. `abort` therefore returns before Pi settles, and the event stream reports when the session is idle.
+- Abort waits for tools to honor their abort signal, so a tool that is slow to stop delays it. `abort` therefore returns before Pi settles, and the event stream reports when the session is idle.
 - An Agent method that throws over native RPC is also logged as an uncaught rejection by the Agents SDK's tracing wrapper.
 
 Not implemented in this application:
@@ -162,7 +165,9 @@ Not implemented in this application:
 - Following a pull request after it opens: review comments, CI results, and pulling new commits from the base branch. The agent's git has no credentials, so it cannot fetch from a private repository.
 - Environment setup per repository; the container starts from the same image for every session.
 - Authentication and per-user isolation.
-- Forks, clones, and session search.
+- More than one conversation per session. The session uses only Pi's root session; `PiHarness` can create and fork others (`harness.sessions.create()`, `fork()`), but nothing exposes them.
+- Session search and subagents.
+- Scheduled work: no tool lets Pi act at a later time, though pi-durable 1.4's durable sleeps and the harness's wake job would carry it.
 - Long-term memory.
 - Manual compaction, context reset, and thinking-level selection.
 - Browser Run can only reach the public internet, so Pi cannot open the dev server it runs in its own container's localhost.
@@ -176,4 +181,14 @@ npm run check
 npm run build
 ```
 
-The Workers suite, in `test/worker`, runs a real `PiSession` with pi-ai's faux provider and two faux models: a plain answer, switching models, a model tool call that writes through Computer, the WebSocket snapshot, and the run status the registry lists, including a failed run and the correction a restart makes. It also exercises Computer's Worker Shell, git, Worker JavaScript, and the tool adapter, and repository tasks on a local repository: the `repository` section, changes against the base commit, read-only task state, and `create_pull_request`'s refusals. Live Workers AI inference, the container backend, GitHub itself, and Artifacts are not covered by tests.
+The Workers suite, in `test/worker`, runs a real `PiSession` with pi-ai's faux provider and two faux models: a plain answer, switching models, a model tool call that writes through Computer, the WebSocket snapshot, and the run status the registry lists, including a failed run and the correction a restart makes. It also covers:
+
+- Computer's Worker Shell, git, Worker JavaScript, and the tool adapter.
+- Repository tasks on a local repository: the `repository` section, changes against the base commit, read-only task state, and `create_pull_request`'s refusals.
+- The catalog, session titles, and the model list.
+- Skills from all three sources, and the skill tools.
+- MCP servers and the `mcp` tool, against a test MCP server over the Agents SDK's RPC transport.
+- The web tools, with fake sources.
+- Both webhooks, and the GitHub App's token and installation checks.
+
+Live Workers AI inference, the container backend, GitHub itself, and Artifacts are not covered by tests.

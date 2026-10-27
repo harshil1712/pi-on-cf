@@ -181,7 +181,7 @@ function toolResult(tool: CodemodeTool, output: ProxyToolOutput): ToolExecutionR
   const { value } = tool.toModelOutput({ output })
 
   return {
-    content: [{ type: 'text', text: isString(value) ? value : JSON.stringify(value) }],
+    output: [{ type: 'text', text: isString(value) ? value : JSON.stringify(value) }],
     details: { executionId: output.executionId, status: output.status },
     ...(output.status === 'error' ? { isError: true } : {}),
   }

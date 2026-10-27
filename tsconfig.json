@@ -8,7 +8,7 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "paths": { "~/*": ["./src/*"] },
-    "types": ["node", "vite/client", "@cloudflare/vitest-pool-workers/types"],
+    "types": ["node", "vite/client", "@cloudflare/vitest-plugin/types"],
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
