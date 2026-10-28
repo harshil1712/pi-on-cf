@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, UIEvent } from 'react'
+import type { SubmitEvent, UIEvent } from 'react'
 import type { AgentEvent } from '@earendil-works/pi-durable'
 import {
   PI_AGENT_NAME,
@@ -14,6 +14,7 @@ import {
 } from '~/contract'
 import { useSessionRegistry } from './use-session-registry'
 import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from '~/lib/transcript'
+import { useRemote } from './use-remote'
 import { useTaskChanges } from './use-task-changes'
 import { useAgentConnection } from './use-agent-connection'
 import { errorMessage } from '~/lib/error-message'
@@ -37,6 +38,40 @@ function setupError(value: Json | undefined): string | undefined {
 
 const NORMAL_CLOSURE = 1000
 
+const NO_FILES: WorkspaceFile[] = []
+
+/**
+ * Coalesces pi's event batches into one state update per animation frame,
+ * so a fast stream renders once a frame, not once a commit. A snapshot
+ * replaces everything before it, so it drops the batches still queued.
+ */
+class FrameBatcher {
+  readonly #flush: (events: AgentEvent[]) => void
+  #queued: AgentEvent[] = []
+  #frame: number | null = null
+
+  constructor(flush: (events: AgentEvent[]) => void) {
+    this.#flush = flush
+  }
+
+  push(events: readonly AgentEvent[]): void {
+    if (events[0]?.type === 'snapshot') this.#queued = []
+    this.#queued.push(...events)
+    this.#frame ??= requestAnimationFrame(() => {
+      this.#frame = null
+      const queued = this.#queued.splice(0)
+
+      if (queued.length) this.#flush(queued)
+    })
+  }
+
+  cancel(): void {
+    if (this.#frame !== null) cancelAnimationFrame(this.#frame)
+    this.#frame = null
+    this.#queued = []
+  }
+}
+
 export function usePiSession(sessionId: string) {
   const [view, setView] = useState<PiView>(EMPTY_VIEW)
   const [summary, setSummary] = useState<SessionSummary | null>(null)
@@ -49,26 +84,13 @@ export function usePiSession(sessionId: string) {
   const [error, setError] = useState('')
   // Connection trouble, cleared as soon as pi events flow again.
   const [connectionError, setConnectionError] = useState('')
-  const [files, setFiles] = useState<WorkspaceFile[]>([])
-  const [selectedPath, setSelectedPath] = useState('')
-  const [fileContent, setFileContent] = useState('')
-  const [fileContentPath, setFileContentPath] = useState('')
-  const [filesLoading, setFilesLoading] = useState(true)
-  const [filesError, setFilesError] = useState('')
-  const [fileError, setFileError] = useState('')
+  const [chosenPath, setSelectedPath] = useState('')
   const [filesVersion, setFilesVersion] = useState(0)
   const [mobileView, setMobileView] = useState<'chat' | 'workspace'>('chat')
   const transcriptRef = useRef<HTMLDivElement>(null)
-  const filesRequestRef = useRef(0)
-  const pendingEventsRef = useRef<AgentEvent[]>([])
-  const frameRef = useRef<number | null>(null)
   const shouldAutoScrollRef = useRef(true)
 
-  const flushEvents = useCallback(() => {
-    frameRef.current = null
-    const events = pendingEventsRef.current.splice(0)
-
-    if (events.length === 0) return
+  const [batcher] = useState(() => new FrameBatcher((events) => {
     setView((current) => reducePiEvents(current, events))
     setIsReady(true)
 
@@ -76,7 +98,7 @@ export function usePiSession(sessionId: string) {
     if (events.some((event) => event.type === 'tool_execution_end' || event.type === 'run_end')) {
       setFilesVersion((version) => version + 1)
     }
-  }, [])
+  }))
 
   const useConnection = useAgentConnection()
 
@@ -102,11 +124,7 @@ export function usePiSession(sessionId: string) {
 
       if (!isPiEvents(parsed)) return
       setConnectionError('')
-
-      // A snapshot replaces everything before it, so drop queued deltas.
-      if (parsed.events[0]?.type === 'snapshot') pendingEventsRef.current = []
-      pendingEventsRef.current.push(...parsed.events)
-      frameRef.current ??= requestAnimationFrame(flushEvents)
+      batcher.push(parsed.events)
     },
     onClose: (event) => {
       if (event.code === NORMAL_CLOSURE) return
@@ -119,27 +137,11 @@ export function usePiSession(sessionId: string) {
   const catalog = useSessionRegistry()
   const registry = catalog.agent
 
-  const refreshFiles = useCallback(async () => {
-    const request = ++filesRequestRef.current
-    setFilesLoading(true)
-    setFilesError('')
-
-    try {
-      const nextFiles = await agent.stub.listFiles()
-
-      if (request !== filesRequestRef.current) return
-      setFiles(nextFiles)
-      setSelectedPath((current) => nextFiles.some((file) => file.path === current) ? current : (nextFiles[0]?.path ?? ''))
-    } catch (caught) {
-      if (request === filesRequestRef.current) setFilesError(errorMessage(caught))
-    } finally {
-      if (request === filesRequestRef.current) setFilesLoading(false)
-    }
-  }, [agent.stub])
-
-  useEffect(() => {
-    void refreshFiles()
-  }, [refreshFiles, filesVersion])
+  // Listed again whenever a tool call or run may have changed the workspace.
+  const fileList = useRemote(`files:${filesVersion}`, () => agent.stub.listFiles())
+  const files = fileList.value ?? NO_FILES
+  // The chosen file while it still exists, else the first.
+  const selectedPath = files.some((file) => file.path === chosenPath) ? chosenPath : (files[0]?.path ?? '')
 
   useEffect(() => {
     if (!isReady) return
@@ -173,39 +175,13 @@ export function usePiSession(sessionId: string) {
     return () => { ignore = true }
   }, [agent, registry.stub, sessionId])
 
-  useEffect(() => () => {
-    filesRequestRef.current += 1
+  useEffect(() => () => batcher.cancel(), [batcher])
 
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
-    frameRef.current = null
-    pendingEventsRef.current = []
-  }, [])
-
+  // Read again when the file changes on disk, as its listed mtime shows.
   const selectedFileMtime = files.find((file) => file.path === selectedPath)?.mtime
-  useEffect(() => {
-    if (!selectedPath) {
-      setFileContent('')
-      setFileContentPath('')
-      setFileError('')
-
-      return
-    }
-
-    let ignore = false
-    setFileContent('')
-    setFileContentPath('')
-    setFileError('')
-    agent.stub.readWorkspaceFile(selectedPath).then((file) => {
-      if (!ignore && file.path === selectedPath) {
-        setFileContent(file.content)
-        setFileContentPath(file.path)
-      }
-    }).catch((caught) => {
-      if (!ignore) setFileError(errorMessage(caught))
-    })
-
-    return () => { ignore = true }
-  }, [agent.stub, selectedFileMtime, selectedPath])
+  const selectedFile = useRemote(selectedPath ? `file:${selectedFileMtime}:${selectedPath}` : null, () => agent.stub.readWorkspaceFile(selectedPath))
+  const fileContent = selectedFile.current?.content ?? ''
+  const fileError = selectedFile.error
 
   const transcript = useMemo(() => transcriptEntries(view), [view])
   const isRunning = view.running || isSubmitting
@@ -215,7 +191,7 @@ export function usePiSession(sessionId: string) {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: isRunning ? 'auto' : 'smooth' })
   }, [transcript.entries, isRunning])
 
-  async function submit(event: FormEvent) {
+  async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     const prompt = input.trim()
 
@@ -282,15 +258,15 @@ export function usePiSession(sessionId: string) {
     activeTextId: transcript.activeTextId,
     browserLiveView,
     changes,
-    canDownload: Boolean(selectedPath && selectedPath === fileContentPath && !fileError),
+    canDownload: Boolean(selectedPath && selectedFile.current?.path === selectedPath),
     downloadSelectedFile,
     entries: transcript.entries,
     error: error || connectionError || view.error,
     fileContent,
     fileError,
     files,
-    filesError,
-    filesLoading,
+    filesError: fileList.error,
+    filesLoading: fileList.loading,
     handleTranscriptScroll,
     input,
     isReady,
@@ -301,7 +277,7 @@ export function usePiSession(sessionId: string) {
     model,
     models,
     queued: view.queued,
-    refreshFiles,
+    refreshFiles: fileList.reload,
     rename,
     selectedPath,
     setInput,

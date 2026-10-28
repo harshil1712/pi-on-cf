@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore, type SubmitEvent } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Banner } from '@cloudflare/kumo/components/banner'
 import { Button } from '@cloudflare/kumo/components/button'
@@ -23,6 +23,10 @@ const STARTERS: { icon: Icon; title: string; detail: string; prompt: string }[] 
 
 const RECENT_REPOSITORY_LIMIT = 6
 
+const noSubscription = () => () => {}
+
+const localHour = () => new Date().getHours()
+
 function greeting(hour: number) {
   return hour < 5 ? 'Working late' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
 }
@@ -34,9 +38,10 @@ export function HomePage() {
   const [prompt, setPrompt] = useState('')
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
-  // The server cannot know the visitor's hour, so greet after hydration.
-  const [hello, setHello] = useState('')
-  useEffect(() => setHello(greeting(new Date().getHours())), [])
+  // The server cannot know the visitor's hour: it renders no greeting, and
+  // the browser renders its own once hydrated.
+  const hour = useSyncExternalStore(noSubscription, localHour, () => null)
+  const hello = hour === null ? '' : greeting(hour)
   const listRepositories = useCallback(() => registry.agent.stub.listRepositories(), [registry.agent.stub])
   // The registry lists the default first, so it starts selected. Without a list there is no picker.
   const [models, setModels] = useState<ModelOption[]>([])
@@ -121,7 +126,7 @@ export function HomePage() {
             isRunning={false}
             onAbort={() => {}}
             onInputChange={setPrompt}
-            onSubmit={(event: FormEvent) => {
+            onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
               event.preventDefault()
 
               if (prompt.trim()) void start(prompt.trim())

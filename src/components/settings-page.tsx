@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type SubmitEvent } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Badge, type BadgeVariant } from '@cloudflare/kumo/components/badge'
 import { Banner } from '@cloudflare/kumo/components/banner'
@@ -181,7 +181,7 @@ function AddServerForm({ busy, onAdd }: { busy: boolean; onAdd: (input: ConnectM
   const [headerName, setHeaderName] = useState('')
   const [headerValue, setHeaderValue] = useState('')
 
-  async function submit(event: FormEvent) {
+  async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     const header = headerName.trim()
     const added = await onAdd({ name, url, ...(header ? { headers: { [header]: headerValue } } : {}) })

@@ -167,9 +167,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
             {view === 'browser' ? (
               <BrowserViewPanel browser={browser} />
             ) : view === 'changes' && task ? (
-              <ChangesBrowser changes={session.changes.changes} diff={session.changes.diff} diffError={session.changes.diffError} error={session.changes.error} loading={session.changes.loading} onRefresh={() => void session.changes.refresh()} onSelectPath={session.changes.setSelectedPath} selectedPath={session.changes.selectedPath} task={task} />
+              <ChangesBrowser changes={session.changes.changes} diff={session.changes.diff} diffError={session.changes.diffError} error={session.changes.error} loading={session.changes.loading} onRefresh={session.changes.refresh} onSelectPath={session.changes.setSelectedPath} selectedPath={session.changes.selectedPath} task={task} />
             ) : (
-              <WorkspaceBrowser canDownload={session.canDownload} fileContent={session.fileContent} fileError={session.fileError} files={session.files} filesError={session.filesError} filesLoading={session.filesLoading} onDownload={session.downloadSelectedFile} onRefresh={() => void session.refreshFiles()} onSelectPath={session.setSelectedPath} selectedPath={session.selectedPath} />
+              <WorkspaceBrowser canDownload={session.canDownload} fileContent={session.fileContent} fileError={session.fileError} files={session.files} filesError={session.filesError} filesLoading={session.filesLoading} onDownload={session.downloadSelectedFile} onRefresh={session.refreshFiles} onSelectPath={session.setSelectedPath} selectedPath={session.selectedPath} />
             )}
           </div>
         </div>

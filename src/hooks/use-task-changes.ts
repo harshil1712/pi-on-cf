@@ -1,63 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { PiSessionContract, SessionTask, TaskChange } from '~/contract'
-import { errorMessage } from '~/lib/error-message'
+import { useRemote } from './use-remote'
 
 type ChangesStub = Pick<PiSessionContract, 'listChanges' | 'readChange'>
+
+const NO_CHANGES: TaskChange[] = []
 
 /**
  * The files a task changed since its base commit, and the diff of the one
  * selected. Reloads whenever `version` moves, as the file list does.
  */
 export function useTaskChanges(stub: ChangesStub, task: SessionTask | null, version: number) {
-  const [changes, setChanges] = useState<TaskChange[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [selectedPath, setSelectedPath] = useState('')
-  const [diff, setDiff] = useState('')
-  const [diffError, setDiffError] = useState('')
-  const requestRef = useRef(0)
-  const hasTask = Boolean(task)
+  const [chosenPath, setSelectedPath] = useState('')
+  const list = useRemote(task ? `changes:${version}` : null, () => stub.listChanges())
+  const changes = task ? list.value ?? NO_CHANGES : NO_CHANGES
+  // The chosen file while it is still changed, else the first.
+  const selectedPath = changes.some((change) => change.path === chosenPath) ? chosenPath : (changes[0]?.path ?? '')
+  // Each new list may hold new contents for the same path.
+  const diff = useRemote(selectedPath ? `${list.answered}:${selectedPath}` : null, () => stub.readChange(selectedPath))
 
-  const refresh = useCallback(async () => {
-    if (!hasTask) return
-    const request = ++requestRef.current
-    setLoading(true)
-    setError('')
-
-    try {
-      const next = await stub.listChanges()
-
-      if (request !== requestRef.current) return
-      setChanges(next)
-      setSelectedPath((current) => next.some((change) => change.path === current) ? current : (next[0]?.path ?? ''))
-    } catch (caught) {
-      if (request === requestRef.current) setError(errorMessage(caught))
-    } finally {
-      if (request === requestRef.current) setLoading(false)
-    }
-  }, [hasTask, stub])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh, version])
-
-  useEffect(() => () => { requestRef.current += 1 }, [])
-
-  // A new list may hold new contents for the same path.
-  useEffect(() => {
-    setDiff('')
-    setDiffError('')
-
-    if (!selectedPath) return
-    let ignore = false
-    stub.readChange(selectedPath).then((next) => {
-      if (!ignore) setDiff(next)
-    }).catch((caught) => {
-      if (!ignore) setDiffError(errorMessage(caught))
-    })
-
-    return () => { ignore = true }
-  }, [changes, selectedPath, stub])
-
-  return { changes, diff, diffError, error, loading, refresh, selectedPath, setSelectedPath }
+  return {
+    changes,
+    diff: diff.current ?? '',
+    diffError: diff.error,
+    error: list.error,
+    loading: list.loading,
+    refresh: list.reload,
+    selectedPath,
+    setSelectedPath,
+  }
 }

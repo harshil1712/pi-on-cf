@@ -8,8 +8,8 @@ import { useKeyboardAwareHeight } from '~/hooks/use-keyboard-aware-height'
 import { SessionSidebar } from './session-sidebar'
 
 /** Kumo's links, the sidebar's included, navigate through the router. */
-const RouterLink = forwardRef<HTMLAnchorElement, LinkComponentProps>(({ href, to: _to, ...props }, ref) => (
-  <Link ref={ref} to={href ?? '/'} {...props} />
+const RouterLink = forwardRef<HTMLAnchorElement, LinkComponentProps>(({ href, ...props }, ref) => (
+  <Link ref={ref} {...props} to={href ?? '/'} />
 ))
 
 RouterLink.displayName = 'RouterLink'

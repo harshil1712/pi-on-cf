@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import type { BrowserTabView } from '~/contract'
 
 export type BrowserView = {
@@ -35,55 +35,65 @@ export function useBrowserView(
   const current = useRef<BrowserTabView | null>(null)
   const known = useRef<Set<string> | null>(null)
 
-  const load = useCallback(async ({ reconnect = false, targetId }: { reconnect?: boolean; targetId?: string } = {}) => {
+  // Lists the tabs. Only what the user asks for (`refresh`, `select`) shows
+  // as loading; the listings this hook starts itself run in the background.
+  // A `.then` chain, not `await`: oxlint's set-state-in-effect rule takes a
+  // setState after an `await` for a synchronous one.
+  const load = useCallback(({ reconnect = false, targetId }: { reconnect?: boolean; targetId?: string } = {}) => liveView().then((listed) => {
+    setError('')
+
+    if (!listed) {
+      setAvailable(false)
+
+      return
+    }
+
+    setAvailable(true)
+    setTabs(listed)
+    const previous = known.current
+    known.current = new Set(listed.map((tab) => tab.targetId))
+    const opened = previous && listed.find((tab) => !previous.has(tab.targetId))
+    const kept = current.current && listed.find((tab) => tab.targetId === current.current?.targetId)
+
+    const next = (targetId && listed.find((tab) => tab.targetId === targetId))
+      || opened
+      || (kept && (reconnect ? kept : current.current))
+      || listed[0]
+      || null
+
+    current.current = next
+    setSelected(next)
+  }, () => {
+    setError('Could not reach Pi’s browser. Try again in a moment.')
+  }), [liveView])
+
+  const loadShowing = useCallback(async (options?: { reconnect?: boolean; targetId?: string }) => {
     setLoading(true)
 
     try {
-      const listed = await liveView()
-      setError('')
-
-      if (!listed) {
-        setAvailable(false)
-
-        return
-      }
-
-      setAvailable(true)
-      setTabs(listed)
-      const previous = known.current
-      known.current = new Set(listed.map((tab) => tab.targetId))
-      const opened = previous && listed.find((tab) => !previous.has(tab.targetId))
-      const kept = current.current && listed.find((tab) => tab.targetId === current.current?.targetId)
-
-      const next = (targetId && listed.find((tab) => tab.targetId === targetId))
-        || opened
-        || (kept && (reconnect ? kept : current.current))
-        || listed[0]
-        || null
-
-      current.current = next
-      setSelected(next)
-    } catch {
-      setError('Could not reach Pi’s browser. Try again in a moment.')
+      await load(options)
     } finally {
       setLoading(false)
     }
-  }, [liveView])
+  }, [load])
 
   // The probe: whether there is a browser, and its tabs so far.
   useEffect(() => {
     if (isReady) void load()
   }, [isReady, load])
 
-  // A new browser run lists again; opening the view doesn't, since its `refresh` does.
-  const activeNow = useRef(active)
-  activeNow.current = active
-  useEffect(() => {
-    if (activeNow.current && browserRuns > 0) void load()
-  }, [browserRuns, load])
+  // A new browser run lists again while the view is open; opening the view
+  // doesn't, since its `refresh` does, so `active` is read, not watched.
+  const followRun = useEffectEvent(() => {
+    if (active) void load()
+  })
 
-  const refresh = useCallback((options?: { reconnect?: boolean }) => load(options), [load])
-  const select = useCallback((targetId: string) => load({ targetId }), [load])
+  useEffect(() => {
+    if (browserRuns > 0) followRun()
+  }, [browserRuns])
+
+  const refresh = useCallback((options?: { reconnect?: boolean }) => loadShowing(options), [loadShowing])
+  const select = useCallback((targetId: string) => loadShowing({ targetId }), [loadShowing])
 
   return { available, tabs, selected, loading, error, refresh, select }
 }

@@ -59,6 +59,8 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+The remote bindings run through a proxy Worker on the account's `workers.dev` subdomain. If that subdomain is behind Cloudflare Access, `npm run dev` asks you to log in to Access in a terminal, and fails in a non-interactive one (an agent, a script, CI) unless `CLOUDFLARE_ACCESS_CLIENT_ID` and `CLOUDFLARE_ACCESS_CLIENT_SECRET` hold an Access service token. Alternatively, point an ignored `wrangler.local.jsonc` at an account whose `workers.dev` subdomain is not behind Access.
+
 ## Configuration
 
 `AI_MODEL` selects the model new sessions start with; `AI_GATEWAY_ID` selects the AI Gateway. Both are non-secret variables in `wrangler.jsonc`. The shared file keeps the neutral gateway ID `default`; keep account-specific configuration in an ignored `wrangler.local.jsonc` and select it with `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite commands or `--config wrangler.local.jsonc` for Wrangler.

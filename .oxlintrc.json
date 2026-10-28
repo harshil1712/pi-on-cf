@@ -11,6 +11,7 @@
     "react/exhaustive-deps": "error",
     "react/rules-of-hooks": "error",
     "react/react-in-jsx-scope": "off",
+    "typescript/no-deprecated": "error",
 
     "no-restricted-imports": ["error", {
       "patterns": [{

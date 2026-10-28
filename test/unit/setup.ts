@@ -26,7 +26,10 @@ Object.defineProperty(window, 'matchMedia', {
     onchange: null,
     addEventListener: () => {},
     removeEventListener: () => {},
+    // MediaQueryList still declares the pair it deprecated, so the stub needs them.
+    // oxlint-disable-next-line typescript/no-deprecated
     addListener: () => {},
+    // oxlint-disable-next-line typescript/no-deprecated
     removeListener: () => {},
     dispatchEvent: () => false,
   }),

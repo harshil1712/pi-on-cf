@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type FormEventHandler } from 'react'
+import { useCallback, useRef, useState, type SubmitEventHandler } from 'react'
 import { Button } from '@cloudflare/kumo/components/button'
 import { InputArea } from '@cloudflare/kumo/components/input'
 import { Loader } from '@cloudflare/kumo/components/loader'
@@ -17,7 +17,7 @@ type PromptComposerProps = {
   isRunning: boolean
   onAbort: () => void
   onInputChange: (value: string) => void
-  onSubmit: FormEventHandler<HTMLFormElement>
+  onSubmit: SubmitEventHandler<HTMLFormElement>
   /** Replaces the placeholder that follows the session's state. */
   placeholder?: string
   /** Offers `@owner/name` suggestions while the session has no repository. */

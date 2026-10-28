@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useHydrated } from '@tanstack/react-router'
 import { Button } from '@cloudflare/kumo/components/button'
 import { DropdownMenu } from '@cloudflare/kumo/components/dropdown'
 import { MonitorIcon, MoonIcon, SunIcon } from '@phosphor-icons/react'
@@ -11,10 +12,10 @@ const OPTIONS = [
 ] as const satisfies ReadonlyArray<{ value: ThemePreference; label: string; icon: unknown }>
 
 export function ThemeToggle() {
-  // The server can't see the stored choice, so read it after hydration.
-  const [preference, setPreference] = useState<ThemePreference>('system')
-
-  useEffect(() => setPreference(readThemePreference()), [])
+  // The server can't see the stored choice, so read it once hydrated.
+  const hydrated = useHydrated()
+  const [chosen, setPreference] = useState<ThemePreference | null>(null)
+  const preference = chosen ?? (hydrated ? readThemePreference() : 'system')
 
   // While following the system, track OS-level changes live.
   useEffect(() => {

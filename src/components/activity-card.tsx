@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Collapsible } from '@cloudflare/kumo/components/collapsible'
 import { Loader } from '@cloudflare/kumo/components/loader'
 import { cn } from '@cloudflare/kumo/utils'
@@ -26,10 +26,15 @@ function toolLabel(name: string) {
 export function ActivityCard({ entry }: { entry: Extract<TranscriptEntry, { type: 'reasoning' | 'summary' | 'tool' }> }) {
   // Reasoning streams open so it can be followed; tool calls stay collapsed.
   const [open, setOpen] = useState(entry.type === 'reasoning' && entry.status === 'running')
+  // A reasoning block opens as it streams and closes once it is done, as
+  // React suggests for state that follows a prop: adjusted while rendering.
+  const [status, setStatus] = useState(entry.status)
 
-  useEffect(() => {
+  if (status !== entry.status) {
+    setStatus(entry.status)
+
     if (entry.type === 'reasoning') setOpen(entry.status === 'running')
-  }, [entry.type, entry.status])
+  }
 
   const running = entry.status === 'running'
   const error = entry.status === 'error'

@@ -110,7 +110,7 @@ export class ComputerTest extends withWorkspace(ComputerTestHost, ComputerTestHo
   async exerciseTools(): Promise<{ names: string[]; replay: Record<string, string>; read: ToolOutcome; exec: ToolOutcome }> {
     const tools = createWorkspaceTools({
       workspace: await getWorkspace(this),
-      shell: { defaultBackend: 'shell', backends: { shell: { description: 'Worker shell' } } },
+      exec: { shell: { description: 'Worker shell' } },
     })
 
     const byName = new Map(tools.map((tool) => [tool.name, tool]))

@@ -61,6 +61,7 @@ The UI is Kumo (`@cloudflare/kumo`), imported per component (`@cloudflare/kumo/c
 - No `as unknown as`. A necessary single assertion carries a `// SAFETY:` comment stating the invariant (not required in `test/`). Prefer `defineTool` for tool registrations, so `execute` arguments are typed by their TypeBox `parameters`.
 - Name a caught value `cause` (`.catch((cause: unknown) => …)`), and show it with `errorMessage(cause)` from `src/lib/error-message.ts`. Narrow strings from UI controls with `isOneOf` from `src/lib/one-of.ts`.
 - Keep inference or use named types over annotated anonymous object types; use a `Map` for lookup tables.
+- oxlint enforces the React Compiler rules (`react(refs)`, `react(set-state-in-effect)`, `react(purity)`) and `typescript/no-deprecated`. Load data with `useRemote` (`src/hooks/use-remote.ts`) rather than setting loading state in an effect; read browser-only values with `useSyncExternalStore` or TanStack's `useHydrated`; and write a loader that an effect calls as a `.then` chain: oxlint takes a setState after an `await` for a synchronous one.
 - No `vi.mock`. Components open Agent connections through `useAgentConnection()`; tests pass a fake `useAgent` to `AgentConnectionProvider`, and render routed components with `renderAtPath` (`test/unit/render-at-path.tsx`), a real in-memory router whose location the test asserts.
 
 ## Testing
@@ -81,7 +82,6 @@ Skills in this app come from three sources: built-ins in `src/server/bundled-ski
 - `compatibility_date` in `wrangler.jsonc` (and `test/worker/wrangler.jsonc`) is the newest date the bundled workerd supports. `package.json` overrides the `miniflare` and `wrangler` that `@cloudflare/vite-plugin` pins so dev, tests, and deploys share one runtime with `@cloudflare/vitest-plugin`; bump the date together with Wrangler, and drop the override once the Vite plugin pins a matching Wrangler.
 - pi-durable is experimental and `agents` supports one pi minor at a time (`~1.4.0`): upgrade `@earendil-works/pi-durable`, `pi-ai`, and `chord` together with `agents`, to the versions its peer dependencies name.
 - `container/Dockerfile` builds on Debian trixie: computerd 0.8 needs libfuse 3.17 or newer, which bookworm lacks. Check computerd's libfuse requirement when bumping `@cloudflare/computer`.
-- oxlint stays pinned at 1.76: 1.90 turns on React Compiler rules (`react(refs)`, `react(set-state-in-effect)`, `react(purity)`) that the hooks do not pass yet.
 - Never edit an old Durable Object migration; always add a new tag.
 - Worker Previews (`npx wrangler preview`) inherit nothing from the main config: `previews` in `wrangler.jsonc` repeats bindings, and R2/Artifacts point at separate `-preview` resources.
 - `wrangler deploy` refuses to run until all seven required secrets — the six GitHub App ones and `WEBHOOK_SECRET` — are set (`npx wrangler secret put <NAME>`).

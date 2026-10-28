@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useParams } from '@tanstack/react-router'
+import { ClientOnly, useNavigate, useParams } from '@tanstack/react-router'
 import { Button } from '@cloudflare/kumo/components/button'
 import { DropdownMenu } from '@cloudflare/kumo/components/dropdown'
 import { Sidebar, useSidebar } from '@cloudflare/kumo/components/sidebar'
@@ -65,7 +65,7 @@ export function SessionSidebar() {
   const [dialog, setDialog] = useState<{ action: 'rename' | 'delete'; session: SessionSummary; open: boolean } | null>(null)
   const closeDialog = (open: boolean) => { if (!open) setDialog((current) => current && { ...current, open: false }) }
 
-  const groups = groupByRecency(registry.sessions, Date.now())
+  const groups = groupByRecency(registry.sessions, registry.asOf)
   // On a phone the sidebar is a sheet over the page; picking a destination closes it.
   const closeOnMobile = () => { if (isMobile) setOpenMobile(false) }
 
@@ -95,7 +95,9 @@ export function SessionSidebar() {
         </Sidebar.Header>
         <Sidebar.Content>
           {registry.loading && registry.sessions.length === 0 ? (
-            <Sidebar.Loading label="Loading sessions" />
+            // Kumo's skeleton lines pick random widths as they render, which
+            // never match between the server and the browser.
+            <ClientOnly><Sidebar.Loading label="Loading sessions" /></ClientOnly>
           ) : registry.sessions.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-kumo-subtle">
               <ChatsCircleIcon size={28} className="text-kumo-inactive" />

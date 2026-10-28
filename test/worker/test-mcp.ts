@@ -4,8 +4,11 @@ import { z } from 'zod'
 
 /**
  * An MCP server for the registry's tests, reached over the Agents SDK's RPC
- * transport, so tests need neither the network nor OAuth.
+ * transport, so tests need neither the network nor OAuth. McpAgent is
+ * feature-frozen, but that transport (addMcpServer with a Durable Object
+ * binding) accepts only an McpAgent.
  */
+// oxlint-disable-next-line typescript/no-deprecated
 export class TestMcp extends McpAgent<Env> {
   server = new McpServer({ name: 'TestMcp', version: '1.0.0' }, { instructions: 'Arithmetic for tests.' })
 

@@ -163,6 +163,13 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
    */
   static override options: AgentStaticOptions = { sendIdentityOnConnect: false }
 
+  /**
+   * This object's own Workspace, as Computer's lazy client: usable at once,
+   * and loaded on the first call. It is local, not a stub, so there is
+   * nothing to dispose.
+   */
+  readonly workspace = getWorkspace(this)
+
   readonly model = this.modelSource()
   // After `model`: field initializers run in order.
   override initialState: PiSessionState = { task: null, model: this.model.default.id }
@@ -185,23 +192,21 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
   readonly browser = this.env.BROWSER ? new Browser({ provider: browserRun(this.env.BROWSER) }) : undefined
   readonly harness = new PiHarness({
     harness: async ({ storage, context, onWake }) => {
-      const workspace = await getWorkspace(this)
+      const workspace = await this.workspace
       const web = this.webTools()
       this.registry.install({
         name: 'pi-on-cf',
         sections: [
           { key: 'preamble', render: () => preamble(webToolGuidance(web)), tag: false },
-          taskSection(() => this.state.task, () => getWorkspace(this)),
+          taskSection(() => this.state.task, () => this.workspace),
         ],
         tools: [...createWorkspaceTools({
           workspace,
-          shell: {
-            defaultBackend: 'shell',
-            backends: {
-              shell: { description: 'A just-bash shell in a Worker. Starts fast, with no network. For text utilities (grep, sed, awk, jq, find) and git (clone, status, diff, log, add, commit, branch), which works on the workspace itself; git here has no rebase or cherry-pick. Cannot run npm, node, python or other binaries: run those on container directly, without trying here first.' },
-              javascript: { description: 'ES module run in an isolated Worker, with node:fs/promises, ws:git and ws:artifacts. Export a default async function; its JSON-compatible return value is the result. Top-level await of I/O is not allowed.' },
-              container: { description: `A full Linux container with Node.js, npm and network access: package managers, test runners, builds, linters and native binaries. Starts much more slowly, because the container must boot. ${CONTAINER_LOCAL_PATHS.join(', ')} stay on its own disk: only container commands see them, and they are lost when the container is replaced, so reinstall if they are missing. Its git has no identity, so do not commit here.` },
-            },
+          // The model names a backend whenever there is more than one.
+          exec: {
+            shell: { description: 'A just-bash shell in a Worker. Starts fast, with no network. For text utilities (grep, sed, awk, jq, find) and git (clone, status, diff, log, add, commit, branch), which works on the workspace itself; git here has no rebase or cherry-pick. Cannot run npm, node, python or other binaries: run those on container directly, without trying here first.' },
+            javascript: { description: 'ES module run in an isolated Worker, with node:fs/promises, ws:git and ws:artifacts. Export a default async function; its JSON-compatible return value is the result. Top-level await of I/O is not allowed.' },
+            container: { description: `A full Linux container with Node.js, npm and network access: package managers, test runners, builds, linters and native binaries. Starts much more slowly, because the container must boot. ${CONTAINER_LOCAL_PATHS.join(', ')} stay on its own disk: only container commands see them, and they are lost when the container is replaced, so reinstall if they are missing. Its git has no identity, so do not commit here.` },
           },
         }), ...createTaskTools({
           workspace,
@@ -293,7 +298,7 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
 
   /** The skills in the session's cloned repository; see repoSkills. */
   protected repoSkillSource(): SkillSource {
-    return repoSkills(() => getWorkspace(this), () => this.state.task)
+    return repoSkills(() => this.workspace, () => this.state.task)
   }
 
   /**
@@ -331,7 +336,7 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
   override async onStart(): Promise<void> {
     // Computer creates directories on demand, but the JavaScript backend's
     // writeFile does not create parents, so the root must exist up front.
-    await (await getWorkspace(this)).fs.mkdir(WORKSPACE_ROOT, { recursive: true })
+    await this.workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
     await this.#watchStatus()
 
     for (const connection of this.getConnections()) await this.#watch(connection)
@@ -407,7 +412,7 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
 
   @callable()
   async listFiles(): Promise<WorkspaceFile[]> {
-    const workspace = await getWorkspace(this)
+    const workspace = await this.workspace
 
     const found = await workspace.fs.find(WORKSPACE_ROOT, '**', {
       exclude: FILE_LIST_EXCLUDE,
@@ -429,7 +434,7 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
   async listChanges(): Promise<TaskChange[]> {
     const { task } = this.state
 
-    return task ? listChanges(await getWorkspace(this), task) : []
+    return task ? listChanges(await this.workspace, task) : []
   }
 
   @callable()
@@ -438,13 +443,13 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
 
     if (!task) throw new Error('This session has no repository.')
 
-    return readChange(await getWorkspace(this), task, path)
+    return readChange(await this.workspace, task, path)
   }
 
   @callable()
   async readWorkspaceFile(path: string): Promise<WorkspaceFileContent> {
     path = workspacePath(path)
-    const workspace = await getWorkspace(this)
+    const workspace = await this.workspace
     const [content, stat] = await Promise.all([workspace.fs.readFile(path, 'utf8'), workspace.fs.stat(path)])
 
     if (!stat.isFile) throw new Error(`Not a file: ${path}`)
@@ -478,7 +483,7 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
   async #openRepository(input: { repo: string; baseBranch?: string }): Promise<SessionTask> {
     const entryId = await this.ctx.storage.get<string>(CATALOG_ENTRY_KEY) ?? this.ctx.id.toString()
     const token = await this.githubToken(input.repo)
-    const task = await cloneTask(await getWorkspace(this), token, { ...input, branch: `pi/${entryId.slice(0, 8)}` })
+    const task = await cloneTask(await this.workspace, token, { ...input, branch: `pi/${entryId.slice(0, 8)}` })
     await this.#setTask(task)
     // Offer the repository's own skills from the next model request.
     await this.skills.sync(this.registry).catch((cause: unknown) => {
@@ -527,7 +532,7 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
     if (this.env.ARTIFACTS) {
       try {
         // Computer declares `WorkspaceClient.artifacts` as `any`; it is an ArtifactClient's methods over RPC.
-        const artifacts: Pick<ArtifactClient, 'list' | 'delete'> = (await getWorkspace(this)).artifacts
+        const artifacts: Pick<ArtifactClient, 'list' | 'delete'> = (await this.workspace).artifacts
         const repos = await artifacts.list()
         await Promise.all(repos.map((repo) => artifacts.delete(repo.name)))
       } catch (error) {

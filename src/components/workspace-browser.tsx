@@ -48,7 +48,9 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
   const { canDownload, fileContent, fileError, files, filesError, filesLoading, onDownload, onRefresh, onSelectPath, selectedPath } = props
   // Markdown opens rendered; the choice carries over to the next Markdown file.
   const [markdownView, setMarkdownView] = useState<'preview' | 'source'>('preview')
-  const [copied, setCopied] = useState(false)
+  // The file whose contents were just copied; choosing another resets the button.
+  const [copiedPath, setCopiedPath] = useState<string | null>(null)
+  const copied = copiedPath !== null && copiedPath === selectedPath
   // A tap on a file opens it full-screen on a phone, with this as the way back.
   // Desktops share the panel between the list and the preview instead.
   const [drilledIn, setDrilled] = useState(false)
@@ -58,18 +60,16 @@ export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
   const showPreview = markdown && markdownView === 'preview'
 
   useEffect(() => {
-    if (!copied) return
-    const timer = window.setTimeout(() => setCopied(false), 1500)
+    if (copiedPath === null) return
+    const timer = window.setTimeout(() => setCopiedPath(null), 1500)
 
     return () => window.clearTimeout(timer)
-  }, [copied])
-
-  useEffect(() => setCopied(false), [selectedPath])
+  }, [copiedPath])
 
   async function copy() {
     try {
       await navigator.clipboard.writeText(fileContent)
-      setCopied(true)
+      setCopiedPath(selectedPath)
     } catch {
       // Clipboard access can be denied; Download still works.
     }
