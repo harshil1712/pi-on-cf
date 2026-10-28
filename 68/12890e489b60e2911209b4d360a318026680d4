@@ -1,0 +1,65 @@
+.oxlintrc.json
+  s_c5e6ec6c088a3c::t_03aeced9195fc2 14
+AGENTS.md
+  s_c5e6ec6c088a3c::t_c9472342da1aef 64
+README.md
+  s_c5e6ec6c088a3c::t_6c4512c4a0417a 62-63
+package-lock.json
+  s_c5e6ec6c088a3c::t_44a933a2bcfb39 37,47-48,4323-4325,4340-4342,4357-4359,4374-4376,4391-4393,4408-4410,4425-4427,4442-4444,4462-4464,4482-4484,4502-4504,4522-4524,4542-4544,4562-4564,4582-4584,4602-4604,4619-4621,4636-4638,4653-4655,4670-4672,4679,11398-11400,11410,11413-11431,11434
+package.json
+  s_c5e6ec6c088a3c::t_70345db66cf4bb 51,61-62
+src/components/activity-card.tsx
+  s_c5e6ec6c088a3c::t_ed188cc0bdf0b8 1,29-34,37
+src/components/app-shell.tsx
+  s_c5e6ec6c088a3c::t_130d7413c70071 11-12
+src/components/home-page.tsx
+  s_c5e6ec6c088a3c::t_677acbf3b8c898 1,26-29,41-44,129
+src/components/prompt-composer.tsx
+  s_c5e6ec6c088a3c::t_1ca5e98bcc0e6f 1,20
+src/components/session-page.tsx
+  s_c5e6ec6c088a3c::t_0d27fe88f0c5c3 170,172
+src/components/session-sidebar.tsx
+  s_c5e6ec6c088a3c::t_b0d68b8659bd1c 2,68,98-100
+src/components/settings-page.tsx
+  s_c5e6ec6c088a3c::t_eeb7466618649c 1,184
+src/components/theme-toggle.tsx
+  s_c5e6ec6c088a3c::t_f0470111c3366d 2,15-18
+src/components/workspace-browser.tsx
+  s_c5e6ec6c088a3c::t_133a7f34a16f87 51-53,63-64,67,72
+src/hooks/use-browser-view.ts
+  s_c5e6ec6c088a3c::t_04e5b2d2fb68e8 1,38-43,45-46,48-49,51-56,58-62,64-68,70-74,78,85-90,92-93,95-96
+src/hooks/use-pi-session.ts
+  s_c5e6ec6c088a3c::t_cdd6c58e65f8b4 2,17,41-74,87,93,101,127,140-144,178,180,182-184,194,261,268-269,280
+src/hooks/use-remote.ts
+  s_c5e6ec6c088a3c::t_63aac1b70e1a74 1-59
+src/hooks/use-session-registry.tsx
+  s_c5e6ec6c088a3c::t_6d641f1990da60 1,12,21-22,25-26,35,44,46,49-53,55,57
+src/hooks/use-task-changes.ts
+  s_c5e6ec6c088a3c::t_d215a42ede6313 1,3,7-8,14-31
+src/server/pi-session.ts
+  s_c5e6ec6c088a3c::t_ddfe123aecb13a 166-172,195,201,205-209,301,339,415,437,446,452,486,535
+test/unit/hooks/use-remote.test.tsx
+  s_c5e6ec6c088a3c::t_724d35f3629f22 1-106
+test/unit/setup.ts
+  s_c5e6ec6c088a3c::t_87cae61ab4eb45 29-30,32
+test/worker/computer-test.ts
+  s_c5e6ec6c088a3c::t_457fb3a294cbe8 113
+test/worker/test-mcp.ts
+  s_c5e6ec6c088a3c::t_4e3d56cacd816c 7-9,11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "6812890e489b60e2911209b4d360a318026680d4",
+  "prompts": {},
+  "sessions": {
+    "s_c5e6ec6c088a3c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d77-2c52-72bc-ad8f-92b515512a00",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Harshil Agrawal <harshil@cloudflare.com>"
+    }
+  }
+}
