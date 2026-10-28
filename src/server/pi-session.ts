@@ -39,6 +39,7 @@ import { type GitHubThread, parseRepo } from './github'
 import { botIdentity, repoToken } from './github-app'
 import { McpToolset, type McpSource } from './mcp-tools'
 import { modelOptions } from './models'
+import { PREVIEW_HOST, previewHost } from './preview-host'
 import { repoSkills } from './repo-skills'
 import { createSkillTools } from './skill-tools'
 import { bucketSkills, builtInSkills, SkillCatalog } from './skills'
@@ -188,8 +189,20 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
   /**
    * The session's persistent browser on Browser Run, when the deployment has
    * a `BROWSER` binding. Tests and previews don't, and run without it.
+   * `preview.internal` opens Pi's dev servers in its container; see
+   * previewHost. Browser Run reaches it through the Worker's
+   * InternalHostRouter export, so internal hosts work only when deployed.
    */
-  readonly browser = this.env.BROWSER ? new Browser({ provider: browserRun(this.env.BROWSER) }) : undefined
+  readonly browser = this.env.BROWSER
+    ? new Browser({
+      provider: browserRun(this.env.BROWSER, {
+        internalHosts: {
+          router: this.ctx.exports.InternalHostRouter,
+          hosts: { [PREVIEW_HOST]: previewHost(() => this.ctx.container) },
+        },
+      }),
+    })
+    : undefined
   readonly harness = new PiHarness({
     harness: async ({ storage, context, onWake }) => {
       const workspace = await this.workspace
@@ -283,7 +296,7 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
    * this with fake sources.
    */
   protected webTools(): ToolRegistration[] {
-    return createWebTools(this.env, { ctx: this.ctx, browser: this.browser })
+    return createWebTools(this.env, { browser: this.browser })
   }
 
   /**

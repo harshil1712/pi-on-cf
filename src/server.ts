@@ -13,8 +13,12 @@ export { PiRegistry } from './server/pi-registry'
 // container's egress and the Worker Shell's workspace binding.
 export { WorkspaceProxy, WorkspaceServiceProxy } from '@cloudflare/computer'
 
-// The browser tool's codemode runtime is a facet of each session.
+// The mcp tool's codemode runtime is a facet of each session.
 export { CodemodeRuntime } from '@cloudflare/codemode'
+
+// Browser Run sends a session's browser requests for its internal hosts,
+// such as preview.internal, through this entrypoint to the session.
+export { InternalHostRouter } from 'agents/browser'
 
 export default createServerEntry({
   async fetch(request) {

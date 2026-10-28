@@ -19,14 +19,14 @@ export type WebToolsEnv = Pick<Env, 'AI' | 'AI_GATEWAY_ID' | 'LOADER'> & {
  * Web search), and `browser` drives the session's Chromium on Browser Run
  * when there is a `BROWSER` binding.
  */
-export function createWebTools(env: WebToolsEnv, session: { ctx: DurableObjectState; browser?: Browser }): ToolRegistration[] {
+export function createWebTools(env: WebToolsEnv, session: { browser?: Browser }): ToolRegistration[] {
   const tools: ToolRegistration[] = [webFetchTool({ binding: env.AI })]
 
   if (env.WEB_SEARCH_PROVIDER) {
     tools.push(webSearchTool({ binding: env.AI, gateway: env.AI_GATEWAY_ID, provider: env.WEB_SEARCH_PROVIDER, byokAlias: env.WEB_SEARCH_BYOK_ALIAS }))
   }
 
-  if (session.browser) tools.push(browserTool({ ctx: session.ctx, browser: session.browser, loader: env.LOADER }))
+  if (session.browser) tools.push(browserTool({ browser: session.browser, loader: env.LOADER }))
 
   return tools
 }
@@ -35,7 +35,7 @@ export function createWebTools(env: WebToolsEnv, session: { ctx: DurableObjectSt
 const GUIDANCE = new Map([
   ['web_fetch', 'web_fetch to read a page'],
   ['web_search', 'web_search to find one'],
-  ['browser', 'browser only for pages that need JavaScript or interaction, or to see them'],
+  ['browser', 'browser only for pages that need JavaScript or interaction, or to see them, and to check a web app you run: start its dev server on the container on 0.0.0.0, then open it through preview.internal'],
 ])
 
 /** The preamble's line on the web tools the session has. */
