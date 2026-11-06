@@ -1,186 +1,120 @@
-# Pi on Cloudflare Architecture
+# Pi on Cloudflare architecture
 
-This document describes the current Pi on Cloudflare system design and its known limitations. It reflects `@earendil-works/pi-durable` 1.5, `agents` 0.33, and `@cloudflare/computer` 0.10.
+This describes the application as built with `@earendil-works/pi-durable` 1.5, `agents` 0.33, and `@cloudflare/computer` 0.10. PiHarness and parts of Computer are beta, so their APIs may change between releases.
 
-## System Overview
+## Overview
 
-Pi on Cloudflare is a TanStack Start application deployed as a Cloudflare Worker. It combines:
+A TanStack Start application runs in one Cloudflare Worker. It serves the UI, GitHub and generic webhooks, and `/api/agents/*` traffic. The UI uses Kumo components, Phosphor icons, and Tailwind utilities.
 
-- Pi's durable harness, `@earendil-works/pi-durable`, hosted by the Agents SDK's `PiHarness` (`agents/harness/pi`).
-- Workers AI and AI Gateway through `agents/models/pi-ai` and the `AI` binding.
-- One `PiSession` Durable Object per session, owning the Pi conversation and a Cloudflare Computer workspace.
-- A singleton `PiRegistry` Durable Object for the session catalog, on the Agents SDK's `RoutedAgents` (`agents/routing`).
+Two kinds of Durable Objects back it:
 
-The Worker routes `/api/agents/*` through the Agents SDK and sends other requests to TanStack Start. Sessions are reachable only through the registry: `src/server/agent-routes.ts` refuses direct `/api/agents/pi-session/*` requests. Every page sits in one app shell (`src/components/app-shell.tsx`): Kumo's `Sidebar` lists the sessions beside the routed page, a home page at `/` starts sessions from a prompt, and each session's workspace is at `/sessions/:sessionId`. The shell holds the app's one registry connection (`SessionRegistryProvider`), which both pages share.
+- **`PiSession`**: one per coding session, owning a Pi conversation, workspace, container, browser, and task state.
+- **`PiRegistry`**: a singleton session catalog and the owner of shared MCP servers. Clients reach sessions only through this registry; direct `/api/agents/pi-session/*` routes are rejected.
 
-The UI is written mobile-first: the layout below `md` is the baseline and `md:`/`lg:` utilities add the desktop arrangement, never the other way around. On a phone the sidebar becomes an offcanvas sheet, and tapping a file or change opens its preview or diff full-screen with a back button, instead of the desktop's shared panel. The session page puts Chat and Workspace side by side only when the page itself is at least 56rem wide, measured with a container query (`@container` on its `main`, `@4xl:` utilities), not the window: on a tablet the open sidebar takes 260px, which would leave the chat a sliver. Narrower, Chat and Workspace are tabs. A dot on the Workspace tab, and on the Workspace button beside the chat, points out pending changes. The viewport meta and the `useKeyboardAwareHeight` hook keep the composer above the soft keyboard, safe-area padding keeps it off the notch, and the web manifest with generated icons (`scripts/generate-icons.mjs`) makes the app installable.
-
-Relevant source:
-
-- `src/server.ts`
-- `src/contract.ts`
-- `src/server/pi-session.ts`
-- `src/server/pi-registry.ts`
-- `src/server/agent-routes.ts`
-- `wrangler.jsonc`
+`src/server.ts` is the Worker entry. `src/contract.ts` defines the browser-safe RPC and message types.
 
 ## PiSession
 
-Each session ID is a `PiRegistry` catalog entry that names one `PiSession`, an Agents SDK `Agent` composed with two Computer mixins:
+### Durable execution
 
-- `withWorkspaceContainer` makes the object the host of its own Computer container.
-- `withWorkspace` builds the `Workspace` and serves it to Computer's Worker Shell through `__getWorkspaceStub`.
+`PiSession` extends an Agents SDK `Agent` through Computer's workspace mixins. `PiHarness` opens pi-durable over the object's SQLite in tables prefixed `pi_` and integrates it with the Agents Lifecycle.
 
-### Pi
+Pi owns transcript entries, steer/follow-up queues, generation, tools, retries, compaction, and recovery. While work is pending, the harness keeps a wake job on the Durable Object alarm. After eviction, Pi reopens from committed state and resumes its scheduler. `onWake` lets Pi sleep without keeping a timer or the object awake.
 
-`PiHarness` opens pi-durable over the object's SQLite, in tables prefixed `pi_`, and registers with the Agent's Lifecycle. Pi owns everything about a run: the transcript, the inbox of steers and follow-ups, generation and tool tasks, retries, automatic compaction, and crash recovery. While Pi has work, the harness keeps one Lifecycle job per session; if the object is evicted mid-run, that job's alarm restarts it and Pi resumes from its last commit. The factory passes the harness's `onWake` to `Harness.open`, so when Pi's tasks only sleep, as during a generation's retry backoff, Pi arms no timer of its own: the job is due when the first task wakes, and the object can hibernate until then. The application does not override `alarm()`.
+Tasks repeatedly cut off by crashes reach `restartLimit` and fail visibly instead of restarting forever. Reports use the single `onReport(report)` shape with a `kind` and `error`.
 
-Pi ends a task that a crash or eviction cuts off five times in a row without progress (pi-durable's `restartLimit`), so a task that keeps resetting the object stops restarting it and its failure becomes visible. Pi's reports go to `onReport` as one report with a `kind`, such as `task_interrupted` or `storage_failed`. Opening Pi migrates its tables to pi-durable's storage schema 2, so a deployment cannot roll back to pi-durable 1.3 or earlier.
+The extension registry installs:
 
-The session uses Pi's root conversation. The harness factory installs one Pi extension containing:
+- the environment and repository prompt sections;
+- Computer file and execution tools;
+- GitHub task tools;
+- skill tools;
+- `web_fetch`, optional `web_search`, and the browser tool;
+- the codemode `mcp` tool when enabled servers exist.
 
-- a `preamble` system-prompt section describing the workspace;
-- Computer's tools from `createPiTools`, adapted to pi-durable tool registrations in `src/server/workspace-tools.ts`;
-- a `repository` section describing the session's task and its `AGENTS.md`, when it has one (see [Repositories](#repositories));
-- `clone_repository`, `create_pull_request`, `comment_on_github`, `create_github_issue`, and `read_github_issue` (see [Repositories](#repositories));
-- the skill tools `open_skill`, `save_skill`, and `delete_skill` (see [Skills](#skills));
-- the web tools (see [Web](#web)).
-
-Tool calls in a round run sequentially. Reads, searches, `write`, and `delete` are marked replay-safe; `edit` and `exec` are reported to the model as interrupted if an eviction cuts them off.
-
-### Web
-
-The web tools come from the Agents SDK's pi adapters (`createWebTools` in `src/server/web-tools.ts`). The preamble's line on the web lists the tools the session has:
-
-- `web_fetch` (`agents/webfetch/pi`) reads a URL as Markdown, converted by `env.AI.toMarkdown()` when needed, in windows that keep long pages out of the transcript; it is a replay-safe read.
-- `web_search` (`agents/websearch/pi`) searches the Web Search API when `WEB_SEARCH_PROVIDER` is set, billed to the provider key `WEB_SEARCH_BYOK_ALIAS` names, or to AI Gateway credits without one; the README explains the key setup. A search bills whoever the gateway says, per search.
-- `browser` (`agents/browser/pi`), with a `BROWSER` binding, drives the session's own persistent browser, a `Browser` on the Lifecycle over the `BROWSER` Browser Run binding. Tabs, cookies and logins carry over between runs; screenshots come back as image parts for models that accept them. The model's browser code runs in a Dynamic Worker of its own, over the `LOADER` binding, and teardown closes the browser after the harness.
-
-The app watches what the session watches. The Workspace panel's Browser view (the globe in the top bar opens it) embeds Live View of Pi's tabs, page only (`mode: 'tab'`), so the chat stays usable beside it: `browserLiveView()` lists the tabs that aren't `about:blank`, opening the view or reconnecting mints fresh URLs (each connects for about five minutes), and each finished browser call lists them again, keeping the frame's connection unless Pi opened a new tab, which the view follows. The transcript shows the screenshots a browser run returns, as data URLs under the tool call, visible with its card collapsed. They are not links: browsers refuse to open a data: URL in a new tab.
-
-The browser has one internal hostname, `preview.internal` (`src/server/preview-host.ts`), for checking a web app Pi runs. Pi starts the app's dev server on the container backend, listening on `0.0.0.0`, points the host at its port with `browser.assignHost({ host: 'preview.internal', target: { port } })` in its browser code, and opens `http://preview.internal/`. Browser Run sends those requests to the Worker's `InternalHostRouter` export, which hands them to the session's `Browser`, and the host's `fetch` passes each one to `ctx.container.getTcpPort(port)`, so the dev server is never public. The assignment persists across turns, browser restarts and redeploys.
-
-- The target schema takes ports from 1024 to 65535 and refuses computerd's own, 8080, since the model chooses it.
-- Any http page in the browser can send requests to an internal host, so one whose `Origin` names another origin gets 403.
-- The dev server sees `localhost:<port>`, as on a developer's machine: Vite and others refuse hosts they don't know.
-- A container that is not running gets 503, and a port nothing listens on gets 502, each saying to start the dev server on `0.0.0.0:<port>`.
-- Internal hosts are plain HTTP without WebSockets, so a dev server's hot reload cannot connect; the host's description tells Pi to reload the page instead. A file the file tools change reaches the container's copy of the workspace at the container's next command, so the description also tells Pi to run one (touch the file) before it reloads. They work only when the Worker is deployed: under `npm run dev` the browser starts without them.
-
-### MCP
-
-`McpToolset` (`src/server/mcp-tools.ts`) gives the session one codemode tool, `mcp`, over the MCP servers enabled on the registry, however many servers and tools there are. Each server is a codemode `McpConnector` whose tools come from the registry's `listMcpTools` and whose `callTool` calls the registry's `callMcpTool` over RPC, so the session holds no connection and no credential. In the sandbox the model finds tools with `codemode.search` and `codemode.describe`, which generate TypeScript types from each tool's JSON Schema, then calls `<server>.<tool>(args)`; the tool description lists each server with up to twenty of its tool names, and tool schemas cost no prompt tokens. The runtime is a facet of the session's Durable Object, exported from `src/server.ts` as `CodemodeRuntime`, and keeps each run's log; results are truncated before the model sees them. A run can mix reads and writes, so the tool is not replay-safe. The session syncs the tool when pi opens and after each accepted prompt, and reinstalls the `mcp` extension only when the catalog changed; pi-durable uses it from the next model request. Without enabled servers there is no `mcp` tool.
+Tool calls in a round run sequentially. Reads are replay-safe; operations that may repeat external effects are not replayed automatically after interruption.
 
 ### Models
 
-The model comes from `createAI({ binding: env.AI, id: env.AI_GATEWAY_ID })`, Workers AI through the AI Gateway `AI_GATEWAY_ID` names (`default` when it is empty). New sessions start on `AI_MODEL` at the `high` thinking level, DeepSeek V4.1 Flash's default and a level every curated model supports. The composer's model picker switches a session to any model in the curated list in `src/server/models.ts`, with `AI_MODEL` added when the list lacks it: `setModel` checks the ID against that list, calls pi's `session.setModel`, and records the ID in the Agent state, which the picker shows. Pi uses the new model from its next request. The UI only offers the switch while the session is idle; pi itself would accept it mid-run. The home page's picker reads the same list, default first, from the registry's `listModels`; `createSession({ prompt, model })` checks the model against it before creating an entry, then sets it on the new session before submitting the prompt.
+`createAI` connects Workers AI through the configured AI Gateway. New sessions default to **DeepSeek V4.1 Flash** with **high** reasoning. The picker also offers **GLM 5.3**; its curated entries are in `src/server/models.ts`. Model changes take effect on the next generation; the UI disables the picker while Pi is running.
 
-### Transport
+### Conversation transport and status
 
-The browser connects to `/api/agents/pi-registry/singleton/sessions/{id}`, which the registry forwards to the session's Agent; the Agent then owns the socket, so session traffic never wakes the registry. `PiSession` sets `sendIdentityOnConnect: false`, so its physical name never reaches the browser.
+Each WebSocket connection gets a `session.watch()` conversation-view watch. Every `pi:view` frame carries a complete `TranscriptView`: entries, live generation, tools, run state, and inbox. `ConversationTranscript` pages older entries on connection and fills window gaps, so reconnects and long transcripts remain complete. The browser projects these views in `src/lib/transcript.ts` and batches them once per animation frame.
 
-Commands are `@callable` methods: `submit`, `steer`, `abort`, `listFiles`, `readWorkspaceFile`, `listChanges`, `readChange`, `listModels`, `setModel`, and `browserLiveView`. `submit` resolves once Pi has durably accepted the prompt, before the model runs.
+A second watch derives the catalog's `idle`, `running`, or `failed` status from `pi.live.run` and `pi.live.runFailure`. Status changes update the registry entry and its revision, which synchronizes open sidebars.
 
-Each WebSocket connection gets its own `session.watch()` conversation-view watch. Every frame carries a complete `TranscriptView`: transcript items plus Pi's live run, streaming generation, tools, and inbox documents. `ConversationTranscript` pages older entries on connect and fills any window gap, preserving the full transcript; the client projects each view in `src/lib/transcript.ts`. Watches live in memory, so `onStart` re-watches every connection that outlived the previous isolate and sends a fresh view. A reconnecting browser always starts from the current state, including an in-flight answer.
+When the registry deletes a session, deferred teardown stops watches and the container, deletes session Artifacts, closes Pi, and wipes the object's storage.
 
-### Run status
+## Workspace
 
-Each session also keeps one watch of its own, tied to no connection, that projects its views into a run status with `reduceRunStatus` in `src/lib/run-status.ts`: `running` while `pi.live.run` is present, and `failed` for `pi.live.runFailure` other than an abort. The browser shares the same `unansweredReason` test for its error. A run failure persists in the live document until the next run, so a fresh watch can report it too. The session stores the status it last recorded and calls the registry's `setStatus` only when it changes.
+The workspace is rooted at `/workspace` and has three execution backends:
 
-`onStart` opens that watch, so it runs on whatever wakes a new isolate, the alarm included. After an eviction mid-run the Lifecycle starts `PiHarness`, which re-arms its wake job, then runs `onStart`, before the wake job runs; opening pi for the watch resets interrupted tasks to pending and resumes the scheduler, and the run carries on with `pi.live.run` still present. The watch's first value therefore always goes to the registry: it shows a pending run as `running`, restores a recorded failure, and turns a recorded `running` whose run is gone into `idle`. The registry ignores a report of the status it already has.
+| Backend | Purpose |
+|---|---|
+| `shell` | just-bash, text utilities, jq, and workspace git in a Dynamic Worker |
+| `javascript` | Codemode ES modules with `node:fs/promises`, `codemode:git`, and `codemode:artifacts` |
+| `container` | A Durable Object-scheduled Linux container running `computerd`, for package managers, builds, tests, and native binaries |
 
-### Workspace
+The container has direct egress and calls back through `WorkspaceProxy`. `container/Dockerfile` pins the same `computerd` version as `@cloudflare/computer`. Dependency directories stay on container-local storage to avoid syncing thousands of files into the Durable Object.
 
-The Computer workspace is rooted at `/workspace` and has three `exec` backends:
+Workspace git uses `createGitClient()`. Commits use the GitHub App bot identity from `GITHUB_APP_SLUG` and `GITHUB_APP_BOT_ID`. Artifacts are scoped to the session's Durable Object ID.
 
-| Backend | Runtime |
-| --- | --- |
-| `shell` | Worker Shell: just-bash with Computer's core commands, the `jq` command group, and git, in a Dynamic Worker |
-| `javascript` | Codemode: ES modules with `node:fs/promises` and the `codemode:git` and `codemode:artifacts` host modules, both allowed the network |
-| `container` | `ContainerBackend`: a Durable Object-scheduled Cloudflare Container running `computerd`, with direct egress |
+### Repository tasks
 
-The container dials back to the object at `/api` through `WorkspaceProxy`; `PiSession.fetch` hands that upgrade to the backend. The workspace also has git and session Artifacts. Git follows Computer's recommended setup: `createGitClient()` (isomorphic-git) on the workspace, behind the shell backend's `git` command and `codemode:git`, committing as the GitHub App's bot, `<slug>[bot]` with its `users.noreply.github.com` address, through `defaultGitIdentity`, built from `GITHUB_APP_SLUG` and `GITHUB_APP_BOT_ID`. The exec tool's backend descriptions and the preamble send git to the shell backend. The container image keeps git, as Computer's agent examples do, for tools that read the repository; it has no identity, so a commit there fails instead of bypassing the workspace's. The image sets `EXEC_SHELL=/bin/bash`, so container commands support `set -o pipefail`, which the preamble suggests so piped test and build output keeps its exit code.
+A session clones at most one repository when the model calls `clone_repository`. The task records the repository, base branch and commit, task branch, and workspace directory. The model receives the repository's `AGENTS.md` in its prompt.
 
-### Repositories
+`create_pull_request` refuses uncommitted changes, pushes only the task branch, then opens or updates a draft pull request. Pull request and repository metadata are mirrored into the registry entry for the catalog.
 
-A session working on a repository holds a task in its Agent state: the repository, the base branch and commit, the task branch `pi/<entry id prefix>`, the clone's directory and, once opened, the pull request. The Agents SDK syncs that state to the session's clients; `validateStateChange` refuses client writes, so only the server sets the branch that gets pushed.
+The GitHub App mints installation tokens for individual repositories. Tokens are passed to clone and push calls only; workspace git and the container do not retain credentials. Installations outside `GITHUB_OWNERS` are ignored.
 
-The model opens a task by calling `clone_repository`, so a session that only discusses a repository, or needs nothing from it, never clones. The composer suggests the repositories of the App's installations on `GITHUB_OWNERS` accounts after `@`, most recently pushed first, from the registry's `listRepositories` callable, so the home page can suggest them before a session exists; a mention is plain text, and the `repository` prompt section tells the model what `@owner/name[#branch]` means and to clone only when it needs the code. The tool reads the default branch from the GitHub API unless the model names one, without checking push access, since a clone may only be read, clones with full history on one branch with Computer's git client and the token in per-call headers, records `HEAD` as the base commit, and checks out the task branch. A failed clone removes the partial directory and goes back to the model as a tool error. A session clones one repository: asking for the same one again reports the clone, which makes a replayed call safe, and another is refused. The registry copies the repository, branch and pull request into the entry's metadata for the catalog.
+## Web, MCP, and skills
 
-The `repository` prompt section renders before every request from the task and the clone's `AGENTS.md`. `create_pull_request` refuses uncommitted changes, pushes only the task branch with the token passed to `push`'s `onAuth`, then finds the open pull request for that branch and updates it, or opens a draft one; the lookup makes a replay safe. The pull request goes into the session's state and, for the catalog, the registry's metadata.
+### Web
 
-GitHub access goes through the App (`src/server/github-app.ts`): `@octokit/auth-app` signs the App's JWT and mints installation tokens, which it caches in the isolate until shortly before they expire. `PiSession.githubToken(repo)` finds the repository's installation, refuses it unless it is on an account in `GITHUB_OWNERS`, and returns a token limited to that one repository. The token never reaches the workspace's git configuration or the container, so `git push` from the agent's shell fails. `comment_on_github` posts on the session's pull request, or on the issue a mention started it from, and keeps pi-durable's default `replay: 'unsafe'`, so an interrupted call is never run again and never posts twice. `create_github_issue` opens an issue, unsafe for the same reason, and `read_github_issue` reads an issue or pull request with up to 300 comments. Both work on the repository the model names, else the session's, else the issue's, with that repository's token, so the App must be installed there with Issues: Read and write.
+- `web_fetch` uses Workers AI to convert pages to Markdown and returns bounded windows.
+- `web_search` uses the configured provider key on AI Gateway. The checked-in provider is Exa, enabled only when `WEB_SEARCH_PROVIDER` is set.
+- `Browser` uses a persistent Browser Run browser. Live View URLs are refreshed for the UI and are intentionally short-lived.
+- `preview.internal` lets the session browser reach a dev server in its container through `InternalHostRouter`. Only that session can reach it, cross-origin requests are rejected, WebSockets are unsupported, and it is unavailable in local development.
 
-`src/server.ts` sends `/webhooks/github` to `handleGitHubWebhook` before any other route. It verifies the `X-Hub-Signature-256` HMAC with `@octokit/webhooks-methods` against `GITHUB_WEBHOOK_SECRET`, answers 401 otherwise, and keeps only new issue and review comments that mention `@<slug>` from a user in `GITHUB_OWNERS`, never from a bot. A mention goes to the registry's `receiveGitHubMention`, which queues it with the Agent's durable `queue()`, keyed by the delivery ID, and the endpoint answers 202. `handleGitHubMention` then finds the session by the entry's repository and pull request number, or the issue it started from (`thread` in the entry's metadata), and submits a follow-up prompt; a mention on an issue without a session creates one, titled after the issue, whose session stores the issue so `comment_on_github` can answer there. It reacts 👀 to the comment, or 😕 on a pull request without a session; a failed reaction is only logged. `listChanges` and `readChange` diff the working tree against the base commit with `diffSummary` and `diff`, so uncommitted work shows too.
+Web results are untrusted content, not instructions.
 
-### Webhooks
+### MCP
 
-`src/server.ts` also sends `/webhooks/generic` to `handleGenericWebhook` (`src/server/generic-webhook.ts`), for Workers Issues automations and any other sender. It compares the `cf-webhook-auth` header, or an `Authorization: Bearer` token, with `WEBHOOK_SECRET` by SHA-256 digest, in constant time, and answers 401 otherwise. It refuses bodies over 64 KiB, Workers Issues' own limit, and a malformed `repo` or `branch` query parameter. A body in Cloudflare's generic webhook schema (a string `text`, and optionally `name`, `policy_name`, `alert_type` and `alert_event`) becomes a notification; any other JSON or text is passed on as it is. Cloudflare's "Save and Test" message gets 200 and nothing else. Every other delivery goes to the registry's `receiveWebhook`, queued under the SHA-256 of its body, and the endpoint answers 202. `handleWebhook` starts a session titled from the notification's text, whose prompt quotes the text, includes the payload, pretty-printed and cut at 32 KiB, as information rather than instructions, names the repository from the URL as an `@owner/name` mention, and suggests the `mcp` tool for the Cloudflare API. Each delivery starts its own session: Notifications documents no stable issue ID to route a recurrence to an earlier session.
-
-### Artifacts
-
-The workspace's Artifacts client is scoped to the session's Durable Object ID, so the repos the agent creates through `codemode:artifacts` are named under it. Teardown lists and deletes them, since they live outside the object's storage.
+The registry owns MCP connections and credentials through `MCPClientManager`. Sessions see only enabled tools. The codemode `mcp` extension discovers and invokes tools through registry RPC, so session storage never receives server credentials. Catalog changes synchronize when Pi opens and after accepted prompts.
 
 ### Skills
 
-The harness installs the Agents SDK's Agent Skills into Pi's skill registry, which adds `activate_skill` and `read_skill_resource` and puts each skill's name and description in the system prompt. `PiSession.skillSources()` lists three sources, and an earlier source wins a name:
+Skill sources have this precedence:
 
-1. Built-in skills, loaded as raw files from `src/server/bundled-skills` into the Agents SDK's `manifest()` source. The only one is `skill-creator`.
-2. The cloned repository's skills: `<name>/SKILL.md` under `.agents/skills`, `.claude/skills`, `.pi/skills`, then `.github/skills`. The SDK has no source that reads a filesystem, so `repoSkills` in `src/server/repo-skills.ts` reads them, with their files, into a manifest for the SDK's `fromManifest()` source. A manifest is fixed, so it reads the repository again on every refresh and swaps in a new one: a clone, or a skill the agent writes, shows up at the next sync, and `clone_repository` syncs at once. Each body is prefixed with the skill's path, so the agent can run its scripts with `exec`.
-3. Shared skills, read from `skills/` in the `BUCKET` R2 bucket with the SDK's `r2()` source.
+1. Built-ins from `src/server/bundled-skills`, loaded as raw files into an Agents `manifest()` source.
+2. Repository skills from `.agents/skills`, `.claude/skills`, `.pi/skills`, and `.github/skills`, read into a fresh manifest for each catalog listing.
+3. Shared skills under `skills/` in R2, read with the Agents `r2()` source and cached for up to a minute.
 
-The SDK freezes a catalog when it builds it, so `SkillCatalog` in `src/server/skills.ts` loads the sources when the harness opens and, in the background, after each accepted prompt, and reinstalls the extension when the catalog's prompt fingerprint changes. The repository source reads its files again on every listing; the bucket is listed at most once a minute.
+`SkillCatalog` reinstalls the Pi extension when the catalog's prompt fingerprint changes. Only names and descriptions enter the default prompt; `activate_skill` loads instructions and `read_skill_resource` loads files. `open_skill`, `save_skill`, and `delete_skill` manage shared skills from the workspace.
 
-The agent manages shared skills with three tools in `src/server/skill-tools.ts`, using the ordinary file tools in between:
+## Webhooks
 
-- `open_skill` copies a shared skill's raw files from the bucket into `/workspace/skills/<name>/`, replacing any draft there.
-- `save_skill` publishes `/workspace/skills/<name>/` to `skills/<name>/`. It checks the name against the Agent Skills specification and the `SKILL.md` frontmatter and refuses built-in names, then writes new files first and `SKILL.md` last and deletes stale files, so a skill being replaced never disappears.
-- `delete_skill` deletes `skills/<name>/`.
+- `/webhooks/github` verifies `GITHUB_WEBHOOK_SECRET`, accepts only issue and review comments from users in `GITHUB_OWNERS`, and queues mentions on the registry. Issue mentions continue an existing session or create one; mentions on unrelated pull requests receive 😕.
+- `/webhooks/generic` verifies `WEBHOOK_SECRET`, limits bodies to 64 KiB, treats payloads as untrusted data, and starts one queued session per accepted delivery.
 
-After a save or delete, `SkillCatalog.reload()` rebuilds the session's sources, so the session sees the change from its next model call instead of after the bucket source's refresh interval. Other sessions pick it up on their next refresh.
+Both endpoints return before model work runs. The registry's durable queue handles retries. These paths need explicit Cloudflare Access bypasses; everything else should remain protected.
 
-## PiRegistry
+## Security model
 
-The singleton `PiRegistry` keeps the session catalog with the Agents SDK's `RoutedAgents` capability: each entry maps a public session ID to an opaque physical `PiSession` name, with an optional session name as metadata and timestamps. Creating, listing, and renaming touch only the registry's SQLite. Creating a session also calls `joinCatalog` on the new `PiSession`, which stores the entry ID it reports activity under; a `PiSession` touches its entry when it accepts a prompt, which moves it to the top of the list, and the first prompt it accepts titles an entry that has none (`titleFromPrompt` in `src/server/session-title.ts`). The catalog shows a session's name, else its title, else its repository. The home page starts a session from a prompt: `createSession({ prompt })` submits it to the new session after `joinCatalog`, and a failed submit deletes the entry like a failed join.
+The application has no built-in authentication or authorization. Use Cloudflare Access or another authentication layer for the whole Worker, with only the two webhook paths exempt.
 
-Repository sessions also store the repository, the task branch and the pull request in the entry's metadata, so the catalog lists them without waking each session.
+Repositories, issues, comments, web pages, MCP results, and skills can all carry prompt injection. Pi can run code in a networked container and act through enabled MCP credentials, so configuration and repository write access must be treated as security boundaries. Shared skills affect every session and can be published by an agent without review.
 
-Each entry's metadata also holds the session's run status, absent while idle. `setStatus` rewrites the metadata with its other fields kept, so a status change moves the entry to the top like a prompt, and the sidebar orders and groups sessions by their latest state. The sidebar shows a pulsing dot for a running session and a warning icon after a failed run.
+Session IDs isolate resources but are not authorization tokens. Preview URLs are public and should also be protected. Local `.wrangler/` state can contain sensitive transcripts and workspace files.
 
-The registry's Agent state is a revision that every catalog change bumps: creating, renaming, deleting, titling, touching, a session's task or pull request, and a change in its run status. The Agents SDK syncs that state to every open page, which reloads the list when it moves, so the sidebar follows other tabs and running sessions without polling. Clients cannot write it.
+## Current limitations
 
-The registry also holds the MCP servers every session uses (`McpServers` in `src/server/mcp-servers.ts`), on the Agent's own `MCPClientManager`, which keeps each server's URL, headers and OAuth tokens in the registry's SQLite and reconnects them in the background after a wake. The app adds one setting, which servers are turned off for sessions. Sessions get the tools of enabled, connected servers; after a wake, listing and calling wait up to ten seconds for reconnecting servers, and a call reconnects a failed server once. Settings manages servers through callables (`connectMcpServer`, `reconnectMcpServer`, `setMcpServerEnabled`, `deleteMcpServer`, `listMcpServers`) and reloads when the SDK pushes its MCP state to the page. OAuth uses dynamic client registration; the callback is the registry's own route, `/api/agents/pi-registry/singleton/callback`, which the SDK intercepts and which redirects to `/settings`.
-
-Deleting a session hides the entry, condemns the `PiSession` through the Agents SDK's deferred teardown, then removes the row; a failed delete leaves a hidden row and can be retried. The teardown runs `destroy()` in the session's own alarm: Lifecycle disposal stops the session's event watches and its container, deletes its Artifacts repos, closes Pi, and then the Agent wipes Pi's tables and the workspace.
-
-## Security Model
-
-The application has no authentication or authorization. The GitHub App can write to every repository it is installed on, and any session can be pointed at any of them; install it only on the repositories you want Pi to work on. Each session's token is limited to its own repository. The App must be public to install on more than one account, so anyone can install it; installations on accounts outside `GITHUB_OWNERS` are ignored. The webhook endpoints bypass Access, so their secrets are their only protection: anyone with `WEBHOOK_SECRET` can start a session with any prompt, which can clone any repository the App can reach and call every enabled MCP server; a mention from a user in `GITHUB_OWNERS` directs Pi like a prompt in the app, and an untrusted author's issue description is quoted as information, but its text still reaches the model. A clone's `AGENTS.md` and its skills' descriptions go into the system prompt, so a repository you mention can steer the session. Pi reads repository content, including issues and files an attacker may control, and its container has network access, so treat its pull requests as untrusted until reviewed. The dev server it previews is reachable only by that session's browser, through `preview.internal`, and a request from another origin is refused; a page Pi opens on that host is still the code it ran, so treat what it does as untrusted too. Anyone who can reach a deployment can list, read, change, and delete every session and workspace, and run models on the account's AI binding. Session IDs are isolation mechanisms, not authorization boundaries. A shared skill's description is in every session's system prompt and its body instructs any session that activates it, so saving a skill, or writing to `skills/` in the bucket, can steer every session. The agent saves skills without review, so a prompt-injected session can plant a skill that steers the others. MCP servers act with the credentials you connect them with, and any session can call any enabled server, including a session started from GitHub; a server's results can carry instructions like a web page, and the `mcp` tool's description tells the model not to follow them. `RoutedAgents` supports one registry per user, which is where per-user isolation would start once the application authenticates users. Protect the whole Worker with Cloudflare Access or another authentication layer.
-
-Local `.wrangler/` state can contain transcripts and workspace files.
-
-## Known Limitations
-
-From the current SDKs:
-
-- `pi-durable` and `PiHarness` are experimental and beta; their APIs change between releases.
-- Pi's conversations are linear. There is no in-session tree, leaf navigation, labels, or branch summaries; branching in pi-durable means forking a conversation.
-- A single model stream longer than an alarm's 15-minute wall time is at the platform's mercy.
-- Abort waits for tools to honor their abort signal, so a tool that is slow to stop delays it. `abort` therefore returns before Pi settles, and the event stream reports when the session is idle.
-- An Agent method that throws over native RPC is also logged as an uncaught rejection by the Agents SDK's tracing wrapper.
-
-Not implemented in this application:
-
-- Following a pull request after it opens: review comments, CI results, and pulling new commits from the base branch. The agent's git has no credentials, so it cannot fetch from a private repository.
-- Environment setup per repository; the container starts from the same image for every session.
-- Authentication and per-user isolation.
-- More than one conversation per session. The session uses only Pi's root session; `PiHarness` can create and fork others (`harness.sessions.create()`, `fork()`), but nothing exposes them.
-- Session search and subagents.
-- Scheduled work: no tool lets Pi act at a later time, though pi-durable 1.5's durable sleeps and the harness's wake job would carry it.
-- Long-term memory.
-- Manual compaction, context reset, and thinking-level selection.
-- Pi's browser reaches the container only through `preview.internal`, and only in a deployed Worker; hot reload does not connect there.
-- Image input, usage and cost display.
-- Sharing files by link. Computer's `publish` tool needs Assets, which the application does not configure.
+- No per-user authentication, session search, scheduled work UI, subagent UI, or multiple-conversation UI.
+- No automatic review/CI follow-up after a pull request opens.
+- Container-backed execution and Artifacts are not covered by the workerd suite; those require live checks.
+- Browser internal hosts require a deployed Worker and do not support hot-reload WebSockets.
+- Abort completes only after tools honor cancellation.
 
 ## Verification
 
@@ -189,14 +123,4 @@ npm run check
 npm run build
 ```
 
-The Workers suite, in `test/worker`, runs a real `PiSession` with pi-ai's faux provider and two faux models: a plain answer, switching models, a model tool call that writes through Computer, the WebSocket snapshot, and the run status the registry lists, including a failed run and the correction a restart makes. It also covers:
-
-- Computer's Worker Shell, git, Codemode, and the tool adapter.
-- Repository tasks on a local repository: the `repository` section, changes against the base commit, read-only task state, and `create_pull_request`'s refusals.
-- The catalog, session titles, and the model list.
-- Skills from all three sources, and the skill tools.
-- MCP servers and the `mcp` tool, against a test MCP server over the Agents SDK's RPC transport.
-- The web tools, with fake sources, and `preview.internal` against a fake container.
-- Both webhooks, and the GitHub App's token and installation checks.
-
-Live Workers AI inference, the container backend, GitHub itself, and Artifacts are not covered by tests.
+The worker tests run a real `PiSession` with faux models and cover sessions, catalog state, views, tools, skills, MCP, webhooks, and failure recovery without live inference, GitHub, or containers. Browser checks cover deployment and live-model integration.

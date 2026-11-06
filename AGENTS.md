@@ -8,7 +8,7 @@ Read `docs/architecture.md` for the full system design before changing anything 
 
 | Command | What it does |
 |---|---|
-| `npm ci` | Install. Node >= 22 (`.node-version`). |
+| `npm ci` | Install. Node 24 (`.node-version`), or a version allowed by `package.json`. |
 | `npm run dev` | Vite dev server on `http://localhost:3000`. |
 | `npm run check` | Lint, typecheck, and both test projects — what CI runs, run it before finishing. |
 | `npm run lint` | `oxlint --deny-warnings`, with the vendored anti-slop rules; warnings fail the build. `npx oxlint --fix` applies the blank-line rule. |
@@ -20,7 +20,7 @@ Read `docs/architecture.md` for the full system design before changing anything 
 | `npm run generate-routes` | Regenerate `src/routeTree.gen.ts` after adding routes; never edit that file. |
 | `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` after changing `wrangler.jsonc` bindings. |
 
-`npm run dev` needs Docker, for the Computer container, and a `wrangler login`, because the `AI`, `BUCKET`, and Artifacts bindings are remote in local development. Local Durable Object state lands in `.wrangler/` and can hold transcripts and workspace files; do not publish it. Set the GitHub App secrets and `WEBHOOK_SECRET` locally in `.dev.vars` or `.env`, and keep account-specific configuration in an ignored `wrangler.local.jsonc` (`CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite, `--config` for Wrangler). Press `t + Enter` in `npm run dev` for a Quick Tunnel when testing the GitHub webhook locally.
+`npm run dev` needs Docker, for the Computer container, and a `wrangler login`, because AI, R2, Artifacts, and Browser bindings are remote in local development. Local Durable Object state lands in `.wrangler/` and can hold transcripts and workspace files; do not publish it. Set the GitHub App secrets and `WEBHOOK_SECRET` locally in `.dev.vars` or `.env`, and keep account-specific configuration in an ignored `wrangler.local.jsonc` (`CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite, `--config` for Wrangler). Press `t + Enter` in `npm run dev` for a Quick Tunnel when testing the GitHub webhook locally.
 
 ## Layout
 
@@ -30,7 +30,7 @@ src/
 ├── contract.ts          the browser-safe contract: types, routes, RPC
 ├── router.tsx, routes/  TanStack Router; routeTree.gen.ts is generated
 ├── components/          React components, flat
-├── hooks/, lib/         session/registry connections; transcript reducer, theme, mentions
+├── hooks/, lib/         session/registry connections; transcript projection, theme, mentions
 └── server/              Worker only
     ├── pi-session.ts    one Durable Object per session: PiHarness, tools, task, web
     ├── pi-registry.ts   singleton catalog Durable Object, the only route to a session
@@ -57,8 +57,8 @@ The UI is Kumo (`@cloudflare/kumo`), imported per component (`@cloudflare/kumo/c
 `.oxlintrc.json` enables every generic rule of [anti-slop](https://github.com/dmmulroy/anti-slop), vendored in `tools/oxlint/anti-slop/` — the code is ours to change, so fix a rule that is wrong for this project there, with a line in its `UPSTREAM.md`, rather than suppressing it. What the rules ask for here:
 
 - Parse at the boundary, then use named types. No `unknown` parameters or returns, no `Record<string, unknown>`; JSON is `Json`/`JsonObject` from `src/lib/json.ts`, which also has `parseJson` and the guards. `typeof` only inside a type predicate.
-- Validate untrusted payloads in the Worker with a zod schema (`Schema.safeParse(value).data`, as in `github-webhook.ts`) that covers only the fields the code reads. zod is already in the bundle, and plain zod never generates code on Workers; `z.compile()` and `zod/compile` do, and lint refuses them. Prefer `zod` to `zod/mini`, which saves nothing while the dependencies bundle regular zod. Lint refuses `typebox` too: Workers allow `new Function` at startup but not in a request, so a module-scope `Compile` makes TypeBox cache that code generation works, and every tool call then fails when pi-ai validates its arguments. Tool `parameters` use the JSON Schema builders from `@earendil-works/pi-schema`; `defineTool` infers their `Static` argument types.
-- No `as unknown as`. A necessary single assertion carries a `// SAFETY:` comment stating the invariant (not required in `test/`). Prefer `defineTool` for tool registrations, so `execute` arguments are typed by their TypeBox `parameters`.
+- Validate untrusted payloads in the Worker with a zod schema (`Schema.safeParse(value).data`, as in `github-webhook.ts`) that covers only the fields the code reads. Use plain `zod`, not `z.compile()` or `zod/compile`, because request-time code generation is unavailable on Workers. Tool `parameters` use the JSON Schema builders from `@earendil-works/pi-schema`; `defineTool` infers their `Static` argument types. TypeBox is not allowed for the same reason.
+- No `as unknown as`. A necessary single assertion carries a `// SAFETY:` comment stating the invariant (not required in `test/`). Prefer `defineTool` for tool registrations, so `execute` arguments are typed by their JSON Schema `parameters`.
 - Name a caught value `cause` (`.catch((cause: unknown) => …)`), and show it with `errorMessage(cause)` from `src/lib/error-message.ts`. Narrow strings from UI controls with `isOneOf` from `src/lib/one-of.ts`.
 - Keep inference or use named types over annotated anonymous object types; use a `Map` for lookup tables.
 - oxlint enforces the React Compiler rules (`react(refs)`, `react(set-state-in-effect)`, `react(purity)`) and `typescript/no-deprecated`. Load data with `useRemote` (`src/hooks/use-remote.ts`) rather than setting loading state in an effect; read browser-only values with `useSyncExternalStore` or TanStack's `useHydrated`; and write a loader that an effect calls as a `.then` chain: oxlint takes a setState after an `await` for a synchronous one.
@@ -80,8 +80,8 @@ Skills in this app come from three sources: built-ins in `src/server/bundled-ski
 ## Platform gotchas
 
 - `compatibility_date` in `wrangler.jsonc` (and `test/worker/wrangler.jsonc`) is the newest date the bundled workerd supports. `package.json` overrides the `wrangler` that `@cloudflare/vite-plugin` pins so dev and deploys share one CLI with `@cloudflare/vitest-plugin`; bump the date together with Wrangler. The Vite plugin's own Miniflare currently lags that runtime and is deliberately not overridden (the newer runtime removed `getNodeCompat`, which the plugin imports), so restore the shared Miniflare override once the plugin catches up.
-- pi-durable is experimental and `agents` supports one pi minor at a time (`~1.5.0`): upgrade `@earendil-works/pi-durable`, `pi-ai`, `pi-schema`, and `chord` together with `agents`, to the versions its peer dependencies name.
-- `container/Dockerfile` builds on Debian trixie: computerd 0.8 needs libfuse 3.17 or newer, which bookworm lacks. Check computerd's libfuse requirement when bumping `@cloudflare/computer`.
+- PiHarness, pi-durable, and parts of Computer are beta, so their APIs may change. `agents` supports one Pi minor at a time (`~1.5.0`): upgrade `@earendil-works/pi-durable`, `pi-ai`, `pi-schema`, and `chord` together with `agents`, to the versions its peer dependencies name.
+- `container/Dockerfile` builds on Debian trixie because computerd needs libfuse 3.17 or newer. Keep its computerd version in step with `@cloudflare/computer` and recheck the libfuse requirement when bumping it.
 - Never edit an old Durable Object migration; always add a new tag.
 - Worker Previews (`npx wrangler preview`) inherit nothing from the main config: `previews` in `wrangler.jsonc` repeats bindings, and R2/Artifacts point at separate `-preview` resources.
 - `wrangler deploy` refuses to run until all seven required secrets — the six GitHub App ones and `WEBHOOK_SECRET` — are set (`npx wrangler secret put <NAME>`).
