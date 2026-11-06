@@ -1,5 +1,5 @@
 import type { WorkspaceClient } from '@cloudflare/computer'
-import { fromManifest, parseSkillMarkdown, type SkillManifest, type SkillManifestEntry, type SkillSource } from 'agents/skills'
+import { manifest, parseSkill, type SkillManifest, type SkillManifestEntry, type SkillSource } from 'agents/skills'
 import type { SessionTask } from '~/contract'
 
 /**
@@ -20,33 +20,29 @@ const RESOURCE_EXCLUDE = ['**/node_modules', '**/.git']
 
 /**
  * The skills in the session's cloned repository, as the Agents SDK's
- * `fromManifest()` source. A manifest is fixed when it is built, so this
- * reads the repository again on every refresh and swaps in a new one; a
- * clone, or a skill the agent writes, shows up at the next
- * `SkillCatalog.sync`. Without a clone it has no skills.
+ * `manifest()` source. Each catalog listing reads the repository again and
+ * swaps in a new manifest; resource reads use the manifest from that listing.
+ * Without a clone it has no skills.
  */
 export function repoSkills(workspace: () => PromiseLike<WorkspaceClient>, task: () => SessionTask | null): SkillSource {
   let current: SkillSource | undefined
 
   const refresh = async () => {
-    current = fromManifest(await readManifest(await workspace(), task()))
-  }
-
-  const source = async () => {
-    if (!current) await refresh()
-
-    return current!
+    current = manifest(await readManifest(await workspace(), task()))
   }
 
   return {
     id: ID,
-    get fingerprint() {
-      return current?.fingerprint ?? `${ID}:unread`
+    list: async () => {
+      await refresh()
+
+      return current!.list()
     },
-    list: async () => (await source()).list(),
-    load: async (name) => (await source()).load(name),
-    readResource: async (name, path) => (await source()).readResource?.(name, path) ?? null,
-    refresh,
+    readResource: async (name, path) => {
+      if (!current) await refresh()
+
+      return current!.readResource(name, path)
+    },
   }
 }
 
@@ -62,21 +58,26 @@ export async function readManifest(workspace: WorkspaceClient, task: SessionTask
         if (!entry.isDirectory) continue
         const directory = `${base}/${entry.name}`
         const raw = await workspace.fs.readFile(`${directory}/SKILL.md`, 'utf8').catch(() => null)
-        const parsed = raw === null ? null : parseSkillMarkdown(raw)
+        const parsed = raw === null ? null : parseSkill(raw, { directory: entry.name })
 
-        if (!parsed?.name || !parsed.description || skills.some((skill) => skill.name === parsed.name)) continue
+        if (!parsed?.ok || skills.some((skill) => skill.name === parsed.value.name)) continue
+        const { name, description, body, license, compatibility, metadata, allowedTools } = parsed.value
         skills.push({
-          ...parsed,
+          name,
+          description,
+          license,
+          compatibility,
+          metadata,
+          allowedTools: allowedTools.join(' '),
           // The agent runs a skill's scripts with exec, so it needs to know where they are.
-          body: `This skill is from the repository ${task.repo}, at ${directory}. Its files are there too; run its scripts from there.\n\n${parsed.body}`,
-          rawContent: raw ?? undefined,
+          body: `This skill is from the repository ${task.repo}, at ${directory}. Its files are there too; run its scripts from there.\n\n${body}`,
           resources: await readResources(workspace, directory),
         })
       }
     }
   }
 
-  return { id: ID, fingerprint: `${ID}:${task?.dir ?? 'none'}:${hash(JSON.stringify(skills))}`, skills }
+  return { id: ID, skills }
 }
 
 async function readResources(workspace: WorkspaceClient, directory: string): Promise<NonNullable<SkillManifestEntry['resources']>> {
@@ -94,7 +95,7 @@ async function readResources(workspace: WorkspaceClient, directory: string): Pro
     if (!stat || stat.size > RESOURCE_BYTES) return null
     const content = await workspace.fs.readFile(`${directory}/${path}`, 'utf8').catch(() => null)
 
-    return content === null ? null : { path, kind: resourceKind(path), encoding: 'text' as const, size: stat.size, content }
+    return content === null ? null : { path, kind: resourceKind(path), encoding: 'text' as const, content }
   }))
 
   return resources.filter((resource) => resource !== null)
@@ -108,13 +109,4 @@ function resourceKind(path: string): 'reference' | 'script' | 'asset' | 'file' {
   if (path.startsWith('assets/')) return 'asset'
 
   return 'file'
-}
-
-/** FNV-1a, as the SDK's R2 source fingerprints its index. */
-function hash(text: string): string {
-  let value = 2166136261
-
-  for (let i = 0; i < text.length; i++) value = Math.imul(value ^ text.charCodeAt(i), 16777619)
-
-  return (value >>> 0).toString(16)
 }

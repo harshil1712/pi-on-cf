@@ -1,5 +1,5 @@
 import type { WorkspaceClient } from '@cloudflare/computer'
-import { Type } from '@earendil-works/pi-ai'
+import { obj, str } from '@earendil-works/pi-schema'
 import { defineTool, type ToolRegistration } from '@earendil-works/pi-durable'
 import { deleteSharedSkill, isSkillName, publishSkill, readSharedSkill } from './skills'
 import { WORKSPACE_ROOT } from './workspace-root'
@@ -8,8 +8,8 @@ import { errorMessage } from '~/lib/error-message'
 /** Where the agent drafts and edits skills: `/workspace/skills/<name>/`. */
 const SKILL_DRAFTS = `${WORKSPACE_ROOT}/skills`
 
-const nameParameter = Type.Object({
-  name: Type.String({ description: 'The skill name: lowercase letters, digits, and single hyphens.' }),
+const nameParameter = obj({
+  name: str({ description: 'The skill name: lowercase letters, digits, and single hyphens.' }),
 })
 
 type SkillToolsOptions = {

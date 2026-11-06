@@ -1,6 +1,6 @@
 import type { AssistantMessage, JsonObject, Message } from '@earendil-works/pi-ai'
-import type { AgentEvent, EntryRecord, MessageChange } from '@earendil-works/pi-durable'
-import { unansweredReason } from './run-status'
+import type { EntryRecord, InboxState, ToolSlot, TranscriptView } from '@earendil-works/pi-durable'
+import { liveState, unansweredReason } from './run-status'
 
 export type TranscriptEntry =
   | { id: string; type: 'message'; role: 'user' | 'assistant'; text: string }
@@ -11,142 +11,60 @@ export type TranscriptEntry =
 /** An image a tool returns, as a data URL the card can show. */
 export type TranscriptImage = { alt: string; src: string }
 
-/** A tool call pi is running now, with its retained output. */
-type RunningTool = { name: string; output: string }
+/** A tool call in the current round, with its retained output. */
+type ToolProgress = { name: string; output: string; status: ToolSlot['status'] }
 
-/**
- * One session as the browser sees it, folded from pi-durable's agent
- * events: the committed active transcript plus what is streaming now.
- */
+/** One session as the browser sees it: committed transcript entries plus Pi's live state. */
 export type PiView = {
   entries: readonly EntryRecord[]
   live: AssistantMessage | null
-  tools: Readonly<Record<string, RunningTool>>
+  tools: Readonly<Record<string, ToolProgress>>
   running: boolean
   queued: number
   error: string
+  /** Increments when a tool result or run completion may have changed the workspace. */
+  workspaceVersion: number
 }
 
-export const EMPTY_VIEW: PiView = { entries: [], live: null, tools: {}, running: false, queued: 0, error: '' }
+export const EMPTY_VIEW: PiView = { entries: [], live: null, tools: {}, running: false, queued: 0, error: '', workspaceVersion: 0 }
 
-export function reducePiEvents(view: PiView, events: readonly AgentEvent[]): PiView {
-  return events.reduce(reducePiEvent, view)
-}
+/** Project one complete conversation view. Unlike the old event stream, every value is authoritative state. */
+export function reducePiView(current: PiView, next: TranscriptView): PiView {
+  const live = liveState(next)
+  const entries = next.items.flatMap((item) => item.kind === 'entry' ? [item.entry] : [])
 
-function reducePiEvent(view: PiView, event: AgentEvent): PiView {
-  switch (event.type) {
-    case 'snapshot':
-      return {
-        entries: event.entries,
-        live: event.generation?.message ?? null,
-        tools: Object.fromEntries(event.tools
-          .filter((slot) => slot.status !== 'done')
-          .map((slot) => [slot.callId, { name: slot.name, output: slot.output ?? '' }])),
-        running: event.run !== undefined,
-        queued: event.inbox.length,
-        error: '',
-      }
-    case 'run_start':
-      return { ...view, running: true, error: '' }
-    case 'run_end':
-      return { ...view, running: false, live: null, tools: {} }
-    case 'message_start':
-      return event.message.role === 'assistant' ? { ...view, live: event.message } : view
-    case 'message_update':
-      return view.live ? { ...view, live: applyChanges(view.live, event.changes) } : view
-    case 'message_end': {
-      const next = append(view, event.entry)
+  const tools = Object.fromEntries((live.tools ?? []).map((slot) => [slot.callId, {
+    name: slot.name,
+    output: slot.output ?? '',
+    status: slot.status,
+  }]))
 
-      return event.entry.model?.[0]?.role === 'assistant' ? { ...next, live: null } : next
-    }
+  const running = live.run !== undefined
 
-    case 'entry_appended':
-      return append(view, event.entry)
-    case 'tool_execution_start':
-      return { ...view, tools: { ...view.tools, [event.toolCallId]: { name: event.toolName, output: '' } } }
-    case 'tool_execution_update': {
-      const tool = view.tools[event.toolCallId]
+  // SAFETY: ConversationView.docs holds pi-durable's built-in documents; `pi.inbox` is its InboxState document.
+  const inbox = next.docs['pi.inbox'] as InboxState | undefined
 
-      if (!tool || !event.output) return view
+  const reason = unansweredReason(next)
 
-      const output = 'set' in event.output
-        ? event.output.set
-        : tool.output.slice(event.output.trimStart ?? 0) + (event.output.append ?? '')
+  const workspaceChanged = hasNewToolResult(current, entries)
+    || Object.entries(tools).some(([id, tool]) => tool.status === 'done' && current.tools[id] !== undefined && current.tools[id]?.status !== 'done')
+    || (current.running && !running)
 
-      return { ...view, tools: { ...view.tools, [event.toolCallId]: { ...tool, output } } }
-    }
-
-    case 'tool_execution_end': {
-      const { [event.toolCallId]: _finished, ...tools } = view.tools
-      const next = { ...view, tools }
-
-      return event.entry ? append(next, event.entry) : next
-    }
-
-    case 'inbox_update':
-      return { ...view, queued: event.items.length }
-    case 'task_failed':
-      return { ...view, error: event.message }
-    default: {
-      const reason = unansweredReason(event)
-
-      return reason ? { ...view, error: `Pi could not answer: ${reason}` } : view
-    }
+  return {
+    entries,
+    live: live.generation?.message ?? null,
+    tools,
+    running,
+    queued: inbox?.items.length ?? 0,
+    error: reason ? `Pi could not answer: ${reason}` : (live.compactionFailure?.error ?? ''),
+    workspaceVersion: current.workspaceVersion + (workspaceChanged ? 1 : 0),
   }
 }
 
-/**
- * Add a committed entry. An entry with a `head` (a reset or a compaction)
- * starts a new active context at that entry, as pi's snapshot does.
- */
-function append(view: PiView, entry: EntryRecord): PiView {
-  if (view.entries.some((known) => known.id === entry.id)) return view
+function hasNewToolResult(current: PiView, entries: readonly EntryRecord[]): boolean {
+  const known = new Set(current.entries.map((entry) => entry.id))
 
-  if (entry.head !== undefined) {
-    const head = entry.head
-
-    return { ...view, entries: [...view.entries.filter((known) => known.id >= head && known.head === undefined), entry] }
-  }
-
-  return { ...view, entries: [...view.entries, entry] }
-}
-
-function applyChanges(message: AssistantMessage, changes: readonly MessageChange[]): AssistantMessage {
-  let next = message
-
-  for (const change of changes) {
-    if (change.type === 'message') {
-      next = change.message
-      continue
-    }
-
-    const content = [...next.content]
-    const previous = content[change.contentIndex]
-
-    switch (change.type) {
-      case 'text_start':
-      case 'thinking_start':
-      case 'toolcall_start':
-      case 'block':
-        content[change.contentIndex] = change.block
-        break
-      case 'text_delta':
-        content[change.contentIndex] = { type: 'text', text: (previous?.type === 'text' ? previous.text : '') + change.delta }
-        break
-      case 'thinking_delta':
-        content[change.contentIndex] = previous?.type === 'thinking'
-          ? { ...previous, thinking: previous.thinking + change.delta }
-          : { type: 'thinking', thinking: change.delta }
-        break
-      case 'toolcall_delta':
-        // Partial argument JSON; the call renders once its block completes.
-        break
-    }
-
-    next = { ...next, content }
-  }
-
-  return next
+  return entries.some((entry) => !known.has(entry.id) && entry.model?.[0]?.role === 'toolResult')
 }
 
 export function messageText(message: Pick<Message, 'content'> | undefined): string {
@@ -181,7 +99,7 @@ function toolResult(message: Extract<Message, { role: 'toolResult' }>): ToolResu
   return { text: texts.join(''), isError: message.isError, images }
 }
 
-/** The active transcript as display rows, with the streaming message last. */
+/** The transcript as display rows, with the streaming message last. */
 export function transcriptEntries(view: PiView): Transcript {
   const results = new Map<string, ToolResultRow>()
 
@@ -193,7 +111,7 @@ export function transcriptEntries(view: PiView): Transcript {
 
   const rows: TranscriptEntry[] = []
 
-  for (const entry of headFirst(view.entries)) {
+  for (const entry of view.entries) {
     const id = String(entry.id)
     const message = entry.model?.[0]
 
@@ -239,7 +157,7 @@ function assistantRows(
 
     if (part.type === 'toolCall') {
       const result = results.get(part.id)
-      const running = view.tools[part.id]
+      const progress = view.tools[part.id]
 
       return [{
         id: `tool-${part.id}`,
@@ -247,20 +165,16 @@ function assistantRows(
         callId: part.id,
         name: part.name,
         args: part.arguments,
-        result: result?.text ?? (running?.output || undefined),
+        result: result?.text ?? (progress?.output || undefined),
         images: result && result.images.length > 0 ? result.images : undefined,
-        status: result ? (result.isError ? 'error' : 'complete') : view.running ? 'running' : 'error',
+        status: result
+          ? (result.isError ? 'error' : 'complete')
+          : progress?.status === 'done'
+            ? 'error'
+            : progress || view.running ? 'running' : 'error',
       }]
     }
 
     return []
   })
 }
-
-/** pi lists a context's head entry (compaction or reset) after the entries it keeps; show it first. */
-function headFirst(entries: readonly EntryRecord[]): readonly EntryRecord[] {
-  const head = entries.findLast((entry) => entry.head !== undefined)
-
-  return head ? [head, ...entries.filter((entry) => entry !== head)] : entries
-}
-

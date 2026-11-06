@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import type { AgentEvent, EntryRecord } from '@earendil-works/pi-durable'
+import type { EntryRecord, TranscriptView } from '@earendil-works/pi-durable'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Sidebar } from '@cloudflare/kumo/components/sidebar'
@@ -7,7 +7,7 @@ import type { BrowserTabView, PiSessionState, SessionSummary, SessionTask, Works
 import { AgentConnectionProvider } from '~/hooks/use-agent-connection'
 import { SessionRegistryProvider } from '~/hooks/use-session-registry'
 import { SessionPage } from '~/components/session-page'
-import { assistant, entry, inboxUpdate, snapshot as piSnapshot, runEnd, unanswered, usage } from '../pi-events'
+import { assistant, entry, inboxItems, snapshot as piSnapshot, unanswered } from '../pi-views'
 import { renderAtPath } from '../render-at-path'
 
 type AgentOptions = {
@@ -88,17 +88,21 @@ const browserResult = (id: string): EntryRecord =>
 const userEntry = (text: string, id = 1): EntryRecord => entry(id, 'pi.user', { role: 'user', content: text, timestamp: 0 })
 
 /** A snapshot of `entries`, with a run in progress when `running`. */
-const snapshot = (entries: EntryRecord[], running = false) => piSnapshot(entries, running ? { run: { inputs: [] } } : {})
+type ViewOptions = Parameters<typeof piSnapshot>[1]
 
-/** Deliver a `pi:events` frame as the PiSession connection would. */
-function emit(...events: AgentEvent[]) {
-  mocks.sessionOptions?.onMessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'pi:events', events }) }))
+const snapshot = (entries: EntryRecord[], options: ViewOptions = {}) => piSnapshot(entries, options)
+
+/** Deliver a `pi:view` frame as the PiSession connection would. */
+function emit(...views: TranscriptView[]) {
+  for (const view of views) {
+    mocks.sessionOptions?.onMessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'pi:view', view }) }))
+  }
 }
 
-/** Deliver events and render the animation frame they are batched into. */
-async function deliver(...events: AgentEvent[]) {
+/** Deliver views and render the animation frame they are batched into. */
+async function deliver(...views: TranscriptView[]) {
   await act(async () => {
-    emit(...events)
+    emit(...views)
     await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)))
   })
 }
@@ -152,7 +156,7 @@ describe('SessionPage', () => {
     expect(await screen.findByRole('button', { name: 'Current session' })).toBeTruthy()
   })
 
-  it('submits prompts durably and follows the run through pi events', async () => {
+  it('submits prompts durably and follows the run through conversation views', async () => {
     await renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
 
@@ -161,12 +165,10 @@ describe('SessionPage', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Send' }).closest('form')!)
     await waitFor(() => expect(mocks.sessionAgent.stub.submit).toHaveBeenCalledWith('Do work'))
 
-    await deliver(...[
-      { type: 'entry_appended', entry: userEntry('Do work', 2) },
-      { type: 'run_start', inputs: [] },
-      { type: 'message_start', message: { role: 'assistant', content: [], api: 'faux', provider: 'faux', model: 'faux', usage, stopReason: 'stop', timestamp: 0 } },
-      { type: 'message_update', usage, changes: [{ type: 'text_start', contentIndex: 0, block: { type: 'text', text: '' } }, { type: 'text_delta', contentIndex: 0, delta: 'Working' }] },
-    ] as AgentEvent[])
+    await deliver(snapshot([userEntry('Do work', 2)], {
+      run: {},
+      generation: { attempt: 1, message: assistant([{ type: 'text', text: 'Working' }]) },
+    }))
 
     expect(screen.getByText('Do work', { selector: '.message-body' })).toBeTruthy()
     expect(screen.getByText('Working')).toBeTruthy()
@@ -177,13 +179,13 @@ describe('SessionPage', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Steer' }).closest('form')!)
     await waitFor(() => expect(mocks.sessionAgent.stub.steer).toHaveBeenCalledWith('Use pnpm'))
     expect(mocks.sessionAgent.stub.submit).toHaveBeenCalledTimes(1)
-    await deliver(inboxUpdate(3))
+    await deliver(snapshot([userEntry('Do work', 2)], { run: {}, inbox: inboxItems(3) }))
     expect(screen.getByText(/1 queued/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(mocks.sessionAgent.stub.abort).toHaveBeenCalled())
 
-    await deliver(runEnd, inboxUpdate())
+    await deliver(snapshot([userEntry('Do work', 2)]))
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
     expect(screen.queryByText(/queued/)).toBeNull()
   })
@@ -245,7 +247,7 @@ describe('SessionPage', () => {
     expect(screen.queryByRole('button', { name: "Pi's browser" })).toBeNull()
   })
 
-  it('batches pi events into one animation-frame update', async () => {
+  it('batches conversation views into one animation-frame update', async () => {
     let renderFrame: FrameRequestCallback | undefined
 
     const requestFrame = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) => {
@@ -257,9 +259,9 @@ describe('SessionPage', () => {
     await renderSession(<SessionPage sessionId="session-12345678" />)
 
     act(() => {
-      emit(snapshot([], true), { type: 'message_start', message: { role: 'assistant', content: [], api: 'faux', provider: 'faux', model: 'faux', usage, stopReason: 'stop', timestamp: 0 } } as AgentEvent)
-      emit({ type: 'message_update', usage, changes: [{ type: 'text_start', contentIndex: 0, block: { type: 'text', text: '' } }, { type: 'text_delta', contentIndex: 0, delta: 'Hello' }] } as AgentEvent)
-      emit({ type: 'message_update', usage, changes: [{ type: 'text_delta', contentIndex: 0, delta: ' world' }] } as AgentEvent)
+      emit(snapshot([], { run: {} }))
+      emit(snapshot([], { run: {}, generation: { attempt: 1, message: assistant([{ type: 'text', text: 'Hello' }]) } }))
+      emit(snapshot([], { run: {}, generation: { attempt: 1, message: assistant([{ type: 'text', text: 'Hello world' }]) } }))
     })
     expect(requestFrame).toHaveBeenCalledTimes(1)
     expect(screen.queryByText('Hello world')).toBeNull()
@@ -299,7 +301,7 @@ describe('SessionPage', () => {
     expect((screen.getByLabelText('Message Pi') as HTMLTextAreaElement).disabled).toBe(false)
   })
 
-  it('reports a lost connection until pi events resume', async () => {
+  it('reports a lost connection until conversation views resume', async () => {
     await renderSession(<SessionPage sessionId="session-12345678" />)
     await deliver(snapshot([]))
 
@@ -318,7 +320,8 @@ describe('SessionPage', () => {
     await renderSession(<SessionPage sessionId="session-12345678" />)
     await waitFor(() => expect(mocks.sessionAgent.stub.listFiles).toHaveBeenCalledTimes(1))
 
-    await deliver(snapshot([], true), { type: 'tool_execution_end', toolCallId: 'call-1', toolName: 'write' } as AgentEvent)
+    await deliver(snapshot([], { run: {} }))
+    await deliver(snapshot([browserCall('call-1'), browserResult('call-1')]))
 
     await waitFor(() => expect(mocks.sessionAgent.stub.listFiles).toHaveBeenCalledTimes(2))
     expect(await screen.findByRole('button', { name: /a\.ts/i })).toBeTruthy()

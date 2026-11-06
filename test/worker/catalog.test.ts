@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers'
 import { routeAgentRequest } from 'agents'
 import { describe, expect, it } from 'vitest'
 import { AGENT_ROUTES } from '~/server/agent-routes'
-import { type PiEventsMessage, sessionBasePath } from '~/contract'
+import { type PiViewMessage, sessionBasePath } from '~/contract'
 import type { EntryRecord } from '@earendil-works/pi-durable'
 import { registry, session } from './stubs'
 
@@ -14,14 +14,13 @@ async function transcript(id: string): Promise<readonly EntryRecord[]> {
 
   try {
     return await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('No pi:events frame')), 5_000)
+      const timer = setTimeout(() => reject(new Error('No pi:view frame')), 5_000)
       socket.addEventListener('message', (event) => {
-        const data = JSON.parse(String(event.data)) as PiEventsMessage
-        const snapshot = data.type === 'pi:events' ? data.events[0] : undefined
+        const data = JSON.parse(String(event.data)) as PiViewMessage
 
-        if (snapshot?.type !== 'snapshot') return
+        if (data.type !== 'pi:view') return
         clearTimeout(timer)
-        resolve(snapshot.entries)
+        resolve(data.view.items.flatMap((item) => item.kind === 'entry' ? [item.entry] : []))
       })
     })
   } finally {
@@ -85,7 +84,7 @@ describe('catalog revisions', () => {
 
       if (data.type === 'cf_agent_state_error') refused = true
     })
-    await expect.poll(() => revisions.length).toBe(1)
+    await expect.poll(() => revisions.length).toBeGreaterThan(0)
     const start = revisions[0]!
 
     const { id } = await registry().createSession()

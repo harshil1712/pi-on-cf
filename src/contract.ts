@@ -1,4 +1,4 @@
-import type { AgentEvent } from '@earendil-works/pi-durable'
+import type { TranscriptView } from '@earendil-works/pi-durable'
 import type { RunStatus } from '~/lib/run-status'
 
 export type { RunStatus }
@@ -25,13 +25,12 @@ export function sessionBasePath(sessionId: string): string {
 }
 
 /**
- * Server → browser frame on a PiSession connection. It carries pi-durable's
- * own agent events: the first batch of every watch starts with a `snapshot`
- * that replaces the client's state, and each later batch is one commit.
+ * Server → browser frame on a PiSession connection. Every frame carries a
+ * complete renderer view, so a reconnect replaces stale state atomically.
  */
-export type PiEventsMessage = {
-  type: 'pi:events'
-  events: readonly AgentEvent[]
+export type PiViewMessage = {
+  type: 'pi:view'
+  view: TranscriptView
 }
 
 export type WorkspaceFile = {

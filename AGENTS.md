@@ -38,7 +38,7 @@ src/
     ├── skills.ts        skill sources and publishing; repo-skills.ts the clone's own skills
     ├── github-webhook.ts, generic-webhook.ts   /webhooks/github and /webhooks/generic
     ├── workspace-tools.ts, web-tools.ts, task.ts, github-app.ts, models.ts
-    └── bundled-skills/  built-in skills, bundled by the Agents Vite plugin at build time
+    └── bundled-skills/  built-in skills, loaded as raw files into an Agents skill manifest
 test/
 ├── unit/     browser unit tests (jsdom), mirroring src/ paths
 └── worker/   Worker tests in workerd; entry.ts and its own wrangler.jsonc
@@ -57,7 +57,7 @@ The UI is Kumo (`@cloudflare/kumo`), imported per component (`@cloudflare/kumo/c
 `.oxlintrc.json` enables every generic rule of [anti-slop](https://github.com/dmmulroy/anti-slop), vendored in `tools/oxlint/anti-slop/` — the code is ours to change, so fix a rule that is wrong for this project there, with a line in its `UPSTREAM.md`, rather than suppressing it. What the rules ask for here:
 
 - Parse at the boundary, then use named types. No `unknown` parameters or returns, no `Record<string, unknown>`; JSON is `Json`/`JsonObject` from `src/lib/json.ts`, which also has `parseJson` and the guards. `typeof` only inside a type predicate.
-- Validate untrusted payloads in the Worker with a zod schema (`Schema.safeParse(value).data`, as in `github-webhook.ts`) that covers only the fields the code reads. zod is already in the bundle, and plain zod never generates code on Workers; `z.compile()` and `zod/compile` do, and lint refuses them. Prefer `zod` to `zod/mini`, which saves nothing while the dependencies bundle regular zod. Lint refuses `typebox` too: Workers allow `new Function` at startup but not in a request, so a module-scope `Compile` makes TypeBox cache that code generation works, and every tool call then fails when pi-ai validates its arguments. Tool `parameters` use `Type` from `@earendil-works/pi-ai`.
+- Validate untrusted payloads in the Worker with a zod schema (`Schema.safeParse(value).data`, as in `github-webhook.ts`) that covers only the fields the code reads. zod is already in the bundle, and plain zod never generates code on Workers; `z.compile()` and `zod/compile` do, and lint refuses them. Prefer `zod` to `zod/mini`, which saves nothing while the dependencies bundle regular zod. Lint refuses `typebox` too: Workers allow `new Function` at startup but not in a request, so a module-scope `Compile` makes TypeBox cache that code generation works, and every tool call then fails when pi-ai validates its arguments. Tool `parameters` use the JSON Schema builders from `@earendil-works/pi-schema`; `defineTool` infers their `Static` argument types.
 - No `as unknown as`. A necessary single assertion carries a `// SAFETY:` comment stating the invariant (not required in `test/`). Prefer `defineTool` for tool registrations, so `execute` arguments are typed by their TypeBox `parameters`.
 - Name a caught value `cause` (`.catch((cause: unknown) => …)`), and show it with `errorMessage(cause)` from `src/lib/error-message.ts`. Narrow strings from UI controls with `isOneOf` from `src/lib/one-of.ts`.
 - Keep inference or use named types over annotated anonymous object types; use a `Map` for lookup tables.
@@ -67,7 +67,7 @@ The UI is Kumo (`@cloudflare/kumo`), imported per component (`@cloudflare/kumo/c
 ## Testing
 
 - Browser code is tested in `test/unit` at the same path as the code it tests (`src/lib/transcript.ts` → `test/unit/lib/transcript.test.ts`).
-- Shared fixtures: pi-durable agent events in `test/unit/pi-events.ts`; Durable Object stubs typed to the test subclasses in `test/worker/stubs.ts`.
+- Shared fixtures: pi-durable conversation views in `test/unit/pi-views.ts`; Durable Object stubs typed to the test subclasses in `test/worker/stubs.ts`.
 - Everything that runs in the Worker, pure modules included, is tested in `test/worker` under workerd, with `@cloudflare/vitest-plugin` and the config in `test/worker/wrangler.jsonc`. The suite drives a real `PiSession` with pi-ai's faux models — no live inference, container, or GitHub.
 - New bundled skills change the built-in catalog: update the assertions in `test/worker/skills.test.ts` that list the built-in skill names.
 
@@ -79,8 +79,8 @@ Skills in this app come from three sources: built-ins in `src/server/bundled-ski
 
 ## Platform gotchas
 
-- `compatibility_date` in `wrangler.jsonc` (and `test/worker/wrangler.jsonc`) is the newest date the bundled workerd supports. `package.json` overrides the `miniflare` and `wrangler` that `@cloudflare/vite-plugin` pins so dev, tests, and deploys share one runtime with `@cloudflare/vitest-plugin`; bump the date together with Wrangler, and drop the override once the Vite plugin pins a matching Wrangler.
-- pi-durable is experimental and `agents` supports one pi minor at a time (`~1.4.0`): upgrade `@earendil-works/pi-durable`, `pi-ai`, and `chord` together with `agents`, to the versions its peer dependencies name.
+- `compatibility_date` in `wrangler.jsonc` (and `test/worker/wrangler.jsonc`) is the newest date the bundled workerd supports. `package.json` overrides the `wrangler` that `@cloudflare/vite-plugin` pins so dev and deploys share one CLI with `@cloudflare/vitest-plugin`; bump the date together with Wrangler. The Vite plugin's own Miniflare currently lags that runtime and is deliberately not overridden (the newer runtime removed `getNodeCompat`, which the plugin imports), so restore the shared Miniflare override once the plugin catches up.
+- pi-durable is experimental and `agents` supports one pi minor at a time (`~1.5.0`): upgrade `@earendil-works/pi-durable`, `pi-ai`, `pi-schema`, and `chord` together with `agents`, to the versions its peer dependencies name.
 - `container/Dockerfile` builds on Debian trixie: computerd 0.8 needs libfuse 3.17 or newer, which bookworm lacks. Check computerd's libfuse requirement when bumping `@cloudflare/computer`.
 - Never edit an old Durable Object migration; always add a new tag.
 - Worker Previews (`npx wrangler preview`) inherit nothing from the main config: `previews` in `wrangler.jsonc` repeats bindings, and R2/Artifacts point at separate `-preview` resources.

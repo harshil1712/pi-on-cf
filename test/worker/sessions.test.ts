@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers'
 import { runDurableObjectAlarm } from 'cloudflare:test'
 import { routeAgentRequest } from 'agents'
 import { describe, expect, it } from 'vitest'
-import { type PiEventsMessage, sessionBasePath } from '~/contract'
+import { type PiViewMessage, sessionBasePath } from '~/contract'
 import { registry, session, sessionStub } from './stubs'
 import { AGENT_ROUTES } from '~/server/agent-routes'
 
@@ -13,19 +13,19 @@ function route(path: string, init?: RequestInit): Promise<Response | null> {
 
 const upgrade = { headers: { Upgrade: 'websocket' } }
 
-/** Every frame the socket receives until the first `pi:events` frame. */
-async function framesUntilPiEvents(socket: WebSocket): Promise<{ events: PiEventsMessage; frames: unknown[] }> {
+/** Every frame the socket receives until the first `pi:view` frame. */
+async function framesUntilPiView(socket: WebSocket): Promise<{ message: PiViewMessage; frames: unknown[] }> {
   const frames: unknown[] = []
 
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('No pi:events frame')), 5_000)
+    const timer = setTimeout(() => reject(new Error('No pi:view frame')), 5_000)
     socket.addEventListener('message', (event) => {
       const data = JSON.parse(String(event.data)) as { type?: string }
       frames.push(data)
 
-      if (data.type !== 'pi:events') return
+      if (data.type !== 'pi:view') return
       clearTimeout(timer)
-      resolve({ events: data as PiEventsMessage, frames })
+      resolve({ message: data as PiViewMessage, frames })
     })
   })
 }
@@ -73,12 +73,11 @@ describe('session routing', () => {
     expect(response?.status).toBe(101)
     const socket = response!.webSocket!
     socket.accept()
-    const { events, frames } = await framesUntilPiEvents(socket)
+    const { message, frames } = await framesUntilPiView(socket)
     socket.close()
 
-    const snapshot = events.events[0]
-    expect(snapshot?.type).toBe('snapshot')
-    expect(snapshot?.type === 'snapshot' && snapshot.entries.map((entry) => entry.kind)).toEqual(expect.arrayContaining(['pi.user', 'pi.assistant']))
+    const entries = message.view.items.flatMap((item) => item.kind === 'entry' ? [item.entry] : [])
+    expect(entries.map((entry) => entry.kind)).toEqual(expect.arrayContaining(['pi.user', 'pi.assistant']))
     expect(frames.some((frame) => (frame as { type?: string }).type === 'cf_agent_identity')).toBe(false)
     expect(agentName).toBeTruthy()
     expect(JSON.stringify(frames)).not.toContain(agentName)
@@ -150,10 +149,9 @@ describe('pi session', () => {
 
     // RoutedAgents condemns the Agent; the wipe runs in its own alarm.
     expect(await runDurableObjectAlarm(agent())).toBe(true)
-    // A request that lands while the destroyed instance shuts down fails once;
-    // the next one reaches a fresh, empty instance.
-    const files = await agent().listFiles().catch(() => agent().listFiles())
-    expect(files).toEqual([])
+    // Requests can land while the destroyed instance shuts down; poll until
+    // a fresh, empty instance answers.
+    await expect.poll(async () => agent().listFiles().catch(() => null)).toEqual([])
     const fresh = await agent().promptForTest('hello again')
     expect(fresh.kinds.filter((kind) => kind === 'pi.user')).toHaveLength(1)
   })

@@ -5,12 +5,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pi-on-cf",
-  "compatibility_date": "2026-10-23",
+  "compatibility_date": "2026-11-04",
   "compatibility_flags": ["nodejs_compat", "experimental"],
   "main": "src/server.ts",
   "vars": {
     "AI_GATEWAY_ID": "default",
-    "AI_MODEL": "@cf/zai-org/glm-5.3",
+    "AI_MODEL": "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
     // Pi's web_search tool, on Exa's monthly free tier: the Exa key is stored
     // on the AI Gateway under this alias ("Web search" in the README).
     // Without WEB_SEARCH_PROVIDER there is no web_search tool.
@@ -111,7 +111,7 @@
   "previews": {
     "vars": {
       "AI_GATEWAY_ID": "default",
-      "AI_MODEL": "@cf/zai-org/glm-5.3",
+      "AI_MODEL": "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
     },
     "ai": {
       "binding": "AI",

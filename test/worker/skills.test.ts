@@ -63,8 +63,8 @@ describe('skills from R2', () => {
     const pi = sessionStub(crypto.randomUUID())
 
     expect((await pi.promptForTest('resource release-notes references/style.md')).text).toContain('Use the past tense.')
-    expect((await pi.promptForTest('resource release-notes ../secret.md')).text).toContain('Skill resource not found')
-    expect((await pi.promptForTest('resource release-notes references/missing.md')).text).toContain('Skill resource not found')
+    expect((await pi.promptForTest('resource release-notes ../secret.md')).text).toContain('normalized relative path')
+    expect((await pi.promptForTest('resource release-notes references/missing.md')).text).toContain('Resource not found')
   })
 
   it('skips a SKILL.md without a name and a description', async () => {
@@ -279,7 +279,7 @@ describe('skills in the cloned repository', () => {
     expect(activated).toContain('references/flaky.md')
     expect(activated).not.toContain('Shadowed.')
     expect((await pi.promptForTest('resource run-tests references/flaky.md')).text).toContain('Retry the e2e suite once.')
-    expect((await pi.promptForTest('resource run-tests ../review/SKILL.md')).text).toContain('Skill resource not found')
+    expect((await pi.promptForTest('resource run-tests ../review/SKILL.md')).text).toContain('normalized relative path')
   })
 
   it('wins a name over a shared skill, and picks up a skill the agent writes', async () => {

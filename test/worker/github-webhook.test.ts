@@ -4,7 +4,7 @@ import { sign } from '@octokit/webhooks-methods'
 import { describe, expect, it } from 'vitest'
 import { AGENT_ROUTES } from '~/server/agent-routes'
 import { followUpPrompt, type GitHubMention, handleGitHubWebhook, issuePrompt, mentionFromEvent } from '~/server/github-webhook'
-import { type PiEventsMessage, sessionBasePath } from '~/contract'
+import { type PiViewMessage, sessionBasePath } from '~/contract'
 import type { EntryRecord } from '@earendil-works/pi-durable'
 import type { Json } from '~/lib/json'
 import { registry, session, settledSession } from './stubs'
@@ -17,14 +17,13 @@ async function prompts(id: string): Promise<string> {
 
   try {
     const entries = await new Promise<readonly EntryRecord[]>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('No pi:events frame')), 5_000)
+      const timer = setTimeout(() => reject(new Error('No pi:view frame')), 5_000)
       socket.addEventListener('message', (event) => {
-        const data = JSON.parse(String(event.data)) as PiEventsMessage
-        const snapshot = data.type === 'pi:events' ? data.events[0] : undefined
+        const data = JSON.parse(String(event.data)) as PiViewMessage
 
-        if (snapshot?.type !== 'snapshot') return
+        if (data.type !== 'pi:view') return
         clearTimeout(timer)
-        resolve(snapshot.entries)
+        resolve(data.view.items.flatMap((item) => item.kind === 'entry' ? [item.entry] : []))
       })
     })
 

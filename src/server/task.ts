@@ -1,6 +1,6 @@
 import type { WorkspaceClient } from '@cloudflare/computer'
 import type { GitClient } from '@cloudflare/computer/git'
-import { Type } from '@earendil-works/pi-ai'
+import { arr, int, obj, oneOf, opt, str } from '@earendil-works/pi-schema'
 import { defineTool, type PromptSection, type ToolRegistration } from '@earendil-works/pi-durable'
 import type { PullRequest, SessionTask, TaskChange } from '~/contract'
 import { cloneUrl, commentOnIssue, createIssue, defaultBranch, type GitHubThread, gitAuth, gitAuthHeaders, type IssueThread, parseRepo, readIssue, repoSlug, upsertPullRequest } from './github'
@@ -110,27 +110,27 @@ type TaskToolsOptions = {
  * GitHub App is installed.
  */
 export function createTaskTools({ workspace, task, token, openRepository, onPullRequest, thread }: TaskToolsOptions): ToolRegistration[] {
-  const cloneParameters = Type.Object({
-    repo: Type.String({ description: 'The repository, as owner/name.' }),
-    baseBranch: Type.Optional(Type.String({ description: 'The branch to start from. Defaults to the repository\'s default branch.' })),
+  const cloneParameters = obj({
+    repo: str({ description: 'The repository, as owner/name.' }),
+    baseBranch: opt(str({ description: 'The branch to start from. Defaults to the repository\'s default branch.' })),
   })
 
-  const commentParameters = Type.Object({
-    body: Type.String({ description: 'The comment, in Markdown.' }),
-    on: Type.Optional(Type.Union([Type.Literal('pull_request'), Type.Literal('issue')], { description: 'Where to post: the session\'s pull request, or the issue it started from. Defaults to the pull request when there is one.' })),
+  const commentParameters = obj({
+    body: str({ description: 'The comment, in Markdown.' }),
+    on: opt(oneOf(['pull_request', 'issue'], { description: 'Where to post: the session\'s pull request, or the issue it started from. Defaults to the pull request when there is one.' })),
   })
 
-  const repoParameter = Type.Optional(Type.String({ description: 'The repository, as owner/name. Defaults to the session\'s repository, or the one its issue is on.' }))
+  const repoParameter = opt(str({ description: 'The repository, as owner/name. Defaults to the session\'s repository, or the one its issue is on.' }))
 
-  const createIssueParameters = Type.Object({
-    title: Type.String({ description: 'The issue title.' }),
-    body: Type.String({ description: 'The issue description, in Markdown.' }),
+  const createIssueParameters = obj({
+    title: str({ description: 'The issue title.' }),
+    body: str({ description: 'The issue description, in Markdown.' }),
     repo: repoParameter,
-    labels: Type.Optional(Type.Array(Type.String(), { description: 'Labels to add. Each must already exist in the repository.' })),
+    labels: opt(arr(str(), { description: 'Labels to add. Each must already exist in the repository.' })),
   })
 
-  const readIssueParameters = Type.Object({
-    number: Type.Integer({ minimum: 1, description: 'The issue or pull request number.' }),
+  const readIssueParameters = obj({
+    number: int({ minimum: 1, description: 'The issue or pull request number.' }),
     repo: repoParameter,
   })
 
@@ -143,9 +143,9 @@ export function createTaskTools({ workspace, task, token, openRepository, onPull
     return task()?.repo ?? (await thread())?.repo ?? null
   }
 
-  const parameters = Type.Object({
-    title: Type.String({ description: 'The pull request title.' }),
-    body: Type.String({ description: 'The pull request description in Markdown: what changed, why, and how you checked it.' }),
+  const parameters = obj({
+    title: str({ description: 'The pull request title.' }),
+    body: str({ description: 'The pull request description in Markdown: what changed, why, and how you checked it.' }),
   })
 
   return [defineTool({

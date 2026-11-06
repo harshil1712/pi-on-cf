@@ -8,7 +8,7 @@ import {
   type ProxyToolOutput,
   truncateResult,
 } from '@cloudflare/codemode'
-import { Type } from '@earendil-works/pi-ai'
+import { obj, str } from '@earendil-works/pi-schema'
 import type { Registry, ToolExecutionResult, ToolRegistration } from '@earendil-works/pi-durable'
 import type { JsonObject, McpCallResult, McpServerCatalog } from './mcp-servers'
 import { isString } from '~/lib/json'
@@ -27,8 +27,8 @@ const EXTENSION = 'mcp'
 /** Long enough for a few MCP round trips, and a server waking up. */
 const TIMEOUT_MS = 120_000
 
-const parameters = Type.Object({
-  code: Type.String({ description: 'An async arrow function that calls MCP tools as `<server>.<tool>(args)` and returns the result' }),
+const parameters = obj({
+  code: str({ description: 'An async arrow function that calls MCP tools as `<server>.<tool>(args)` and returns the result' }),
 })
 
 /**

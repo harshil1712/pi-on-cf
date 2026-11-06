@@ -23,7 +23,7 @@ describe('@cloudflare/computer integration', () => {
     expect(result.stdout).toMatch(/initial commit/)
   })
 
-  it('runs structured modules in the Worker JavaScript backend', async () => {
+  it('runs structured modules in the Codemode backend', async () => {
     await expect(computer('javascript').exerciseJavaScript()).resolves.toEqual({
       exitCode: 0,
       stdout: 'computed 42\n',

@@ -1,8 +1,8 @@
 import type { Registry } from '@earendil-works/pi-durable'
 import { skills } from 'agents/harness/pi'
-import { parseSkillMarkdown, r2, type SkillSource } from 'agents/skills'
-// The Agents Vite plugin bundles ./bundled-skills at build time.
-import bundled from 'agents:skills/bundled-skills'
+import { loadSkillCatalog, manifest, parseSkill, r2, type SkillCatalog as AgentSkillCatalog, type SkillSource } from 'agents/skills'
+import skillCreator from './bundled-skills/skill-creator/SKILL.md?raw'
+import skillCreatorLicense from './bundled-skills/skill-creator/references/LICENSE.txt?raw'
 
 /** Where skills live in the app's R2 bucket: `skills/<dir>/SKILL.md` plus resources. */
 export const SKILLS_PREFIX = 'skills/'
@@ -11,7 +11,28 @@ export const SKILLS_PREFIX = 'skills/'
  * Skills built into the application, from `src/server/bundled-skills`.
  * Listed before the bucket, so a shared skill cannot replace one.
  */
-export const builtInSkills: SkillSource = bundled
+export const builtInSkills: SkillSource = builtIn()
+
+function builtIn(): SkillSource {
+  const parsed = parseSkill(skillCreator)
+
+  if (!parsed.ok) throw parsed.error
+  const { name, description, body, license, compatibility, metadata, allowedTools } = parsed.value
+
+  return manifest({
+    id: 'built-in',
+    skills: [{
+      name,
+      description,
+      body,
+      license,
+      compatibility,
+      metadata,
+      allowedTools: allowedTools.join(' '),
+      resources: [{ path: 'references/LICENSE.txt', content: skillCreatorLicense }],
+    }],
+  })
+}
 
 /** The Agent Skills specification's name rule (agentskills.io/specification). */
 export function isSkillName(name: string): boolean {
@@ -29,13 +50,14 @@ export async function publishSkill(bucket: R2Bucket, name: string, files: Readon
   const skillFile = files.get('SKILL.md')
 
   if (skillFile === undefined) throw new Error(`${name} has no SKILL.md.`)
-  const parsed = parseSkillMarkdown(skillFile)
+  const parsed = parseSkill(skillFile)
 
-  if (!parsed?.description) throw new Error('SKILL.md needs name and description frontmatter.')
+  if (!parsed.ok) throw new Error('SKILL.md needs name and description frontmatter.')
 
-  if (parsed.name !== name) throw new Error(`SKILL.md is named "${parsed.name}"; it must match its directory, "${name}".`)
+  if (parsed.value.name !== name) throw new Error(`SKILL.md is named "${parsed.value.name}"; it must match its directory, "${name}".`)
+  const listed = await builtInSkills.list()
 
-  if ((await builtInSkills.list()).some((skill) => skill.name === name)) throw new Error(`"${name}" is a built-in skill.`)
+  if (listed.ok && listed.value.skills.some(({ skill }) => skill.name === name)) throw new Error(`"${name}" is a built-in skill.`)
 
   const directory = `${SKILLS_PREFIX}${name}/`
   const paths = [...files.keys()].filter((path) => path !== 'SKILL.md').concat('SKILL.md')
@@ -108,13 +130,14 @@ export function bucketSkills(bucket: R2Bucket, options: { refreshIntervalMs?: nu
  * `skills()` resolves the sources once into a fixed catalog and a fixed
  * `activate_skill` name list, and `PiHarness` never rebuilds it, so a skill
  * added to the bucket stays invisible until the extension is built again.
- * `sync()` refreshes every source and reinstalls the extension when a
- * fingerprint moved; pi-durable replaces an extension installed under the
- * same name and uses it from the next model request, even mid-run.
+ * `sync()` lists every source and reinstalls the extension when the catalog's
+ * prompt fingerprint moved; pi-durable replaces an extension installed under
+ * the same name and uses it from the next model request, even mid-run.
  */
 export class SkillCatalog {
   readonly #createSources: () => readonly SkillSource[]
   #sources: readonly SkillSource[]
+  #catalog: AgentSkillCatalog | undefined
   #fingerprint: string | undefined
   #syncing: Promise<boolean> = Promise.resolve(false)
 
@@ -138,6 +161,7 @@ export class SkillCatalog {
   reload(registry: Registry): Promise<boolean> {
     this.#syncing = this.#syncing.catch(() => false).then(() => {
       this.#sources = this.#createSources()
+      this.#catalog = undefined
       this.#fingerprint = undefined
 
       return this.#sync(registry)
@@ -147,29 +171,20 @@ export class SkillCatalog {
   }
 
   async #sync(registry: Registry): Promise<boolean> {
-    if (this.#fingerprint !== undefined) {
-      // A source that fails keeps its last index.
-      await Promise.all(this.#sources.map(async (source) => {
-        try {
-          await source.refresh?.()
-        } catch (error) {
-          console.warn(`pi skills: could not refresh "${source.id}"`, error)
-        }
-      }))
+    const catalog = await loadSkillCatalog(this.#sources, { previous: this.#catalog })
 
-      if (this.#current() === this.#fingerprint) return false
+    if (catalog.fingerprint === this.#fingerprint) {
+      this.#catalog = catalog
+
+      return false
     }
 
-    // `skills()` logs a source that fails to list and builds without it.
+    // `skills()` logs source and parse diagnostics and builds the Pi tools over the catalog.
     const extension = await skills(this.#sources)
-    // Read after `skills()`: a source's fingerprint is settled once it has listed.
-    this.#fingerprint = this.#current()
+    this.#catalog = catalog
+    this.#fingerprint = catalog.fingerprint
     registry.install(extension)
 
     return true
-  }
-
-  #current(): string {
-    return this.#sources.map((source) => `${source.id}:${source.fingerprint}`).join('|')
   }
 }

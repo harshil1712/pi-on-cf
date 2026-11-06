@@ -1,6 +1,6 @@
 # Pi on Cloudflare Architecture
 
-This document describes the current Pi on Cloudflare system design and its known limitations. It reflects `@earendil-works/pi-durable` 1.4, `agents` 0.31, and `@cloudflare/computer` 0.8.
+This document describes the current Pi on Cloudflare system design and its known limitations. It reflects `@earendil-works/pi-durable` 1.5, `agents` 0.33, and `@cloudflare/computer` 0.10.
 
 ## System Overview
 
@@ -35,7 +35,7 @@ Each session ID is a `PiRegistry` catalog entry that names one `PiSession`, an A
 
 `PiHarness` opens pi-durable over the object's SQLite, in tables prefixed `pi_`, and registers with the Agent's Lifecycle. Pi owns everything about a run: the transcript, the inbox of steers and follow-ups, generation and tool tasks, retries, automatic compaction, and crash recovery. While Pi has work, the harness keeps one Lifecycle job per session; if the object is evicted mid-run, that job's alarm restarts it and Pi resumes from its last commit. The factory passes the harness's `onWake` to `Harness.open`, so when Pi's tasks only sleep, as during a generation's retry backoff, Pi arms no timer of its own: the job is due when the first task wakes, and the object can hibernate until then. The application does not override `alarm()`.
 
-Pi parks a task that a crash or eviction cuts off five times in a row without progress (pi-durable's `restartLimit`), so a task that keeps resetting the object stops restarting it. Pi's reports go to `onReport` with their type, such as `task_parked` or `session_failed`. Opening Pi migrates its tables to pi-durable's storage schema 2, so a deployment cannot roll back to pi-durable 1.3 or earlier.
+Pi ends a task that a crash or eviction cuts off five times in a row without progress (pi-durable's `restartLimit`), so a task that keeps resetting the object stops restarting it and its failure becomes visible. Pi's reports go to `onReport` as one report with a `kind`, such as `task_interrupted` or `storage_failed`. Opening Pi migrates its tables to pi-durable's storage schema 2, so a deployment cannot roll back to pi-durable 1.3 or earlier.
 
 The session uses Pi's root conversation. The harness factory installs one Pi extension containing:
 
@@ -72,7 +72,7 @@ The browser has one internal hostname, `preview.internal` (`src/server/preview-h
 
 ### Models
 
-The model comes from `createAI({ binding: env.AI, id: env.AI_GATEWAY_ID })`, Workers AI through the AI Gateway `AI_GATEWAY_ID` names (`default` when it is empty). New sessions start on `AI_MODEL` at the `medium` thinking level. The composer's model picker switches a session to any model in the curated list in `src/server/models.ts`, with `AI_MODEL` added when the list lacks it: `setModel` checks the ID against that list, calls pi's `session.setModel`, and records the ID in the Agent state, which the picker shows. Pi uses the new model from its next request. The UI only offers the switch while the session is idle; pi itself would accept it mid-run. The home page's picker reads the same list, default first, from the registry's `listModels`; `createSession({ prompt, model })` checks the model against it before creating an entry, then sets it on the new session before submitting the prompt.
+The model comes from `createAI({ binding: env.AI, id: env.AI_GATEWAY_ID })`, Workers AI through the AI Gateway `AI_GATEWAY_ID` names (`default` when it is empty). New sessions start on `AI_MODEL` at the `high` thinking level, DeepSeek V4.1 Flash's default and a level every curated model supports. The composer's model picker switches a session to any model in the curated list in `src/server/models.ts`, with `AI_MODEL` added when the list lacks it: `setModel` checks the ID against that list, calls pi's `session.setModel`, and records the ID in the Agent state, which the picker shows. Pi uses the new model from its next request. The UI only offers the switch while the session is idle; pi itself would accept it mid-run. The home page's picker reads the same list, default first, from the registry's `listModels`; `createSession({ prompt, model })` checks the model against it before creating an entry, then sets it on the new session before submitting the prompt.
 
 ### Transport
 
@@ -80,13 +80,13 @@ The browser connects to `/api/agents/pi-registry/singleton/sessions/{id}`, which
 
 Commands are `@callable` methods: `submit`, `steer`, `abort`, `listFiles`, `readWorkspaceFile`, `listChanges`, `readChange`, `listModels`, `setModel`, and `browserLiveView`. `submit` resolves once Pi has durably accepted the prompt, before the model runs.
 
-Each WebSocket connection gets its own `session.events()` watch. The first frame is a `snapshot`; each later frame is one batch of Pi agent events per commit. The client folds them with the reducer in `src/lib/transcript.ts`. Watches live in memory, so `onStart` re-watches every connection that outlived the previous isolate and sends a fresh snapshot. A reconnecting browser always starts from the current state, including an in-flight answer.
+Each WebSocket connection gets its own `session.watch()` conversation-view watch. Every frame carries a complete `TranscriptView`: transcript items plus Pi's live run, streaming generation, tools, and inbox documents. `ConversationTranscript` pages older entries on connect and fills any window gap, preserving the full transcript; the client projects each view in `src/lib/transcript.ts`. Watches live in memory, so `onStart` re-watches every connection that outlived the previous isolate and sends a fresh view. A reconnecting browser always starts from the current state, including an in-flight answer.
 
 ### Run status
 
-Each session also keeps one watch of its own, tied to no connection, that folds its events into a run status with `reduceRunStatus` in `src/lib/run-status.ts`: `running` from `run_start`, `idle` after `run_end`, and `failed` when pi settles the run's inputs `unanswered` (a model error, a faulted or orphaned task) in the same batch as its `run_end`; an abort or a withdrawn steer is not a failure. The browser's transcript reducer shares the same `unansweredReason` test for its error. `failed` sticks until the next `run_start`. The session stores the status it last recorded and calls the registry's `setStatus` only when it changes.
+Each session also keeps one watch of its own, tied to no connection, that projects its views into a run status with `reduceRunStatus` in `src/lib/run-status.ts`: `running` while `pi.live.run` is present, and `failed` for `pi.live.runFailure` other than an abort. The browser shares the same `unansweredReason` test for its error. A run failure persists in the live document until the next run, so a fresh watch can report it too. The session stores the status it last recorded and calls the registry's `setStatus` only when it changes.
 
-`onStart` opens that watch, so it runs on whatever wakes a new isolate, the alarm included. After an eviction mid-run the Lifecycle starts `PiHarness`, which re-arms its wake job, then runs `onStart`, before the wake job runs; opening pi for the watch resets interrupted tasks to pending and resumes the scheduler, and the run carries on without a new `run_start`. The watch's first snapshot therefore always goes to the registry: it shows a pending run as `running`, and turns a recorded `running` whose run is gone into `idle`. The registry ignores a report of the status it already has.
+`onStart` opens that watch, so it runs on whatever wakes a new isolate, the alarm included. After an eviction mid-run the Lifecycle starts `PiHarness`, which re-arms its wake job, then runs `onStart`, before the wake job runs; opening pi for the watch resets interrupted tasks to pending and resumes the scheduler, and the run carries on with `pi.live.run` still present. The watch's first value therefore always goes to the registry: it shows a pending run as `running`, restores a recorded failure, and turns a recorded `running` whose run is gone into `idle`. The registry ignores a report of the status it already has.
 
 ### Workspace
 
@@ -95,10 +95,10 @@ The Computer workspace is rooted at `/workspace` and has three `exec` backends:
 | Backend | Runtime |
 | --- | --- |
 | `shell` | Worker Shell: just-bash with Computer's core commands, the `jq` command group, and git, in a Dynamic Worker |
-| `javascript` | Worker JavaScript: ES modules with `node:fs/promises` and the `ws:git` and `ws:artifacts` host modules, both allowed the network |
+| `javascript` | Codemode: ES modules with `node:fs/promises` and the `codemode:git` and `codemode:artifacts` host modules, both allowed the network |
 | `container` | `ContainerBackend`: a Durable Object-scheduled Cloudflare Container running `computerd`, with direct egress |
 
-The container dials back to the object at `/api` through `WorkspaceProxy`; `PiSession.fetch` hands that upgrade to the backend. The workspace also has git and session Artifacts. Git follows Computer's recommended setup: `createGitClient()` (isomorphic-git) on the workspace, behind the shell backend's `git` command and `ws:git`, committing as the GitHub App's bot, `<slug>[bot]` with its `users.noreply.github.com` address, through `defaultGitIdentity`, built from `GITHUB_APP_SLUG` and `GITHUB_APP_BOT_ID`. The exec tool's backend descriptions and the preamble send git to the shell backend. The container image keeps git, as Computer's agent examples do, for tools that read the repository; it has no identity, so a commit there fails instead of bypassing the workspace's. The image sets `EXEC_SHELL=/bin/bash`, so container commands support `set -o pipefail`, which the preamble suggests so piped test and build output keeps its exit code.
+The container dials back to the object at `/api` through `WorkspaceProxy`; `PiSession.fetch` hands that upgrade to the backend. The workspace also has git and session Artifacts. Git follows Computer's recommended setup: `createGitClient()` (isomorphic-git) on the workspace, behind the shell backend's `git` command and `codemode:git`, committing as the GitHub App's bot, `<slug>[bot]` with its `users.noreply.github.com` address, through `defaultGitIdentity`, built from `GITHUB_APP_SLUG` and `GITHUB_APP_BOT_ID`. The exec tool's backend descriptions and the preamble send git to the shell backend. The container image keeps git, as Computer's agent examples do, for tools that read the repository; it has no identity, so a commit there fails instead of bypassing the workspace's. The image sets `EXEC_SHELL=/bin/bash`, so container commands support `set -o pipefail`, which the preamble suggests so piped test and build output keeps its exit code.
 
 ### Repositories
 
@@ -118,17 +118,17 @@ GitHub access goes through the App (`src/server/github-app.ts`): `@octokit/auth-
 
 ### Artifacts
 
-The workspace's Artifacts client is scoped to the session's Durable Object ID, so the repos the agent creates through `ws:artifacts` are named under it. Teardown lists and deletes them, since they live outside the object's storage.
+The workspace's Artifacts client is scoped to the session's Durable Object ID, so the repos the agent creates through `codemode:artifacts` are named under it. Teardown lists and deletes them, since they live outside the object's storage.
 
 ### Skills
 
 The harness installs the Agents SDK's Agent Skills into Pi's skill registry, which adds `activate_skill` and `read_skill_resource` and puts each skill's name and description in the system prompt. `PiSession.skillSources()` lists three sources, and an earlier source wins a name:
 
-1. Built-in skills, bundled from `src/server/bundled-skills` by the Agents Vite plugin (`agents:skills`). The only one is `skill-creator`.
+1. Built-in skills, loaded as raw files from `src/server/bundled-skills` into the Agents SDK's `manifest()` source. The only one is `skill-creator`.
 2. The cloned repository's skills: `<name>/SKILL.md` under `.agents/skills`, `.claude/skills`, `.pi/skills`, then `.github/skills`. The SDK has no source that reads a filesystem, so `repoSkills` in `src/server/repo-skills.ts` reads them, with their files, into a manifest for the SDK's `fromManifest()` source. A manifest is fixed, so it reads the repository again on every refresh and swaps in a new one: a clone, or a skill the agent writes, shows up at the next sync, and `clone_repository` syncs at once. Each body is prefixed with the skill's path, so the agent can run its scripts with `exec`.
 3. Shared skills, read from `skills/` in the `BUCKET` R2 bucket with the SDK's `r2()` source.
 
-The SDK freezes a catalog when it builds it, so `SkillCatalog` in `src/server/skills.ts` refreshes the sources when the harness opens and, in the background, after each accepted prompt, and reinstalls the catalog when a source's fingerprint changes. The bucket is listed at most once a minute.
+The SDK freezes a catalog when it builds it, so `SkillCatalog` in `src/server/skills.ts` loads the sources when the harness opens and, in the background, after each accepted prompt, and reinstalls the extension when the catalog's prompt fingerprint changes. The repository source reads its files again on every listing; the bucket is listed at most once a minute.
 
 The agent manages shared skills with three tools in `src/server/skill-tools.ts`, using the ordinary file tools in between:
 
@@ -175,7 +175,7 @@ Not implemented in this application:
 - Authentication and per-user isolation.
 - More than one conversation per session. The session uses only Pi's root session; `PiHarness` can create and fork others (`harness.sessions.create()`, `fork()`), but nothing exposes them.
 - Session search and subagents.
-- Scheduled work: no tool lets Pi act at a later time, though pi-durable 1.4's durable sleeps and the harness's wake job would carry it.
+- Scheduled work: no tool lets Pi act at a later time, though pi-durable 1.5's durable sleeps and the harness's wake job would carry it.
 - Long-term memory.
 - Manual compaction, context reset, and thinking-level selection.
 - Pi's browser reaches the container only through `preview.internal`, and only in a deployed Worker; hot reload does not connect there.
@@ -191,7 +191,7 @@ npm run build
 
 The Workers suite, in `test/worker`, runs a real `PiSession` with pi-ai's faux provider and two faux models: a plain answer, switching models, a model tool call that writes through Computer, the WebSocket snapshot, and the run status the registry lists, including a failed run and the correction a restart makes. It also covers:
 
-- Computer's Worker Shell, git, Worker JavaScript, and the tool adapter.
+- Computer's Worker Shell, git, Codemode, and the tool adapter.
 - Repository tasks on a local repository: the `repository` section, changes against the base commit, read-only task state, and `create_pull_request`'s refusals.
 - The catalog, session titles, and the model list.
 - Skills from all three sources, and the skill tools.

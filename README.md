@@ -10,9 +10,9 @@ A Worker-native cloud coding agent: Pi's durable harness running inside Cloudfla
 - `@earendil-works/pi-durable` runs Pi: the transcript, the steer/follow-up inbox, generation, tool calls, retries, compaction, and crash recovery, all committed to the Durable Object's SQLite.
 - `agents/harness/pi` (`PiHarness`) hosts pi-durable in the `PiSession` Durable Object and wakes it through the Agents SDK Lifecycle after eviction.
 - `agents/models/pi-ai` (`createAI`) gives Pi Workers AI and AI Gateway over the `AI` binding.
-- `@cloudflare/computer` provides the durable workspace at `/workspace`, with Worker Shell, Worker JavaScript, and a Durable Object-scheduled Linux container as `exec` backends. Its `createPiTools` supplies the model's tools.
+- `@cloudflare/computer` provides the durable workspace at `/workspace`, with Worker Shell, Codemode, and a Durable Object-scheduled Linux container as `exec` backends. Its `createPiTools` supplies the model's tools.
 - A session can work on a GitHub repository: the model clones it with `clone_repository` when it needs the code, through Computer's git, then works on a `pi/` branch and opens a draft pull request with `create_pull_request`. The task syncs to the browser as the Agent's state.
-- Pi's agent events stream to the browser over the Agents SDK WebSocket: a snapshot on connect, then one batch per commit.
+- Pi's conversation views stream to the browser over the Agents SDK WebSocket, with complete renderer state on every update.
 - A singleton `PiRegistry` Durable Object keeps the session catalog with the Agents SDK's `RoutedAgents`, and is the only route to a session.
 - TanStack Start renders the UI with [Cloudflare Kumo](https://github.com/cloudflare/kumo) as its component library.
 
@@ -63,7 +63,7 @@ The remote bindings run through a proxy Worker on the account's `workers.dev` su
 
 ## Configuration
 
-`AI_MODEL` selects the model new sessions start with; `AI_GATEWAY_ID` selects the AI Gateway. Both are non-secret variables in `wrangler.jsonc`. The shared file keeps the neutral gateway ID `default`; keep account-specific configuration in an ignored `wrangler.local.jsonc` and select it with `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite commands or `--config wrangler.local.jsonc` for Wrangler.
+`AI_MODEL` selects the model new sessions start with (`@cf/deepseek-ai/deepseek-v4.1-flash-1017` in the checked-in configuration); `AI_GATEWAY_ID` selects the AI Gateway. Both are non-secret variables in `wrangler.jsonc`. The shared file keeps the neutral gateway ID `default`; keep account-specific configuration in an ignored `wrangler.local.jsonc` and select it with `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=wrangler.local.jsonc` for Vite commands or `--config wrangler.local.jsonc` for Wrangler.
 
 The model picker in the composer chooses between the Workers AI models curated in `src/server/models.ts`; edit that list to offer others. `AI_MODEL` is always offered, and listed first. On the home page it picks the model a new session starts on; in a session it switches the model from the next request, and is disabled while Pi is running.
 

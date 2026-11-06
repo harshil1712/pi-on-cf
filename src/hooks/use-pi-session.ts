@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SubmitEvent, UIEvent } from 'react'
-import type { AgentEvent } from '@earendil-works/pi-durable'
+import type { TranscriptView } from '@earendil-works/pi-durable'
 import {
   PI_AGENT_NAME,
   type ModelOption,
-  type PiEventsMessage,
+  type PiViewMessage,
   type PiSessionContract,
   type PiSessionState,
   type SessionSummary,
@@ -13,15 +13,15 @@ import {
   type WorkspaceFile,
 } from '~/contract'
 import { useSessionRegistry } from './use-session-registry'
-import { EMPTY_VIEW, reducePiEvents, transcriptEntries, type PiView } from '~/lib/transcript'
+import { EMPTY_VIEW, reducePiView, transcriptEntries, type PiView } from '~/lib/transcript'
 import { useRemote } from './use-remote'
 import { useTaskChanges } from './use-task-changes'
 import { useAgentConnection } from './use-agent-connection'
 import { errorMessage } from '~/lib/error-message'
 import { isJsonObject, isString, parseJson, type Json, type JsonObject } from '~/lib/json'
 
-function isPiEvents(value: Json | undefined): value is PiEventsMessage & JsonObject {
-  return isJsonObject(value) && value.type === 'pi:events'
+function isPiView(value: Json | undefined): value is PiViewMessage & JsonObject {
+  return isJsonObject(value) && value.type === 'pi:view'
 }
 
 /**
@@ -40,35 +40,31 @@ const NORMAL_CLOSURE = 1000
 
 const NO_FILES: WorkspaceFile[] = []
 
-/**
- * Coalesces pi's event batches into one state update per animation frame,
- * so a fast stream renders once a frame, not once a commit. A snapshot
- * replaces everything before it, so it drops the batches still queued.
- */
+/** Coalesces complete conversation views into one render per animation frame. */
 class FrameBatcher {
-  readonly #flush: (events: AgentEvent[]) => void
-  #queued: AgentEvent[] = []
+  readonly #flush: (view: TranscriptView) => void
+  #queued: TranscriptView | null = null
   #frame: number | null = null
 
-  constructor(flush: (events: AgentEvent[]) => void) {
+  constructor(flush: (view: TranscriptView) => void) {
     this.#flush = flush
   }
 
-  push(events: readonly AgentEvent[]): void {
-    if (events[0]?.type === 'snapshot') this.#queued = []
-    this.#queued.push(...events)
+  push(view: TranscriptView): void {
+    this.#queued = view
     this.#frame ??= requestAnimationFrame(() => {
       this.#frame = null
-      const queued = this.#queued.splice(0)
+      const queued = this.#queued
+      this.#queued = null
 
-      if (queued.length) this.#flush(queued)
+      if (queued) this.#flush(queued)
     })
   }
 
   cancel(): void {
     if (this.#frame !== null) cancelAnimationFrame(this.#frame)
     this.#frame = null
-    this.#queued = []
+    this.#queued = null
   }
 }
 
@@ -82,22 +78,16 @@ export function usePiSession(sessionId: string) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isReady, setIsReady] = useState(false)
   const [error, setError] = useState('')
-  // Connection trouble, cleared as soon as pi events flow again.
+  // Connection trouble, cleared as soon as conversation views flow again.
   const [connectionError, setConnectionError] = useState('')
   const [chosenPath, setSelectedPath] = useState('')
-  const [filesVersion, setFilesVersion] = useState(0)
   const [mobileView, setMobileView] = useState<'chat' | 'workspace'>('chat')
   const transcriptRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
 
-  const [batcher] = useState(() => new FrameBatcher((events) => {
-    setView((current) => reducePiEvents(current, events))
+  const [batcher] = useState(() => new FrameBatcher((next) => {
+    setView((current) => reducePiView(current, next))
     setIsReady(true)
-
-    // A finished tool or run may have changed the workspace.
-    if (events.some((event) => event.type === 'tool_execution_end' || event.type === 'run_end')) {
-      setFilesVersion((version) => version + 1)
-    }
   }))
 
   const useConnection = useAgentConnection()
@@ -122,9 +112,9 @@ export function usePiSession(sessionId: string) {
         return
       }
 
-      if (!isPiEvents(parsed)) return
+      if (!isPiView(parsed)) return
       setConnectionError('')
-      batcher.push(parsed.events)
+      batcher.push(parsed.view)
     },
     onClose: (event) => {
       if (event.code === NORMAL_CLOSURE) return
@@ -138,7 +128,7 @@ export function usePiSession(sessionId: string) {
   const registry = catalog.agent
 
   // Listed again whenever a tool call or run may have changed the workspace.
-  const fileList = useRemote(`files:${filesVersion}`, () => agent.stub.listFiles())
+  const fileList = useRemote(`files:${view.workspaceVersion}`, () => agent.stub.listFiles())
   const files = fileList.value ?? NO_FILES
   // The chosen file while it still exists, else the first.
   const selectedPath = files.some((file) => file.path === chosenPath) ? chosenPath : (files[0]?.path ?? '')
@@ -154,7 +144,7 @@ export function usePiSession(sessionId: string) {
     return () => { ignore = true }
   }, [agent.stub, isReady])
 
-  const changes = useTaskChanges(agent.stub, task, filesVersion)
+  const changes = useTaskChanges(agent.stub, task, view.workspaceVersion)
   const listRepositories = useCallback(() => registry.stub.listRepositories(), [registry.stub])
 
   useEffect(() => {
@@ -202,7 +192,7 @@ export function usePiSession(sessionId: string) {
     shouldAutoScrollRef.current = true
 
     try {
-      // Durable once this resolves; the answer streams in as pi events. While
+      // Durable once this resolves; the answer streams in as conversation views. While
       // pi is running, the prompt steers it: pi places it after the current
       // tool round.
       if (view.running) {

@@ -7,17 +7,18 @@ import {
 } from '@cloudflare/computer'
 import type { ArtifactClient } from '@cloudflare/computer/artifacts'
 import { ContainerBackend, withWorkspaceContainer } from '@cloudflare/computer/backends/container'
-import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-javascript'
+import { CodemodeBackend } from '@cloudflare/computer/backends/codemode'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient } from '@cloudflare/computer/git'
 import { createArtifactsModule } from '@cloudflare/computer/modules/artifacts'
 import { createGitModule } from '@cloudflare/computer/modules/git'
 import jqCommands from '@cloudflare/computer/shell/jq'
 import { createCloudflareObserver } from '@cloudflare/computer/observe/cloudflare'
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import type { Provider } from '@earendil-works/pi-ai'
 import type { ToolRegistration } from '@earendil-works/pi-durable'
 import { createModels } from '@earendil-works/pi-ai/models'
-import { type AgentEventStream, createRegistry, Harness } from '@earendil-works/pi-durable'
+import { type ConversationView, ConversationTranscript, type ConversationWatch, createRegistry, Harness, type TranscriptView } from '@earendil-works/pi-durable'
 import { Agent, type AgentStaticOptions, callable, type Connection, getAgentByName } from 'agents'
 import { Browser, browserRun } from 'agents/browser'
 import { PiHarness, type PiModel } from 'agents/harness/pi'
@@ -27,7 +28,7 @@ import {
   PI_REGISTRY_INSTANCE,
   type BrowserTabView,
   type ModelOption,
-  type PiEventsMessage,
+  type PiViewMessage,
   type PiSessionState,
   type SessionTask,
   type TaskChange,
@@ -132,13 +133,13 @@ class PiSessionHost extends withWorkspaceContainer(class extends Agent<Env, PiSe
       backends: [
         // The shell's core has the text utilities; jq is a group of its own.
         new WorkerShellBackend({ id: 'shell', loader: env.LOADER, workspace: ref, ctx, commands: [jqCommands] }),
-        new WorkerJavaScriptBackend({
+        new CodemodeBackend({
           id: 'javascript',
           loader: env.LOADER,
           root: WORKSPACE_ROOT,
           modules: {
-            'ws:git': createGitModule({ allowNetwork: true }),
-            'ws:artifacts': createArtifactsModule({ allowNetwork: true }),
+            'codemode:git': createGitModule({ allowNetwork: true }),
+            'codemode:artifacts': createArtifactsModule({ allowNetwork: true }),
           },
         }),
         self.container,
@@ -216,11 +217,11 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
         tools: [...createWorkspaceTools({
           workspace,
           // The model names a backend whenever there is more than one.
-          exec: {
+          exec: { backends: {
             shell: { description: 'A just-bash shell in a Worker. Starts fast, with no network. For text utilities (grep, sed, awk, jq, find) and git (clone, status, diff, log, add, commit, branch), which works on the workspace itself; git here has no rebase or cherry-pick. Cannot run npm, node, python or other binaries: run those on container directly, without trying here first.' },
-            javascript: { description: 'ES module run in an isolated Worker, with node:fs/promises, ws:git and ws:artifacts. Export a default async function; its JSON-compatible return value is the result. Top-level await of I/O is not allowed.' },
+            javascript: { description: 'ES module run in an isolated Worker, with node:fs/promises, codemode:git and codemode:artifacts. Export a default async function; its JSON-compatible return value is the result. Top-level await of I/O is not allowed.' },
             container: { description: `A full Linux container with Node.js, npm and network access: package managers, test runners, builds, linters and native binaries. Starts much more slowly, because the container must boot. ${CONTAINER_LOCAL_PATHS.join(', ')} stay on its own disk: only container commands see them, and they are lost when the container is replaced, so reinstall if they are missing. Its git has no identity, so do not commit here.` },
-          },
+          } },
         }), ...createTaskTools({
           workspace,
           task: () => this.state.task,
@@ -258,15 +259,16 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
         // A round's tool calls run in order, so a clone finishes before the
         // log that reads it.
         settings: { toolExecution: 'sequential' },
-        onReport: (error, info) => console.warn('pi report', info.type, error),
+        onReport: (report) => console.warn('pi report', report.kind, report.error),
       }, context)
     },
-    defaults: { model: this.model.default, thinkingLevel: 'medium' },
+    // High is the default level on DeepSeek V4.1 Flash, which has no medium.
+    defaults: { model: this.model.default, thinkingLevel: 'high' },
   })
 
-  readonly #watches = new Map<string, AgentEventStream>()
+  readonly #watches = new Map<string, ConversationWatch>()
   /** The session's own watch, for its run status; see `onStart`. */
-  #statusWatch: AgentEventStream | undefined
+  #statusWatch: ConversationWatch | undefined
   #status: RunStatus = 'idle'
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -556,17 +558,21 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
 
   async #watch(connection: Connection): Promise<void> {
     await this.#unwatch(connection)
-    const stream = await this.harness.session().events()
+    const session = this.harness.session()
+    const transcript = new ConversationTranscript((query, limit, context) => session.entries(query, limit, context))
+    const stream = await session.watch()
     this.#watches.set(connection.id, stream)
-    send(connection, { type: 'pi:events', events: [stream.snapshot] })
-    stream.start(async (events) => {
+    send(connection, { type: 'pi:view', view: await completeTranscript(transcript, stream.value) })
+    stream.start(async (call) => {
+      if (call.kind !== 'value') return
+
       if (connection.readyState !== WebSocket.OPEN) {
         await this.#unwatch(connection)
 
         return
       }
 
-      send(connection, { type: 'pi:events', events })
+      send(connection, { type: 'pi:view', view: await completeTranscript(transcript, call.value) })
     })
   }
 
@@ -583,10 +589,12 @@ export class PiSession extends withWorkspace(PiSessionHost, PiSessionHost.worksp
       this.#statusWatch = undefined
       await previous?.stop()
       this.#status = await this.ctx.storage.get<RunStatus>(RUN_STATUS_KEY) ?? 'idle'
-      const stream = await this.harness.session().events()
+      const stream = await this.harness.session().watch()
       this.#statusWatch = stream
-      await this.#reportStatus(reduceRunStatus(this.#status, [stream.snapshot]), true)
-      stream.start((events) => this.#reportStatus(reduceRunStatus(this.#status, events)))
+      await this.#reportStatus(reduceRunStatus(this.#status, [stream.value]), true)
+      stream.start(async (call) => {
+        if (call.kind === 'value') await this.#reportStatus(reduceRunStatus(this.#status, [call.value]))
+      })
     } catch (error) {
       // The status is for display: it must not stop the session starting.
       console.error('Could not watch the session\'s run status', error)
@@ -664,7 +672,28 @@ export type ModelChoice = { model: PiModel; label: string }
 /** The provider pi resolves models on, the model new sessions start with, and the picker's choices. */
 export type ModelSource = { provider: Provider; default: PiModel; choices: ModelChoice[] }
 
-function send(connection: Connection, message: PiEventsMessage): void {
+/** Keep the browser's transcript complete across the watch window, reconnects, and overflow gaps. */
+async function completeTranscript(transcript: ConversationTranscript, view: ConversationView): Promise<TranscriptView> {
+  let merged = transcript.merge(view)
+
+  while (true) {
+    if (merged.items[0]?.kind === 'earlier') {
+      merged = await transcript.loadEarlier(BACKGROUND_CONTEXT)
+      continue
+    }
+
+    const gap = merged.items.find((item) => item.kind === 'gap')
+
+    if (gap) {
+      merged = await transcript.fillGap(gap, BACKGROUND_CONTEXT)
+      continue
+    }
+
+    return merged
+  }
+}
+
+function send(connection: Connection, message: PiViewMessage): void {
   try {
     connection.send(JSON.stringify(message))
   } catch {

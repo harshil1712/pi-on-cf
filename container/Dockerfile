@@ -1,8 +1,8 @@
 # computerd for the PiSession container. The computerd version must match
 # @cloudflare/computer in package.json.
-FROM --platform=linux/amd64 ghcr.io/cloudflare/computer-computerd-linux-x64:0.8.0 AS computerd
+FROM --platform=linux/amd64 ghcr.io/cloudflare/computer-computerd-linux-x64:0.10.0 AS computerd
 
-# Debian trixie: computerd 0.8 needs libfuse 3.17 or newer, and bookworm's
+# Debian trixie: computerd needs libfuse 3.17 or newer, and bookworm's
 # fuse3 is 3.14, so computerd exits at start.
 FROM --platform=linux/amd64 node:22-trixie-slim
 

@@ -1,5 +1,5 @@
 import { type DurableObjectStorageLike, getWorkspace, withWorkspace, type WorkspaceOptions } from '@cloudflare/computer'
-import { WorkerJavaScriptBackend } from '@cloudflare/computer/backends/worker-javascript'
+import { CodemodeBackend } from '@cloudflare/computer/backends/codemode'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient } from '@cloudflare/computer/git'
 import { createArtifactsModule } from '@cloudflare/computer/modules/artifacts'
@@ -28,11 +28,11 @@ class ComputerTestHost extends DurableObject<Env> {
           ctx: self.ctx,
           commands: [jqCommands],
         }),
-        new WorkerJavaScriptBackend({
+        new CodemodeBackend({
           id: 'javascript',
           loader: self.env.LOADER,
           root: WORKSPACE_ROOT,
-          modules: { 'ws:git': createGitModule({ allowNetwork: true }), 'ws:artifacts': createArtifactsModule({ allowNetwork: true }) },
+          modules: { 'codemode:git': createGitModule({ allowNetwork: true }), 'codemode:artifacts': createArtifactsModule({ allowNetwork: true }) },
         }),
       ],
       git: createGitClient(),
@@ -110,7 +110,7 @@ export class ComputerTest extends withWorkspace(ComputerTestHost, ComputerTestHo
   async exerciseTools(): Promise<{ names: string[]; replay: Record<string, string>; read: ToolOutcome; exec: ToolOutcome }> {
     const tools = createWorkspaceTools({
       workspace: await getWorkspace(this),
-      exec: { shell: { description: 'Worker shell' } },
+      exec: { backends: { shell: { description: 'Worker shell' } } },
     })
 
     const byName = new Map(tools.map((tool) => [tool.name, tool]))
